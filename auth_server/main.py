@@ -1,0 +1,38 @@
+# auth_server/main.py
+import asyncio
+from .tcp_handler import handle_auth_client
+from prometheus_client import start_http_server, Counter, Gauge
+import threading
+
+# Определяем метрики Prometheus
+# Счетчик активных соединений (можно увеличивать/уменьшать в tcp_handler)
+ACTIVE_CONNECTIONS_AUTH = Gauge('auth_server_active_connections', 'Number of active TCP connections to Auth Server')
+# Счетчик успешных аутентификаций
+SUCCESSFUL_AUTHS = Counter('auth_server_successful_authentications_total', 'Total number of successful authentications')
+# Счетчик неудачных аутентификаций
+FAILED_AUTHS = Counter('auth_server_failed_authentications_total', 'Total number of failed authentications')
+
+
+def start_metrics_server():
+    start_http_server(8000) # Отдельный порт для Prometheus
+    print("Prometheus metrics server started on port 8000 for Auth Server.")
+
+async def main():
+    host = '0.0.0.0'
+    port = 8888
+
+    # Запуск HTTP сервера для метрик в отдельном потоке
+    metrics_thread = threading.Thread(target=start_metrics_server, daemon=True)
+    metrics_thread.start()
+
+    server = await asyncio.start_server(
+        handle_auth_client, host, port)
+
+    addr = server.sockets[0].getsockname()
+    print(f'Сервер аутентификации запущен на {addr}')
+
+    async with server:
+        await server.serve_forever()
+
+if __name__ == '__main__':
+    asyncio.run(main())

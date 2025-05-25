@@ -1,0 +1,17 @@
+# deployment/kubernetes/redis_service.yaml
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis-service # Сервис для доступа к Redis внутри кластера
+  labels:
+    app: redis
+    role: master
+spec:
+  ports:
+  - port: 6379
+    targetPort: redis-port
+    name: redis
+  selector:
+    app: redis
+    role: master
+  type: ClusterIP # Доступен только внутри кластера

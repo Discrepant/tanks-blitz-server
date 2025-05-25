@@ -1,0 +1,42 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: nginx-config
+data:
+  nginx.conf: | # Вставляем сюда содержимое файла deployment/nginx/nginx.conf
+    user nginx;
+    worker_processes auto;
+
+    error_log /var/log/nginx/error.log warn;
+    pid       /var/run/nginx.pid;
+
+    events {
+        worker_connections 1024;
+    }
+
+    stream {
+        upstream auth_servers {
+            # K8s service discovery should resolve auth-server-service to the correct IP
+            # Using FQDN for robustness:
+            server auth-server-service.default.svc.cluster.local:8888; 
+            # Or simply: server auth-server-service:8888; if in the same namespace
+        }
+
+        server {
+            listen 8888; # Nginx listens on this TCP port
+            proxy_pass auth_servers;
+            proxy_timeout 5s;
+            proxy_connect_timeout 1s;
+        }
+
+        upstream game_servers {
+             # Using FQDN for robustness:
+            server game-server-service.default.svc.cluster.local:9999;
+            # Or simply: server game-server-service:9999; if in the same namespace
+        }
+
+        server {
+            listen 9999 udp; # Nginx listens on this UDP port
+            proxy_pass game_servers;
+        }
+    }

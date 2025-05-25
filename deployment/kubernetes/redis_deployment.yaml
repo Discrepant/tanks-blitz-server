@@ -1,0 +1,40 @@
+# deployment/kubernetes/redis_deployment.yaml
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis-master
+  labels:
+    app: redis
+    role: master
+spec:
+  replicas: 1 # Для простоты, одна мастер-нода Redis. Для HA нужна более сложная настройка (Redis Sentinel/Cluster)
+  selector:
+    matchLabels:
+      app: redis
+      role: master
+  template:
+    metadata:
+      labels:
+        app: redis
+        role: master
+    spec:
+      containers:
+      - name: redis
+        image: redis:6-alpine # Используем alpine-версию для меньшего размера
+        command: ["redis-server", "/usr/local/etc/redis/redis.conf"]
+        ports:
+        - containerPort: 6379
+          name: redis-port
+        volumeMounts:
+        - name: redis-data
+          mountPath: /data # Директория, указанная в redis.conf
+        - name: redis-config-volume
+          mountPath: /usr/local/etc/redis/redis.conf
+          subPath: redis.conf
+      volumes:
+      - name: redis-data
+        persistentVolumeClaim: # Используем PersistentVolumeClaim для хранения данных Redis
+          claimName: redis-pvc 
+      - name: redis-config-volume
+        configMap:
+          name: redis-config

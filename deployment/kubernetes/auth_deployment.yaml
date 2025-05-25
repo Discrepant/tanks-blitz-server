@@ -1,0 +1,33 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-server
+  labels:
+    app: auth-server
+spec:
+  replicas: 2 # Пример: 2 реплики для начала
+  selector:
+    matchLabels:
+      app: auth-server
+  template:
+    metadata:
+      labels:
+        app: auth-server
+    spec:
+      containers:
+      - name: auth-server
+        image: your_image_name:latest # Заменить на имя вашего Docker образа
+        command: ["/app/entrypoint.sh"]
+        args: ["auth"]
+        ports:
+        - containerPort: 8888 # TCP
+          name: auth-tcp
+        - containerPort: 8000 # HTTP Metrics
+          name: auth-metrics
+        # resources: # Определить запросы и лимиты ресурсов
+        #   requests:
+        #     memory: "64Mi"
+        #     cpu: "250m"
+        #   limits:
+        #     memory: "128Mi"
+        #     cpu: "500m"

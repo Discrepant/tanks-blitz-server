@@ -1,0 +1,7 @@
+# requirements.txt
+# (другие зависимости, если есть)
+prometheus_client
+redis
+pytest
+pytest-asyncio
+locust

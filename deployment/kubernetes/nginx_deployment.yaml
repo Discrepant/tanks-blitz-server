@@ -1,0 +1,35 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nginx-ingress
+  labels:
+    app: nginx-ingress
+spec:
+  replicas: 1 # Или больше для отказоустойчивости Nginx
+  selector:
+    matchLabels:
+      app: nginx-ingress
+  template:
+    metadata:
+      labels:
+        app: nginx-ingress
+    spec:
+      containers:
+      - name: nginx
+        image: nginx:latest
+        ports:
+        - containerPort: 8888 # TCP для Auth
+          name: nginx-auth-tcp
+        - containerPort: 9999 # UDP для Game
+          protocol: UDP
+          name: nginx-game-udp
+        # - containerPort: 80 # HTTP, если используется
+        #   name: nginx-http 
+        volumeMounts:
+        - name: nginx-config-volume
+          mountPath: /etc/nginx/nginx.conf
+          subPath: nginx.conf # Указываем конкретный файл из ConfigMap
+      volumes:
+      - name: nginx-config-volume
+        configMap:
+          name: nginx-config # Имя ConfigMap, который мы создадим ниже

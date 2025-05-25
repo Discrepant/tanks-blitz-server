@@ -1,17 +1,11 @@
 # auth_server/main.py
 import asyncio
 from .tcp_handler import handle_auth_client
-from prometheus_client import start_http_server, Counter, Gauge
+from prometheus_client import start_http_server # Gauge, Counter теперь импортируются из metrics.py
+from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS # Импорт из нового файла
 import threading
 
-# Определяем метрики Prometheus
-# Счетчик активных соединений (можно увеличивать/уменьшать в tcp_handler)
-ACTIVE_CONNECTIONS_AUTH = Gauge('auth_server_active_connections', 'Number of active TCP connections to Auth Server')
-# Счетчик успешных аутентификаций
-SUCCESSFUL_AUTHS = Counter('auth_server_successful_authentications_total', 'Total number of successful authentications')
-# Счетчик неудачных аутентификаций
-FAILED_AUTHS = Counter('auth_server_failed_authentications_total', 'Total number of failed authentications')
-
+# Определения метрик Prometheus УДАЛЕНЫ отсюда, так как они теперь в metrics.py
 
 def start_metrics_server():
     start_http_server(8000) # Отдельный порт для Prometheus

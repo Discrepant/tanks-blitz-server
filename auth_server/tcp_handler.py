@@ -1,7 +1,7 @@
 # auth_server/tcp_handler.py
 import asyncio
 from .user_service import authenticate_user
-from .main import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS # Импорт метрик
+from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS # Импорт из нового файла metrics.py
 
 async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     addr = writer.get_extra_info('peername')

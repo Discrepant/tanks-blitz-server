@@ -4,9 +4,9 @@ from .tank import Tank # Используем .tank, так как Tank в от�
 class TankPool:
     _instance = None
 
-    def __new__(cls, *args, **kwargs):
+    def __new__(cls, *args, **kwargs): # *args, **kwargs остаются здесь, чтобы __init__ мог их получить
         if not cls._instance:
-            cls._instance = super(TankPool, cls).__new__(cls, *args, **kwargs)
+            cls._instance = super(TankPool, cls).__new__(cls)
         return cls._instance
 
     def __init__(self, pool_size=100): # Пул на 100 танков для примера

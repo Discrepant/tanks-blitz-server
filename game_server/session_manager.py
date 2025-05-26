@@ -1,5 +1,10 @@
 # game_server/session_manager.py
 import uuid
+import time # For timestamps
+from core.message_broker_clients import send_kafka_message, KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS
+import logging # Add logging
+
+logger = logging.getLogger(__name__) # Initialize logger
 
 class GameSession:
     def __init__(self, session_id):
@@ -7,26 +12,26 @@ class GameSession:
         self.players = {}  # {player_id: player_data} player_data может включать tank_id, адрес клиента и т.д.
         self.tanks = {} # {tank_id: tank_object} - танки, задействованные в этой сессии
         self.game_state = {} # Общее состояние игры для этой сессии
-        print(f"GameSession {session_id} created.")
+        logger.info(f"GameSession {session_id} created.")
 
     def add_player(self, player_id, player_address, tank):
         if player_id in self.players:
-            print(f"Player {player_id} already in session {self.session_id}.")
+            logger.warning(f"Player {player_id} already in session {self.session_id}.")
             return False
         self.players[player_id] = {'address': player_address, 'tank_id': tank.tank_id}
         self.tanks[tank.tank_id] = tank
-        print(f"Player {player_id} (Tank: {tank.tank_id}) added to session {self.session_id} from address {player_address}.")
+        logger.info(f"Player {player_id} (Tank: {tank.tank_id}) added to session {self.session_id} from address {player_address}.")
         return True
 
     def remove_player(self, player_id):
         player_data = self.players.pop(player_id, None)
         if player_data:
-            tank_id_to_remove = player_data.get('tank_id')
+            # tank_id_to_remove = player_data.get('tank_id') # Not used here currently
             # Танк будет возвращен в пул отдельно, когда сессия закончится или игрок выйдет
             # self.tanks.pop(tank_id_to_remove, None) # Не удаляем здесь, чтобы не потерять ссылку если он еще нужен
-            print(f"Player {player_id} removed from session {self.session_id}.")
+            logger.info(f"Player {player_id} removed from session {self.session_id}.")
         else:
-            print(f"Player {player_id} not found in session {self.session_id}.")
+            logger.warning(f"Player {player_id} not found in session {self.session_id}.")
 
     def get_all_player_addresses(self):
         return [p['address'] for p in self.players.values()]
@@ -52,56 +57,95 @@ class SessionManager:
             self.sessions = {} # {session_id: GameSession_object}
             self.player_to_session = {} # {player_id: session_id} для быстрого поиска сессии игрока
             self.initialized = True
-            print("SessionManager initialized.")
+            logger.info("SessionManager initialized.")
 
     def create_session(self):
         session_id = str(uuid.uuid4())
         session = GameSession(session_id)
         self.sessions[session_id] = session
-        print(f"Session {session_id} created by SessionManager.")
+        logger.info(f"Session {session_id} created by SessionManager.")
+        
+        kafka_message = {
+            "event_type": "session_created",
+            "session_id": session_id,
+            "timestamp": time.time()
+        }
+        send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
         return session
 
     def get_session(self, session_id):
         return self.sessions.get(session_id)
 
-    def remove_session(self, session_id):
-        session = self.sessions.pop(session_id, None)
-        if session:
-            # Освободить всех игроков из этой сессии
-            player_ids_in_session = list(session.players.keys()) # Копируем ключи, так как словарь будет изменяться
-            for player_id in player_ids_in_session:
-                self.player_to_session.pop(player_id, None)
-                # Танки игроков из этой сессии должны быть возвращены в TankPool
-                # Это будет сделано в логике завершения сессии или выхода игрока
-            print(f"Session {session_id} removed by SessionManager.")
-        return session
+    def remove_session(self, session_id, reason="explicitly_removed"): # Added reason parameter
+        session_to_remove = self.sessions.get(session_id) # Get session before popping
+        if session_to_remove:
+            kafka_message = {
+                "event_type": "session_removed",
+                "session_id": session_id,
+                "timestamp": time.time(),
+                "reason": reason 
+            }
+            send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
+            
+            # Now pop the session
+            session = self.sessions.pop(session_id, None) 
+            if session: # Should always be true if session_to_remove was found
+                # Освободить всех игроков из этой сессии
+                player_ids_in_session = list(session.players.keys()) # Копируем ключи, так как словарь будет изменяться
+                for player_id in player_ids_in_session:
+                    self.player_to_session.pop(player_id, None)
+                logger.info(f"Session {session_id} removed by SessionManager. Reason: {reason}")
+            return session # Return the popped session
+        return None # Session not found
 
     def add_player_to_session(self, session_id, player_id, player_address, tank):
         session = self.get_session(session_id)
         if not session:
-            print(f"Error: Session {session_id} not found.")
+            logger.error(f"Error: Session {session_id} not found.")
             return None
         if player_id in self.player_to_session:
-            print(f"Error: Player {player_id} is already in session {self.player_to_session[player_id]}.")
+            logger.error(f"Error: Player {player_id} is already in session {self.player_to_session[player_id]}.")
             return None
         
         if session.add_player(player_id, player_address, tank):
             self.player_to_session[player_id] = session_id
+            kafka_message = {
+                "event_type": "player_joined_session",
+                "session_id": session_id,
+                "player_id": player_id,
+                "tank_id": tank.tank_id, 
+                "timestamp": time.time()
+            }
+            send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
             return session
         return None
 
     def remove_player_from_session(self, player_id):
-        session_id = self.player_to_session.pop(player_id, None)
+        session_id = self.player_to_session.get(player_id) # Use get first to get tank_id
         if session_id:
             session = self.get_session(session_id)
             if session:
-                session.remove_player(player_id)
-                # Если в сессии не осталось игроков, ее можно удалить
+                player_data = session.players.get(player_id) # Get player_data before removing
+                tank_id_for_message = player_data.get('tank_id') if player_data else None
+
+                session.remove_player(player_id) # Player is removed from session.players here
+                self.player_to_session.pop(player_id, None) # Now remove from manager mapping
+
+                kafka_message = {
+                    "event_type": "player_left_session",
+                    "session_id": session_id,
+                    "player_id": player_id,
+                    "timestamp": time.time()
+                }
+                if tank_id_for_message: # Add tank_id if it was found
+                    kafka_message["tank_id"] = tank_id_for_message
+                send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
+                
                 if session.get_players_count() == 0:
-                    print(f"Session {session_id} is empty, removing.")
-                    self.remove_session(session_id)
+                    logger.info(f"Session {session_id} is empty, removing.")
+                    self.remove_session(session_id, reason="empty_session") # Pass reason
                 return True
-        print(f"Player {player_id} not found in any active session.")
+        logger.warning(f"Player {player_id} not found in any active session.")
         return False
 
     def get_session_by_player_id(self, player_id):
@@ -116,7 +160,7 @@ if __name__ == '__main__':
 
     sm1 = SessionManager()
     sm2 = SessionManager() # Тот же экземпляр
-    print(f"SM1 is SM2: {sm1 is sm2}")
+    logger.info(f"SM1 is SM2: {sm1 is sm2}")
 
     tank_pool = TankPool(pool_size=2) # Нужен пул для танков
 
@@ -134,18 +178,19 @@ if __name__ == '__main__':
     if tank1:
         sm1.add_player_to_session(session1.session_id, player1_id, player1_addr, tank1)
     else:
-        print("Failed to acquire tank for player_A")
+        logger.warning("Failed to acquire tank for player_A")
 
     if tank2:
         sm1.add_player_to_session(session1.session_id, player2_id, player2_addr, tank2)
     else:
-        print("Failed to acquire tank for player_B") # Если pool_size=1, это произойдет
+        logger.warning("Failed to acquire tank for player_B") # Если pool_size=1, это произойдет
 
-    print(f"Session {session1.session_id} players: {session1.players}")
+    if session1: # Check if session1 was created
+        logger.info(f"Session {session1.session_id} players: {session1.players}")
     
     retrieved_session = sm1.get_session_by_player_id(player1_id)
     if retrieved_session:
-        print(f"Player {player1_id} is in session {retrieved_session.session_id}")
+        logger.info(f"Player {player1_id} is in session {retrieved_session.session_id}")
 
     sm1.remove_player_from_session(player1_id)
     if tank1: # Возвращаем танк в пул
@@ -156,4 +201,4 @@ if __name__ == '__main__':
     if tank2: # Возвращаем танк в пул
         tank_pool.release_tank(tank2.tank_id)
 
-    print(f"Current sessions in SM: {sm1.sessions}")
+    logger.info(f"Current sessions in SM: {sm1.sessions}")

@@ -15,13 +15,30 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     response_data = {} # Initialize response_data
 
     try:
-        data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
-        if not data:
-            logger.warning(f"Нет данных от клиента {addr}. Закрытие соединения.")
+        raw_data_bytes = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
+        
+        if not raw_data_bytes: # Check for empty or newline-only - MODIFIED
+            logger.warning(f"Empty or newline-only message received from {addr} before decoding. Closing connection.")
+            # Explicit close block removed, rely on finally
+            return
+            
+        raw_data = raw_data_bytes.decode('utf-8') # MODIFIED to strict decoding
+        # The subtask asks for raw_data.strip() and then check.
+        # The existing code decodes, then strips, and assigns to message_json_str.
+        # Let's keep message_json_str as the stripped version for minimal changes to subsequent code.
+        
+        message_json_str = raw_data.strip()
+        
+        if not message_json_str: # Check if message_json_str is empty AFTER stripping
+            logger.warning(f"Empty message received from {addr} after strip. Sending error and closing.")
+            response_data = {"status": "error", "message": "Empty message received"}
+            writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
+            await writer.drain()
+            # Explicit close block removed, rely on finally
             return
 
         try:
-            message_json_str = data.decode('utf-8').strip() # Explicitly decode UTF-8
+            # message_json_str is already decoded and stripped
             logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
             message_data = json.loads(message_json_str)
             action = message_data.get("action")
@@ -50,35 +67,49 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 response_data = {"status": "error", "message": "Unknown or missing action"}
                 logger.warning(f"Неизвестное или отсутствующее действие '{action}' от {addr}. Ответ: {response_data}")
 
-        except UnicodeDecodeError as ude:
-            logger.error(f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}")
-            response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
-            # FAILED_AUTHS.inc() # Consider if this should count as a failed auth
+        # UnicodeDecodeError is now handled by the outer try-except due to strict decoding
         except json.JSONDecodeError as je:
-            # Updated log message to include raw 'data' bytes.
-            # message_json_str is available here because UnicodeDecodeError would have been caught first if decoding failed.
-            logger.error(f"Invalid JSON received from {addr}: '{message_json_str}' | Error: {je}. Raw bytes: {data!r}")
+            # message_json_str is available here
+            logger.error(f"Invalid JSON received from {addr}: '{message_json_str}' | Error: {je}. Raw bytes: {raw_data_bytes!r}") # MODIFIED to use raw_data_bytes
             response_data = {"status": "error", "message": "Invalid JSON format"}
             # FAILED_AUTHS.inc() # Consider if this should count as a failed auth
+            writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
+            await writer.drain()
+            # Explicit close block removed, rely on finally
+            return
 
+        # This is the successful path write
         writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
         await writer.drain()
         logger.debug(f"Отправлен JSON ответ клиенту {addr}: {response_data}")
+        # Explicit close block removed, rely on finally
+        # No return here, allow finally to execute for ACTIVE_CONNECTIONS_AUTH.dec()
 
     except ConnectionResetError:
         logger.warning(f"Соединение сброшено клиентом {addr}.")
+        # Explicit close block removed, rely on finally
+        return
     except asyncio.IncompleteReadError:
         logger.warning(f"Неполное чтение от клиента {addr}. Соединение могло быть закрыто преждевременно.")
+        # Explicit close block removed, rely on finally
+        return
     # Make sure UnicodeDecodeError is caught before generic Exception if it occurs outside the inner try-except
     except UnicodeDecodeError as ude: # This will catch decoding errors if data.decode() is moved outside the inner try
-        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {data!r}")
+        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {raw_data_bytes!r}")
         response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
+        
+        logger.debug(f"In UnicodeDecodeError handler for {addr}: writer.is_closing() is {writer.is_closing()}") # This log remains
+        
         if not writer.is_closing():
             try:
+                logger.debug(f"Attempting to send UnicodeDecodeError response to {addr}")
                 writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
                 await writer.drain()
+                logger.debug(f"Successfully sent UnicodeDecodeError response to {addr}")
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке (UnicodeDecodeError) клиенту {addr}: {ex_send}")
+        # Explicit close block removed, rely on finally
+        return
     except Exception as e:
         logger.exception(f"Общая ошибка при обработке клиента {addr}:")
         # FAILED_AUTHS.inc() # Считаем это неудачей, если ошибка произошла до успешной аутентификации
@@ -92,10 +123,14 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 logger.debug(f"Отправлено JSON сообщение об ошибке клиенту {addr}: {error_response_data}")
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке клиенту {addr}: {ex_send}")
+        # Explicit close block removed, rely on finally
+        return # Return after handling general exception
     finally:
+        logger.debug(f"Entering finally block for {addr}, preparing to ensure writer is closed.") # Added debug log
         logger.info(f"Закрытие соединения с {addr}")
         ACTIVE_CONNECTIONS_AUTH.dec()
         if not writer.is_closing(): # Check if writer is not already closing
+            logger.debug(f"Closing writer for {addr} in finally block.") # Added debug log
             writer.close()
             try:
                 await writer.wait_closed()

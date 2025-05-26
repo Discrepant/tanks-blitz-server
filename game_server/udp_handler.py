@@ -22,30 +22,60 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         TOTAL_DATAGRAMS_RECEIVED.inc()
-        message_str = "" # Initialize message_str for use in error logging if decoding fails early
-        
-        try:
-            # Log raw data before decoding attempt
-            logger.debug(f"Получена UDP датаграмма от {addr} (сырые байты: {data!r})")
-            decoded_message = data.decode('utf-8') # Декодируем в UTF-8
-            message_str = decoded_message.strip() # Убираем пробельные символы по краям
-            logger.debug(f"Декодированное (и strip-нутое) сообщение от {addr}: '{message_str}'")
+        # logger.debug(f"Raw bytes received: {data}") # Moved down after initial try
 
-            if not message_str:
-                logger.warning(f"Received empty message from {addr} after strip. Ignoring.")
+        decoded_payload_str = None # To be used in the final exception log if other strings are not set
+
+        try:
+            logger.debug(f"Raw bytes received from {addr}: {data!r}") # Log original bytes
+            # 1. Attempt to decode (strictly)
+            try:
+                decoded_payload_str = data.decode('utf-8') # Strict decoding
+            except UnicodeDecodeError as ude:
+                logger.error(f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}")
+                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
                 return
 
-            message = json.loads(message_str)
-            logger.debug(f"Успешно декодированный JSON от {addr}: {message}")
+            # 2. Strip whitespace
+            processed_payload_str = decoded_payload_str.strip()
+            
+            # 3. Null character removal
+            if '\x00' in processed_payload_str:
+                cleaned_payload_str = processed_payload_str.replace('\x00', '')
+                # Log only if changes were made, and use the cleaned string
+                if cleaned_payload_str != processed_payload_str:
+                    logger.warning(f"Removed null characters from data from {addr}. Original: '{processed_payload_str}', Cleaned: '{cleaned_payload_str}'")
+                    processed_payload_str = cleaned_payload_str
+            
+            # 4. Check if empty after stripping and cleaning
+            if not processed_payload_str:
+                logger.warning(f"Empty message after decoding, stripping, and cleaning from {addr}. Original string: '{decoded_payload_str}', Original bytes: {data!r}")
+                self.transport.sendto(json.dumps({"status": "error", "message": "Empty JSON payload"}).encode('utf-8'), addr)
+                return
 
+            logger.debug(f"Successfully decoded, stripped, and cleaned message from {addr}: '{processed_payload_str}'")
+
+            # 5. Attempt to parse JSON
+            try:
+                message = json.loads(processed_payload_str)
+            except json.JSONDecodeError as jde:
+                # Log with the string that failed parsing and the original bytes
+                logger.error(f"Invalid JSON received from {addr}: '{processed_payload_str}' | Error: {jde}. Raw bytes: {data!r}")
+                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr)
+                return
+            
+            # If parsing is successful, log the JSON object
+            logger.debug(f"Successfully parsed JSON from {addr}: {message}")
+
+            # Main message processing logic starts here
             action = message.get("action")
-            player_id = message.get("player_id") # Предполагаем, что ID игрока передается в каждом сообщении
+            player_id = message.get("player_id")
 
             if not player_id:
-                logger.warning(f"Нет player_id в сообщении от {addr}. Сообщение: '{message_str}'. Игнорируется.")
+                logger.warning(f"No player_id in message from {addr}. Message: '{processed_payload_str}'. Ignoring.")
                 return
 
-            logger.info(f"Получено действие '{action}' от игрока '{player_id}' ({addr})")
+            logger.info(f"Received action '{action}' from player '{player_id}' ({addr})")
 
             if action == "join_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -57,7 +87,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         active_sessions_list = list(self.session_manager.sessions.values())
                         target_session = None
                         for s_iter in active_sessions_list:
-                            if s_iter.get_players_count() < 2: # Пример: макс 2 игрока
+                            if s_iter.get_players_count() < 2: # Example: max 2 players
                                 target_session = s_iter
                                 break
                         if not target_session:
@@ -65,17 +95,17 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         
                         self.session_manager.add_player_to_session(target_session.session_id, player_id, addr, tank)
                         response = {"status": "joined", "session_id": target_session.session_id, "tank_id": tank.tank_id, "initial_state": tank.get_state()}
-                        logger.info(f"Игрок {player_id} присоединился к сессии {target_session.session_id} с танком {tank.tank_id}")
+                        logger.info(f"Player {player_id} joined session {target_session.session_id} with tank {tank.tank_id}")
                     else:
                         response = {"status": "join_failed", "reason": "No tanks available"}
-                        logger.warning(f"Не удалось присоединить игрока {player_id}: нет свободных танков.")
+                        logger.warning(f"Failed to join player {player_id}: no tanks available.")
                 else:
                     response = {"status": "already_in_session", "session_id": session.session_id}
-                    logger.info(f"Игрок {player_id} уже в сессии {session.session_id}.")
+                    logger.info(f"Player {player_id} is already in session {session.session_id}.")
                 
                 if response:
                     self.transport.sendto(json.dumps(response).encode(), addr)
-                    logger.debug(f"Отправлен ответ на join_game для {player_id} ({addr}): {response}")
+                    logger.debug(f"Sent response for join_game to {player_id} ({addr}): {response}")
 
             elif action == "move":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -85,12 +115,12 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         tank = self.tank_pool.get_tank(player_data['tank_id'])
                         if tank:
                             new_position = message.get("position")
-                            tank.move(tuple(new_position))
-                            logger.debug(f"Танк {tank.tank_id} игрока {player_id} перемещен в {new_position}")
+                            tank.move(tuple(new_position)) # Ensure position is a tuple
+                            logger.debug(f"Tank {tank.tank_id} of player {player_id} moved to {new_position}")
                             current_game_state = {"action": "game_update", "tanks": session.get_tanks_state()}
-                            self.broadcast_to_session(session, current_game_state, f"game_update для игрока {player_id}")
+                            self.broadcast_to_session(session, current_game_state, f"game_update for player {player_id}")
                 else:
-                    logger.warning(f"Игрок {player_id} не в сессии, не может выполнить 'move'.")
+                    logger.warning(f"Player {player_id} not in session, cannot perform 'move'.")
 
             elif action == "shoot":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -99,12 +129,12 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                     if player_data:
                         tank = self.tank_pool.get_tank(player_data['tank_id'])
                         if tank:
-                            tank.shoot() # Логика выстрела уже есть в методе tank.shoot()
-                            logger.info(f"Танк {tank.tank_id} игрока {player_id} совершил выстрел.")
+                            tank.shoot()
+                            logger.info(f"Tank {tank.tank_id} of player {player_id} fired a shot.")
                             shoot_event = {"action": "player_shot", "player_id": player_id, "tank_id": tank.tank_id}
-                            self.broadcast_to_session(session, shoot_event, f"player_shot от игрока {player_id}")
+                            self.broadcast_to_session(session, shoot_event, f"player_shot from player {player_id}")
                 else:
-                    logger.warning(f"Игрок {player_id} не в сессии, не может выполнить 'shoot'.")
+                    logger.warning(f"Player {player_id} not in session, cannot perform 'shoot'.")
             
             elif action == "leave_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -116,34 +146,30 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         self.session_manager.remove_player_from_session(player_id)
                         self.tank_pool.release_tank(tank_id)
                         response = {"status": "left_game", "message": "You have left the game."}
-                        logger.info(f"Игрок {player_id} (Танк: {tank_id}) покинул игру. Танк возвращен в пул.")
-                    if not self.session_manager.get_session(session.session_id): # Проверяем, была ли сессия удалена
-                         logger.info(f"Сессия {session.session_id} была автоматически удалена (стала пустой).")
+                        logger.info(f"Player {player_id} (Tank: {tank_id}) left the game. Tank returned to pool.")
+                    if not self.session_manager.get_session(session.session_id):
+                         logger.info(f"Session {session.session_id} was automatically deleted (became empty).")
                 else:
                     response = {"status": "not_in_game", "message": "You are not currently in a game."}
-                    logger.warning(f"Игрок {player_id} пытался покинуть игру, но не был найден в активной сессии.")
+                    logger.warning(f"Player {player_id} tried to leave game but was not found in an active session.")
                 
                 if response:
                     self.transport.sendto(json.dumps(response).encode(), addr)
-                    logger.debug(f"Отправлен ответ на leave_game для {player_id} ({addr}): {response}")
+                    logger.debug(f"Sent response for leave_game to {player_id} ({addr}): {response}")
 
             else:
-                logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {message_str}")
+                logger.warning(f"Unknown action '{action}' from player {player_id} ({addr}). Message: {processed_payload_str}")
                 response = {"status": "error", "message": "Unknown action"}
-                self.transport.sendto(json.dumps(response).encode('utf-8'), addr) # Ensure UTF-8 for sending
-                logger.debug(f"Отправлен ответ об ошибке (Unknown action) для {player_id} ({addr}): {response}")
+                self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
+                logger.debug(f"Sent error response (Unknown action) to {player_id} ({addr}): {response}")
 
-        except UnicodeDecodeError as ude:
-            logger.error(f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}")
-            self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
-        except json.JSONDecodeError as e: # Alias the exception to 'e'
-            # Updated log message to include the error 'e' and raw 'data'
-            logger.error(f"Invalid JSON received from {addr}: '{message_str}' | Error: {e}. Raw bytes: {data!r}")
-            self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr) # Ensure UTF-8 for sending
         except Exception as e:
-            logger.exception(f"Ошибка при обработке датаграммы от {addr} (декодированное сообщение перед ошибкой: '{message_str}'):")
+            # Use processed_payload_str if available, otherwise decoded_payload_str, else log raw data
+            msg_for_log = processed_payload_str if processed_payload_str is not None else \
+                          (decoded_payload_str if decoded_payload_str is not None else f"Raw data: {data!r}")
+            logger.exception(f"Error processing datagram from {addr} (Processed/decoded data before error: '{msg_for_log}'):")
             try:
-                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr) # Ensure UTF-8
+                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr)
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить сообщение об ошибке клиенту {addr}: {ex_send}")
 

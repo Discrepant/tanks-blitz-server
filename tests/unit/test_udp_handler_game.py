@@ -17,19 +17,38 @@ class TestGameUdpHandler(unittest.TestCase):
         self.protocol.transport = self.transport # Assign the mock transport to the protocol instance
         self.addr = ('127.0.0.1', 12345)
 
-    def test_empty_message_after_strip(self):
-        """Test that an empty message (after stripping whitespace) is ignored and logged."""
-        with patch('game_server.udp_handler.logger') as mock_logger:
-            self.protocol.datagram_received(b'  \t\r\n  ', self.addr)
-        
-        self.transport.sendto.assert_not_called()
-        mock_logger.warning.assert_called_once_with(
-            f"Received empty message from {self.addr} after strip. Ignoring."
-        )
+    def test_datagram_received_empty_json_payload(self):
+        """Test messages that result in an empty payload after processing."""
+        test_cases = [
+            (b'  \t\r\n  ', "whitespace only"), 
+            (b'\n', "newline only"),
+            (b'\x00\x00\x00', "null bytes only"),
+            (b' \x00 \n ', "mixed whitespace and nulls")
+        ]
+        expected_response_dict = {"status": "error", "message": "Empty JSON payload"}
+        expected_response_bytes = json.dumps(expected_response_dict).encode('utf-8')
 
-    def test_invalid_json_udp(self):
-        """Test that invalid JSON data results in an error response."""
-        malformed_json_data = b'{this is not json'
+        for data_bytes, case_name in test_cases:
+            with self.subTest(case_name=case_name):
+                self.transport.reset_mock() # Reset mocks for each subtest
+                with patch('game_server.udp_handler.logger') as mock_logger:
+                    self.protocol.datagram_received(data_bytes, self.addr)
+                
+                self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
+                
+                # Verify the log message
+                # Expected log: f"Empty message after decoding, stripping, and cleaning from {addr}. Original string: '{decoded_payload_str}', Original bytes: {data!r}"
+                self.assertTrue(mock_logger.warning.called)
+                logged_warning_args = mock_logger.warning.call_args[0]
+                self.assertIn(f"Empty message after decoding, stripping, and cleaning from {self.addr}", logged_warning_args[0])
+                # The decoded_payload_str would be data_bytes.decode('utf-8', errors='replace' or similar)
+                # For simplicity here, we'll just check that the raw bytes are mentioned.
+                self.assertIn(f"Original bytes: {data_bytes!r}", logged_warning_args[0])
+
+
+    def test_datagram_received_invalid_json_valid_utf8(self):
+        """Test that valid UTF-8 data which is not valid JSON results in an error response."""
+        malformed_json_data = b'{this is not json' # Valid UTF-8, but not JSON
         
         with patch('game_server.udp_handler.logger') as mock_logger:
             self.protocol.datagram_received(malformed_json_data, self.addr)
@@ -38,15 +57,16 @@ class TestGameUdpHandler(unittest.TestCase):
         expected_response_bytes = json.dumps(expected_response).encode('utf-8')
         
         self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
-        # Check that an error was logged (the exact message might vary based on implementation)
         self.assertTrue(mock_logger.error.called)
-        # Example of checking a specific part of the log message:
-        logged_error_message = mock_logger.error.call_args[0][0]
-        self.assertIn(f"Невалидный JSON получен от {self.addr}", logged_error_message)
-        self.assertIn(malformed_json_data.decode('utf-8', errors='ignore'), logged_error_message)
+        # Expected log: f"Invalid JSON received from {addr}: '{processed_payload_str}' | Error: {jde}. Raw bytes: {data!r}"
+        logged_error_args = mock_logger.error.call_args[0]
+        self.assertIn(f"Invalid JSON received from {self.addr}", logged_error_args[0])
+        # The processed_payload_str would be malformed_json_data.decode().strip().replace('\x00', '')
+        self.assertIn(f"'{malformed_json_data.decode('utf-8',errors='ignore').strip()}'", logged_error_args[0])
+        self.assertIn(f"Raw bytes: {malformed_json_data!r}", logged_error_args[0])
 
 
-    def test_unicode_decode_error_udp(self):
+    def test_datagram_received_invalid_utf8(self):
         """Test that data with invalid UTF-8 results in an encoding error response."""
         invalid_utf8_data = b'\xff\xfe\xfd{abc' # Invalid UTF-8 sequence
         
@@ -58,9 +78,10 @@ class TestGameUdpHandler(unittest.TestCase):
         
         self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
         self.assertTrue(mock_logger.error.called)
-        logged_error_message = mock_logger.error.call_args[0][0]
-        self.assertIn(f"Unicode decoding error from {self.addr}", logged_error_message)
-        self.assertIn(f"Raw data: {invalid_utf8_data!r}", logged_error_message)
+        # Expected log: f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}"
+        logged_error_args = mock_logger.error.call_args[0]
+        self.assertIn(f"Unicode decoding error from {self.addr}", logged_error_args[0])
+        self.assertIn(f"Raw data: {invalid_utf8_data!r}", logged_error_args[0])
 
     def test_unknown_action_udp(self):
         """Test that a message with an unknown action results in an error response."""
@@ -75,9 +96,13 @@ class TestGameUdpHandler(unittest.TestCase):
 
         self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
         self.assertTrue(mock_logger.warning.called)
-        # Example: logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {message_str}")
-        logged_warning_message = mock_logger.warning.call_args[0][0]
-        self.assertIn(f"Неизвестное действие 'fly_to_moon' от игрока player_test_unknown ({self.addr})", logged_warning_message)
+        logged_warning_args = mock_logger.warning.call_args[0]
+        # Expected log: f"Unknown action '{action}' from player {player_id} ({addr}). Message: {processed_payload_str}"
+        self.assertIn(f"Unknown action 'fly_to_moon' from player player_test_unknown ({self.addr})", logged_warning_args[0])
+        # Check for the "Message:" part, which includes the processed payload string
+        processed_payload_str = json.dumps(unknown_action_data) # This is what udp_handler would log
+        self.assertIn(f"Message: {processed_payload_str}", logged_warning_args[0])
+
 
     def test_missing_player_id_udp(self):
         """Test that a message missing player_id (for actions that require it) is ignored."""
@@ -89,9 +114,14 @@ class TestGameUdpHandler(unittest.TestCase):
         
         self.transport.sendto.assert_not_called() # Should not send a response, just log
         self.assertTrue(mock_logger.warning.called)
-        # Example: logger.warning(f"Нет player_id в сообщении от {addr}. Сообщение: '{message_str}'. Игнорируется.")
-        logged_warning_message = mock_logger.warning.call_args[0][0]
-        self.assertIn(f"Нет player_id в сообщении от {self.addr}", logged_warning_message)
+        logged_warning_args = mock_logger.warning.call_args[0]
+        # Expected log: f"No player_id in message from {addr}. Message: '{processed_payload_str}'. Ignoring."
+        self.assertIn(f"No player_id in message from {self.addr}", logged_warning_args[0])
+        # Check for "Message:" and "Ignoring." parts
+        processed_payload_str = json.dumps(missing_player_id_data) # This is what udp_handler would log
+        self.assertIn(f"Message: '{processed_payload_str}'", logged_warning_args[0])
+        self.assertIn(". Ignoring.", logged_warning_args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

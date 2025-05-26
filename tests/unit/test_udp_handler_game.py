@@ -96,9 +96,13 @@ class TestGameUdpHandler(unittest.TestCase):
 
         self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
         self.assertTrue(mock_logger.warning.called)
-        # Example: logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {message_str}")
-        logged_warning_message = mock_logger.warning.call_args[0][0]
-        self.assertIn(f"Неизвестное действие 'fly_to_moon' от игрока player_test_unknown ({self.addr})", logged_warning_message)
+        logged_warning_args = mock_logger.warning.call_args[0]
+        # Expected log: f"Unknown action '{action}' from player {player_id} ({addr}). Message: {processed_payload_str}"
+        self.assertIn(f"Unknown action 'fly_to_moon' from player player_test_unknown ({self.addr})", logged_warning_args[0])
+        # Check for the "Message:" part, which includes the processed payload string
+        processed_payload_str = json.dumps(unknown_action_data) # This is what udp_handler would log
+        self.assertIn(f"Message: {processed_payload_str}", logged_warning_args[0])
+
 
     def test_missing_player_id_udp(self):
         """Test that a message missing player_id (for actions that require it) is ignored."""
@@ -110,9 +114,14 @@ class TestGameUdpHandler(unittest.TestCase):
         
         self.transport.sendto.assert_not_called() # Should not send a response, just log
         self.assertTrue(mock_logger.warning.called)
-        # Example: logger.warning(f"Нет player_id в сообщении от {addr}. Сообщение: '{message_str}'. Игнорируется.")
-        logged_warning_message = mock_logger.warning.call_args[0][0]
-        self.assertIn(f"Нет player_id в сообщении от {self.addr}", logged_warning_message)
+        logged_warning_args = mock_logger.warning.call_args[0]
+        # Expected log: f"No player_id in message from {addr}. Message: '{processed_payload_str}'. Ignoring."
+        self.assertIn(f"No player_id in message from {self.addr}", logged_warning_args[0])
+        # Check for "Message:" and "Ignoring." parts
+        processed_payload_str = json.dumps(missing_player_id_data) # This is what udp_handler would log
+        self.assertIn(f"Message: '{processed_payload_str}'", logged_warning_args[0])
+        self.assertIn(". Ignoring.", logged_warning_args[0])
+
 
 if __name__ == '__main__':
     unittest.main()

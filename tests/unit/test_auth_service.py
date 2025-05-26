@@ -1,5 +1,6 @@
 # tests/unit/test_auth_service.py
 import pytest
+from unittest.mock import patch # Added import
 from auth_server.user_service import authenticate_user, MOCK_USERS_DB, register_user
 
 @pytest.mark.asyncio
@@ -28,13 +29,12 @@ async def test_authenticate_user_not_found():
     assert "Пользователь не найден" in message
 
 @pytest.mark.asyncio
-async def test_register_user_success_mock(mocker):
+async def test_register_user_success_mock(): # mocker argument removed
     # Мокаем MOCK_USERS_DB для этого теста, чтобы не влиять на другие
     # Хотя register_user в текущей реализации ничего не меняет, это для примера
-    mocker.patch.dict(MOCK_USERS_DB, {}, clear=True) 
-    
-    new_username = "newbie"
-    new_password = "newpassword"
+    with patch.dict('auth_server.user_service.MOCK_USERS_DB', {}, clear=True):
+        new_username = "newbie"
+        new_password = "newpassword"
     is_registered, message = await register_user(new_username, new_password)
     assert is_registered is True
     assert "успешно зарегистрирован" in message
@@ -42,11 +42,10 @@ async def test_register_user_success_mock(mocker):
     # или что был вызван метод сохранения в БД, если бы он был реализован.
 
 @pytest.mark.asyncio
-async def test_register_user_already_exists_mock(mocker):
+async def test_register_user_already_exists_mock(): # mocker argument removed
     existing_username = "player1"
     # Убедимся, что пользователь существует для этого теста
-    mocker.patch.dict(MOCK_USERS_DB, {existing_username: "password123"}, clear=True)
-
-    is_registered, message = await register_user(existing_username, "anypass")
-    assert is_registered is False
+    with patch.dict('auth_server.user_service.MOCK_USERS_DB', {"player1": "password123"}, clear=True):
+        is_registered, message = await register_user(existing_username, "anypass")
+        assert is_registered is False
     assert "уже существует" in message

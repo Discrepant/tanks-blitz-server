@@ -30,6 +30,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
         await writer.wait_closed.assert_called_once()
 
@@ -50,7 +51,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
+        await writer.wait_closed.assert_called_once()
 
 
     async def test_invalid_json_format(self):
@@ -67,7 +70,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
+        await writer.wait_closed.assert_called_once()
 
     async def test_unicode_decode_error(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
@@ -83,7 +88,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
+        await writer.wait_closed.assert_called_once()
 
     async def test_unknown_action(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
@@ -101,7 +108,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
+        await writer.wait_closed.assert_called_once()
 
     async def test_empty_message_just_newline(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
@@ -116,7 +125,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))
+        writer.drain.assert_called_once()
         writer.close.assert_called_once()
+        await writer.wait_closed.assert_called_once()
 
     async def test_no_data_from_client(self):
         reader = AsyncMock(spec=asyncio.StreamReader)

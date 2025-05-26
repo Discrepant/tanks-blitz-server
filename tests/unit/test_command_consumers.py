@@ -13,11 +13,11 @@ from game_server.tank import Tank # Needed for mock tank interactions
 # For example, if consumers try to connect on __init__
 # We can patch 'pika.BlockingConnection' to prevent actual network calls during tests.
 
-@patch('pika.BlockingConnection') # Patch globally for all test methods in this class
+@patch('pika.BlockingConnection')
+@patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True)
 class TestPlayerCommandConsumer(unittest.TestCase):
 
-    @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True)
-    def setUp(self, mock_connect_and_declare, mock_pika_connection): # mock_pika_connection is passed due to class decorator
+    def setUp(self, mock_pika_connection, mock_connect_and_declare):
         # Mock dependencies
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
@@ -32,7 +32,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.mock_channel = MagicMock()
         self.consumer.rabbitmq_channel = self.mock_channel # Manually assign mock channel
 
-    def test_callback_shoot_command_success(self, mock_pika_connection):
+    def test_callback_shoot_command_success(self, mock_pika_connection, mock_connect_and_declare):
         mock_tank_instance = MagicMock(spec=Tank)
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
             players={"player1": {"tank_id": "tank123"}}
@@ -53,7 +53,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         mock_tank_instance.shoot.assert_called_once()
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=123)
 
-    def test_callback_move_command_success(self, mock_pika_connection):
+    def test_callback_move_command_success(self, mock_pika_connection, mock_connect_and_declare):
         mock_tank_instance = MagicMock(spec=Tank)
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
             players={"player1": {"tank_id": "tank123"}}
@@ -73,7 +73,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         mock_tank_instance.move.assert_called_once_with(tuple(new_position))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=124)
 
-    def test_callback_unknown_command(self, mock_pika_connection):
+    def test_callback_unknown_command(self, mock_pika_connection, mock_connect_and_declare):
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
             players={"player1": {"tank_id": "tank123"}}
         )
@@ -86,20 +86,20 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=125)
         # Ensure no tank methods like shoot or move were called
 
-    def test_callback_missing_player_id(self, mock_pika_connection):
+    def test_callback_missing_player_id(self, mock_pika_connection, mock_connect_and_declare):
         message_body = json.dumps({"command": "shoot", "details": {}})
         mock_method = MagicMock(delivery_tag=126)
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=126)
 
-    def test_callback_player_not_in_session(self, mock_pika_connection):
+    def test_callback_player_not_in_session(self, mock_pika_connection, mock_connect_and_declare):
         self.mock_session_manager.get_session_by_player_id.return_value = None
         message_body = json.dumps({"player_id": "player1", "command": "shoot", "details": {}})
         mock_method = MagicMock(delivery_tag=127)
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=127)
 
-    def test_callback_tank_not_found(self, mock_pika_connection):
+    def test_callback_tank_not_found(self, mock_pika_connection, mock_connect_and_declare):
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
             players={"player1": {"tank_id": "tank123"}}
         )
@@ -109,17 +109,17 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=128)
 
-    def test_callback_json_decode_error(self, mock_pika_connection):
+    def test_callback_json_decode_error(self, mock_pika_connection, mock_connect_and_declare):
         message_body = "not a json string"
         mock_method = MagicMock(delivery_tag=129)
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=129)
 
-@patch('pika.BlockingConnection') # Patch globally for all test methods in this class
+@patch('pika.BlockingConnection')
+@patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True)
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
-    @patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True)
-    def setUp(self, mock_connect_and_declare, mock_pika_connection): # mock_pika_connection is passed due to class decorator
+    def setUp(self, mock_pika_connection, mock_connect_and_declare):
         self.mock_session_manager = MagicMock(spec=SessionManager)
         # The pika.BlockingConnection is already patched at class level
         # The _connect_and_declare is patched by the method decorator and passed as mock_connect_and_declare
@@ -127,7 +127,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_channel = MagicMock()
         self.consumer.rabbitmq_channel = self.mock_channel
 
-    def test_callback_new_match_created(self, mock_pika_connection):
+    def test_callback_new_match_created(self, mock_pika_connection, mock_connect_and_declare):
         mock_created_session = MagicMock()
         mock_created_session.session_id = "new_session_1"
         self.mock_session_manager.create_session.return_value = mock_created_session
@@ -143,7 +143,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_session_manager.create_session.assert_called_once()
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=201)
 
-    def test_callback_unknown_event_type(self, mock_pika_connection):
+    def test_callback_unknown_event_type(self, mock_pika_connection, mock_connect_and_declare):
         message_body = json.dumps({"event_type": "match_update", "details": {}})
         mock_method = MagicMock(delivery_tag=202)
         
@@ -152,7 +152,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_session_manager.create_session.assert_not_called()
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=202)
 
-    def test_callback_json_decode_error_matchmaking(self, mock_pika_connection):
+    def test_callback_json_decode_error_matchmaking(self, mock_pika_connection, mock_connect_and_declare):
         message_body = "definitely not json"
         mock_method = MagicMock(delivery_tag=203)
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))

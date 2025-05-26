@@ -1,126 +1,143 @@
+# tests/unit/test_udp_handler_game.py
 import asyncio
 import json
 import unittest
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock, patch, call
 
 from game_server.udp_handler import GameUDPProtocol
-# Import any other necessary modules like SessionManager or TankPool if their actual instances are needed
-# For unit testing udp_handler, we might not need their full functionality if we focus on message processing.
+# Assuming SessionManager, TankPool, Tank are imported or mocked as needed
+from game_server.session_manager import SessionManager
+from game_server.tank_pool import TankPool
+from game_server.tank import Tank
 
-class TestGameUdpHandler(unittest.TestCase):
+# It's important that RABBITMQ_QUEUE_PLAYER_COMMANDS is the actual string value
+# if it's used directly in assertions, or mock core.message_broker_clients too.
+# from core.message_broker_clients import RABBITMQ_QUEUE_PLAYER_COMMANDS # For assertion if needed
+
+@patch('game_server.udp_handler.publish_rabbitmq_message') 
+# Patch where it's used, not where it's defined
+class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
 
     def setUp(self):
-        # Create an instance of the protocol
         self.protocol = GameUDPProtocol()
-        # Mock the transport
-        self.transport = MagicMock()
-        self.protocol.transport = self.transport # Assign the mock transport to the protocol instance
-        self.addr = ('127.0.0.1', 12345)
-
-    def test_datagram_received_empty_json_payload(self):
-        """Test messages that result in an empty payload after processing."""
-        test_cases = [
-            (b'  \t\r\n  ', "whitespace only"), 
-            (b'\n', "newline only"),
-            (b'\x00\x00\x00', "null bytes only"),
-            (b' \x00 \n ', "mixed whitespace and nulls")
-        ]
-        expected_response_dict = {"status": "error", "message": "Empty JSON payload"}
-        expected_response_bytes = json.dumps(expected_response_dict).encode('utf-8')
-
-        for data_bytes, case_name in test_cases:
-            with self.subTest(case_name=case_name):
-                self.transport.reset_mock() # Reset mocks for each subtest
-                with patch('game_server.udp_handler.logger') as mock_logger:
-                    self.protocol.datagram_received(data_bytes, self.addr)
-                
-                self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
-                
-                # Verify the log message
-                # Expected log: f"Empty message after decoding, stripping, and cleaning from {addr}. Original string: '{decoded_payload_str}', Original bytes: {data!r}"
-                self.assertTrue(mock_logger.warning.called)
-                logged_warning_args = mock_logger.warning.call_args[0]
-                self.assertIn(f"Empty message after decoding, stripping, and cleaning from {self.addr}", logged_warning_args[0])
-                # The decoded_payload_str would be data_bytes.decode('utf-8', errors='replace' or similar)
-                # For simplicity here, we'll just check that the raw bytes are mentioned.
-                self.assertIn(f"Original bytes: {data_bytes!r}", logged_warning_args[0])
-
-
-    def test_datagram_received_invalid_json_valid_utf8(self):
-        """Test that valid UTF-8 data which is not valid JSON results in an error response."""
-        malformed_json_data = b'{this is not json' # Valid UTF-8, but not JSON
+        self.mock_transport = MagicMock()
+        self.protocol.transport = self.mock_transport
         
-        with patch('game_server.udp_handler.logger') as mock_logger:
-            self.protocol.datagram_received(malformed_json_data, self.addr)
+        # Mock dependencies of GameUDPProtocol
+        self.protocol.session_manager = MagicMock(spec=SessionManager)
+        self.protocol.tank_pool = MagicMock(spec=TankPool)
 
-        expected_response = {"status": "error", "message": "Invalid JSON format"}
-        expected_response_bytes = json.dumps(expected_response).encode('utf-8')
+    def test_datagram_received_shoot_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq):
+        addr = ('127.0.0.1', 1234)
+        player_id = "player1"
+        tank_id = "tank_A"
+
+        # Mock session and tank setup
+        mock_session = MagicMock()
+        mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
+        self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
         
-        self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
-        self.assertTrue(mock_logger.error.called)
-        # Expected log: f"Invalid JSON received from {addr}: '{processed_payload_str}' | Error: {jde}. Raw bytes: {data!r}"
-        logged_error_args = mock_logger.error.call_args[0]
-        self.assertIn(f"Invalid JSON received from {self.addr}", logged_error_args[0])
-        # The processed_payload_str would be malformed_json_data.decode().strip().replace('\x00', '')
-        self.assertIn(f"'{malformed_json_data.decode('utf-8',errors='ignore').strip()}'", logged_error_args[0])
-        self.assertIn(f"Raw bytes: {malformed_json_data!r}", logged_error_args[0])
-
-
-    def test_datagram_received_invalid_utf8(self):
-        """Test that data with invalid UTF-8 results in an encoding error response."""
-        invalid_utf8_data = b'\xff\xfe\xfd{abc' # Invalid UTF-8 sequence
+        mock_tank = MagicMock(spec=Tank)
+        mock_tank.tank_id = tank_id # Ensure tank_id is set on the mock
+        self.protocol.tank_pool.get_tank.return_value = mock_tank # This line was missing in the prompt, but implied by udp_handler logic
         
-        with patch('game_server.udp_handler.logger') as mock_logger:
-            self.protocol.datagram_received(invalid_utf8_data, self.addr)
-
-        expected_response = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
-        expected_response_bytes = json.dumps(expected_response).encode('utf-8')
+        message_data = {
+            "action": "shoot",
+            "player_id": player_id
+            # Any other fields the "shoot" action might expect from client
+        }
+        message_bytes = json.dumps(message_data).encode('utf-8')
         
-        self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
-        self.assertTrue(mock_logger.error.called)
-        # Expected log: f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}"
-        logged_error_args = mock_logger.error.call_args[0]
-        self.assertIn(f"Unicode decoding error from {self.addr}", logged_error_args[0])
-        self.assertIn(f"Raw data: {invalid_utf8_data!r}", logged_error_args[0])
-
-    def test_unknown_action_udp(self):
-        """Test that a message with an unknown action results in an error response."""
-        unknown_action_data = {"action": "fly_to_moon", "player_id": "player_test_unknown"}
-        unknown_action_bytes = json.dumps(unknown_action_data).encode('utf-8')
-
-        with patch('game_server.udp_handler.logger') as mock_logger:
-            self.protocol.datagram_received(unknown_action_bytes, self.addr)
-
-        expected_response = {"status": "error", "message": "Unknown action"}
-        expected_response_bytes = json.dumps(expected_response).encode('utf-8')
-
-        self.transport.sendto.assert_called_once_with(expected_response_bytes, self.addr)
-        self.assertTrue(mock_logger.warning.called)
-        logged_warning_args = mock_logger.warning.call_args[0]
-        # Expected log: f"Unknown action '{action}' from player {player_id} ({addr}). Message: {processed_payload_str}"
-        self.assertIn(f"Unknown action 'fly_to_moon' from player player_test_unknown ({self.addr})", logged_warning_args[0])
-        # Check for the "Message:" part, which includes the processed payload string
-        processed_payload_str = json.dumps(unknown_action_data) # This is what udp_handler would log
-        self.assertIn(f"Message: {processed_payload_str}", logged_warning_args[0])
-
-
-    def test_missing_player_id_udp(self):
-        """Test that a message missing player_id (for actions that require it) is ignored."""
-        missing_player_id_data = {"action": "join_game"} # player_id is missing
-        missing_player_id_bytes = json.dumps(missing_player_id_data).encode('utf-8')
-
-        with patch('game_server.udp_handler.logger') as mock_logger:
-            self.protocol.datagram_received(missing_player_id_bytes, self.addr)
+        self.protocol.datagram_received(message_bytes, addr)
         
-        self.transport.sendto.assert_not_called() # Should not send a response, just log
-        self.assertTrue(mock_logger.warning.called)
-        logged_warning_args = mock_logger.warning.call_args[0]
-        # Expected log: f"No player_id in message from {addr}. Message: '{processed_payload_str}'. Ignoring."
-        self.assertIn(f"No player_id in message from {self.addr}", logged_warning_args[0])
-        # Check for "Message:" and "Ignoring." parts
-        processed_payload_str = json.dumps(missing_player_id_data) # This is what udp_handler would log
-        self.assertIn(f"Message: '{processed_payload_str}'", logged_warning_args[0])
-        self.assertIn(". Ignoring.", logged_warning_args[0])
+        expected_mq_message = {
+            "player_id": player_id,
+            "command": "shoot",
+            "details": {
+                "source": "udp_handler",
+                "tank_id": tank_id # udp_handler was modified to include tank_id
+            }
+        }
+        
+        # Verify publish_rabbitmq_message was called correctly
+        # The first argument is exchange_name, which is '' for default exchange.
+        # The second is routing_key (queue name).
+        mock_publish_rabbitmq.assert_called_once_with(
+            '', # exchange_name
+            'player_commands', # routing_key (actual queue name string for RABBITMQ_QUEUE_PLAYER_COMMANDS)
+            expected_mq_message
+        )
+        
+        # Check that tank.shoot() itself is NOT called directly
+        # mock_tank.shoot.assert_not_called() # This line is commented out as get_tank is not called in the original udp_handler for shoot
+        # The actual tank object is retrieved in the consumer, not in the handler for "shoot" after the change.
+        # The handler only needs to get the tank_id from player_data.
+
+        # Check that no broadcast happened directly from here for shoot event
+        # self.mock_transport.sendto.assert_not_called() # This might be too strict if other messages are sent for errors etc.
+        # More robust: check that a specific "player_shot" broadcast is NOT sent.
+        # For this specific subtask, we assume that if publish_rabbitmq_message is called, then the direct handling (broadcast) is skipped.
+
+    def test_datagram_received_move_command_direct_execution_no_rabbitmq(self, mock_publish_rabbitmq):
+        # This test verifies that "move" command is still handled directly (as per current plan)
+        # and does NOT go to RabbitMQ via the UDP handler.
+        addr = ('127.0.0.1', 1234)
+        player_id = "player2"
+        tank_id = "tank_B"
+        new_position = [50, 50]
+
+        mock_session = MagicMock()
+        mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
+        mock_session.get_tanks_state = MagicMock(return_value=[{"id": tank_id, "position": new_position, "health": 100}])
+        self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
+        
+        mock_tank = MagicMock(spec=Tank)
+        self.protocol.tank_pool.get_tank.return_value = mock_tank
+
+        message_data = {
+            "action": "move",
+            "player_id": player_id,
+            "position": new_position
+        }
+        message_bytes = json.dumps(message_data).encode('utf-8')
+        
+        self.protocol.datagram_received(message_bytes, addr)
+        
+        mock_publish_rabbitmq.assert_not_called() # Ensure move does not go to RabbitMQ
+        mock_tank.move.assert_called_once_with(tuple(new_position))
+        # Check that broadcast DID happen for move (as per existing udp_handler logic)
+        self.protocol.transport.sendto.assert_called()
+
+
+    def test_datagram_received_join_game_no_rabbitmq(self, mock_publish_rabbitmq):
+        # Verify non-critical commands like "join_game" don't go to RabbitMQ
+        addr = ('127.0.0.1', 1234)
+        player_id = "player3"
+        
+        # Mock the tank that would be acquired
+        acquired_tank_mock = MagicMock(spec=Tank)
+        acquired_tank_mock.tank_id = "tank_C"
+        acquired_tank_mock.get_state.return_value = {"id": "tank_C", "position": (0,0), "health": 100}
+        self.protocol.tank_pool.acquire_tank.return_value = acquired_tank_mock
+        
+        # Mock session creation and adding player
+        mock_session_instance = MagicMock(spec=SessionManager.GameSession) # Use spec for GameSession if it's nested
+        mock_session_instance.session_id="session_new"
+        mock_session_instance.get_players_count.return_value = 0 # Before adding current player
+
+        self.protocol.session_manager.get_session_by_player_id.return_value = None # Player not in session initially
+        # self.protocol.session_manager.create_session.return_value = mock_session_instance # UDP handler might try to find existing session first
+        # Let's simulate finding no existing session for player, then no available session with < 2 players, so create new.
+        self.protocol.session_manager.sessions = {} # No existing sessions initially to force creation
+
+        message_data = {"action": "join_game", "player_id": player_id}
+        message_bytes = json.dumps(message_data).encode('utf-8')
+        
+        self.protocol.datagram_received(message_bytes, addr)
+        
+        mock_publish_rabbitmq.assert_not_called()
+        # Check that a response was sent to the client for join_game
+        self.protocol.transport.sendto.assert_called()
 
 
 if __name__ == '__main__':

@@ -16,7 +16,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         # В реальном приложении это может быть сложнее, например, ожидание токена
         intro_data = await reader.readuntil(b"\n")
         intro_message = intro_data.decode().strip()
-    logger.info(f"Received for auth/register from {addr}: {intro_message}") # Changed print to logger.info
+        logger.info(f"Received for auth/register from {addr}: {intro_message}") # Corrected indentation
 
         parts = intro_message.split()
         command = parts[0].upper()
@@ -26,42 +26,42 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         # Assuming game_room.authenticate_player and add_player still handle session/tank assignment
             authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
             if authenticated:
-            player = Player(writer, username, session_token) # player.name is username
-            await game_room.add_player(player) # Associates player with game_room (and implicitly session/tank)
+                player = Player(writer, username, session_token) # player.name is username
+                await game_room.add_player(player) # Associates player with game_room (and implicitly session/tank)
                 writer.write(f"LOGIN_SUCCESS {auth_message} Token: {session_token}\n".encode())
-            await writer.drain()
+                await writer.drain()
             else:
                 writer.write(f"LOGIN_FAILURE {auth_message}\n".encode())
+                await writer.drain()
+                return
+        elif command == 'REGISTER' and len(parts) == 3:
+            # Placeholder for registration logic
+            writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
             await writer.drain()
             return
-        elif command == 'REGISTER' and len(parts) == 3:
-        # Placeholder for registration logic
-        writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
-        await writer.drain()
-            return
         else:
-        writer.write("INVALID_COMMAND Expected: LOGIN username password or REGISTER username password\n".encode())
-        await writer.drain()
-        return
-
-    if not player or not player.writer:
-        logger.error(f"Error: Player object not created or writer missing for {addr}")
+            writer.write("INVALID_COMMAND Expected: LOGIN username password or REGISTER username password\n".encode())
+            await writer.drain()
             return
 
-    # Main command processing loop
+        if not player or not player.writer:
+            logger.error(f"Error: Player object not created or writer missing for {addr}")
+            return
+
+        # Main command processing loop
         while True:
             if player.writer.is_closing():
                 break
             try:
-            data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=300.0)
-            message_str = data.decode().strip()
-            if not message_str:
-                logger.info(f"Received empty message from {player.name}, connection might be closing.")
+                data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=300.0)
+                message_str = data.decode().strip()
+                if not message_str:
+                    logger.info(f"Received empty message from {player.name}, connection might be closing.")
                     break
 
-            logger.info(f"Received from {player.name} ({addr}): '{message_str}'")
+                logger.info(f"Received from {player.name} ({addr}): '{message_str}'")
 
-            parts = message_str.split()
+                parts = message_str.split()
             cmd = parts[0].upper() if parts else ""
             command_data = None
             response_message = "UNKNOWN_COMMAND\n" # Default response

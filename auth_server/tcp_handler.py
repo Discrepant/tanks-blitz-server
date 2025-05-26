@@ -20,9 +20,10 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         if not raw_data_bytes: # Check for empty or newline-only - MODIFIED
             logger.warning(f"Empty or newline-only message received from {addr} before decoding. Closing connection.")
             if not writer.is_closing():
+                logger.debug(f"Explicitly closing writer for {addr} in 'if not raw_data_bytes' block.")
                 writer.close()
                 await writer.wait_closed()
-            return # Explicit close added before return in a later step for this block
+            return
             
         raw_data = raw_data_bytes.decode('utf-8') # MODIFIED to strict decoding
         # The subtask asks for raw_data.strip() and then check.
@@ -37,6 +38,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
             if not writer.is_closing():
+                logger.debug(f"Explicitly closing writer for {addr} in 'if not message_json_str' block.")
                 writer.close()
                 await writer.wait_closed()
             return
@@ -80,6 +82,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
             if not writer.is_closing():
+                logger.debug(f"Explicitly closing writer for {addr} in json.JSONDecodeError block.")
                 writer.close()
                 await writer.wait_closed()
             return
@@ -90,6 +93,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         logger.debug(f"Отправлен JSON ответ клиенту {addr}: {response_data}")
         # Explicitly close after successful send, before finally block
         if not writer.is_closing():
+            logger.debug(f"Explicitly closing writer for {addr} after successful response.")
             writer.close()
             await writer.wait_closed()
         # No return here, allow finally to execute for ACTIVE_CONNECTIONS_AUTH.dec()
@@ -98,6 +102,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         logger.warning(f"Соединение сброшено клиентом {addr}.")
         # Ensure connection is closed if reset happens before explicit close
         if not writer.is_closing():
+            logger.debug(f"Explicitly closing writer for {addr} in ConnectionResetError block.")
             writer.close()
             try:
                 await writer.wait_closed()
@@ -106,17 +111,29 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         return
     except asyncio.IncompleteReadError:
         logger.warning(f"Неполное чтение от клиента {addr}. Соединение могло быть закрыто преждевременно.")
+        # Adding explicit close and debug log here as well, as it's an early exit path
+        if not writer.is_closing():
+            logger.debug(f"Explicitly closing writer for {addr} in asyncio.IncompleteReadError block.")
+            writer.close()
+            try:
+                await writer.wait_closed()
+            except Exception: # nosec
+                pass # Ignore errors on wait_closed if already problematic
+        return
     # Make sure UnicodeDecodeError is caught before generic Exception if it occurs outside the inner try-except
     except UnicodeDecodeError as ude: # This will catch decoding errors if data.decode() is moved outside the inner try
-        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {raw_data_bytes!r}") # MODIFIED to use raw_data_bytes
+        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {raw_data_bytes!r}")
         response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
         if not writer.is_closing():
             try:
+                logger.debug(f"Attempting to send UnicodeDecodeError response to {addr}")
                 writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
                 await writer.drain()
+                logger.debug(f"Successfully sent UnicodeDecodeError response to {addr}")
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке (UnicodeDecodeError) клиенту {addr}: {ex_send}")
         if not writer.is_closing():
+            logger.debug(f"Explicitly closing writer for {addr} in UnicodeDecodeError (outer) block.")
             writer.close()
             await writer.wait_closed()
         return
@@ -135,6 +152,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке клиенту {addr}: {ex_send}")
         # Ensure close even in general exception case
         if not writer.is_closing():
+            logger.debug(f"Explicitly closing writer for {addr} in general Exception block.")
             writer.close()
             try:
                 await writer.wait_closed()
@@ -142,9 +160,11 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 pass # Ignore errors on wait_closed if it's already problematic
         return # Return after handling general exception
     finally:
+        logger.debug(f"Entering finally block for {addr}, preparing to ensure writer is closed.") # Added debug log
         logger.info(f"Закрытие соединения с {addr}")
         ACTIVE_CONNECTIONS_AUTH.dec()
         if not writer.is_closing(): # Check if writer is not already closing
+            logger.debug(f"Closing writer for {addr} in finally block.") # Added debug log
             writer.close()
             try:
                 await writer.wait_closed()

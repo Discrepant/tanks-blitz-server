@@ -1,5 +1,6 @@
 # auth_server/tcp_handler.py
 import asyncio
+import json # Add json import
 import logging # Добавляем импорт
 from .user_service import authenticate_user
 from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS
@@ -9,76 +10,95 @@ logger = logging.getLogger(__name__)
 
 async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     addr = writer.get_extra_info('peername')
-    logger.info(f"Новое подключение от {addr}")
+    logger.info(f"Новое подключение от {addr}, ожидается JSON.")
     ACTIVE_CONNECTIONS_AUTH.inc()
+    response_data = {} # Initialize response_data
 
     try:
-        # Логируем сырые данные перед декодированием
-        data = await reader.read(1024) # Читаем до 1024 байт
+        data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
         if not data:
             logger.warning(f"Нет данных от клиента {addr}. Закрытие соединения.")
-            return # Нет смысла продолжать, если данных нет
+            return
 
-        logger.debug(f"Получены сырые данные от {addr}: {data!r}") # Используем !r для отображения байтов
+        try:
+            message_json_str = data.decode('utf-8').strip() # Explicitly decode UTF-8
+            logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
+            message_data = json.loads(message_json_str)
+            action = message_data.get("action")
+            username = message_data.get("username")
+            password = message_data.get("password")
 
-        message = data.decode().strip()
-        logger.debug(f"Декодированное сообщение от {addr}: '{message}'")
+            logger.info(f"Получен action '{action}' от {addr} для пользователя '{username}'")
 
-        parts = message.split()
-        logger.debug(f"Сообщение разделено на части: {parts}")
-
-        if len(parts) == 3 and parts[0].upper() == 'LOGIN':
-            command, username, password = parts[0].upper(), parts[1], parts[2]
-            logger.info(f"Получена команда '{command}' от {addr} для пользователя '{username}'")
+            if action == "login":
+                is_authenticated, response_message = await authenticate_user(username, password)
+                if is_authenticated:
+                    SUCCESSFUL_AUTHS.inc()
+                    response_data = {"status": "success", "message": response_message, "session_id": response_message} # Using message as session_id for now
+                    logger.info(f"Пользователь '{username}' успешно аутентифицирован. Ответ: {response_data}")
+                else:
+                    FAILED_AUTHS.inc()
+                    response_data = {"status": "failure", "message": f"Authentication failed: {response_message}"}
+                    logger.warning(f"Неудачная попытка аутентификации для пользователя '{username}'. Причина: {response_message}. Ответ: {response_data}")
             
-            is_authenticated, response_message = await authenticate_user(username, password)
+            elif action == "register":
+                # Mock registration response
+                response_data = {"status": "success", "message": "Registration action received (mock)"}
+                logger.info(f"Получен mock-запрос на регистрацию для пользователя '{username}'. Ответ: {response_data}")
             
-            if is_authenticated:
-                SUCCESSFUL_AUTHS.inc()
-                response_str = f"AUTH_SUCCESS {response_message}\n"
-                logger.info(f"Пользователь '{username}' успешно аутентифицирован. Ответ: {response_str.strip()}")
             else:
-                FAILED_AUTHS.inc()
-                response_str = f"AUTH_FAILURE {response_message}\n"
-                logger.warning(f"Неудачная попытка аутентификации для пользователя '{username}'. Причина: {response_message}. Ответ: {response_str.strip()}")
-            
-            writer.write(response_str.encode())
-            logger.debug(f"Отправлен ответ клиенту {addr}: {response_str.strip()}")
-        else:
-            response_str = "INVALID_COMMAND Формат: LOGIN username password\n"
-            logger.warning(f"Получена неверная команда от {addr}: '{message}'. Ответ: {response_str.strip()}")
-            writer.write(response_str.encode())
-            logger.debug(f"Отправлен ответ клиенту {addr}: {response_str.strip()}")
+                response_data = {"status": "error", "message": "Unknown or missing action"}
+                logger.warning(f"Неизвестное или отсутствующее действие '{action}' от {addr}. Ответ: {response_data}")
 
+        except UnicodeDecodeError as ude:
+            logger.error(f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}")
+            response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
+            # FAILED_AUTHS.inc() # Consider if this should count as a failed auth
+        except json.JSONDecodeError as je:
+            # Updated log message to include raw 'data' bytes.
+            # message_json_str is available here because UnicodeDecodeError would have been caught first if decoding failed.
+            logger.error(f"Invalid JSON received from {addr}: '{message_json_str}' | Error: {je}. Raw bytes: {data!r}")
+            response_data = {"status": "error", "message": "Invalid JSON format"}
+            # FAILED_AUTHS.inc() # Consider if this should count as a failed auth
+
+        writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
         await writer.drain()
-        logger.debug(f"Данные для {addr} сброшены в поток.")
+        logger.debug(f"Отправлен JSON ответ клиенту {addr}: {response_data}")
 
     except ConnectionResetError:
         logger.warning(f"Соединение сброшено клиентом {addr}.")
-        # FAILED_AUTHS.inc() # Можно не считать это неудачной аутентификацией, а проблемой сети
     except asyncio.IncompleteReadError:
         logger.warning(f"Неполное чтение от клиента {addr}. Соединение могло быть закрыто преждевременно.")
-    except Exception as e:
-        # Логируем исключение с полной трассировкой
-        logger.exception(f"Ошибка при обработке клиента {addr}:")
-        # FAILED_AUTHS.inc() # Считаем это неудачей, если ошибка произошла до успешной аутентификации
-        
-        # Попытка отправить сообщение об ошибке, если writer еще доступен
+    # Make sure UnicodeDecodeError is caught before generic Exception if it occurs outside the inner try-except
+    except UnicodeDecodeError as ude: # This will catch decoding errors if data.decode() is moved outside the inner try
+        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {data!r}")
+        response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
         if not writer.is_closing():
             try:
-                error_response = f"ERROR_INTERNAL_SERVER_ERROR Произошла внутренняя ошибка сервера.\n"
-                writer.write(error_response.encode())
+                writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
                 await writer.drain()
-                logger.debug(f"Отправлено сообщение об ошибке клиенту {addr}: {error_response.strip()}")
             except Exception as ex_send:
-                logger.error(f"Не удалось отправить сообщение об ошибке клиенту {addr}: {ex_send}")
+                logger.error(f"Не удалось отправить JSON сообщение об ошибке (UnicodeDecodeError) клиенту {addr}: {ex_send}")
+    except Exception as e:
+        logger.exception(f"Общая ошибка при обработке клиента {addr}:")
+        # FAILED_AUTHS.inc() # Считаем это неудачей, если ошибка произошла до успешной аутентификации
+        
+        if not writer.is_closing():
+            try:
+                # Ensure even general errors try to send a JSON response
+                error_response_data = {"status": "error", "message": "Internal server error"}
+                writer.write(json.dumps(error_response_data).encode('utf-8') + b'\n')
+                await writer.drain()
+                logger.debug(f"Отправлено JSON сообщение об ошибке клиенту {addr}: {error_response_data}")
+            except Exception as ex_send:
+                logger.error(f"Не удалось отправить JSON сообщение об ошибке клиенту {addr}: {ex_send}")
     finally:
         logger.info(f"Закрытие соединения с {addr}")
         ACTIVE_CONNECTIONS_AUTH.dec()
-        if not writer.is_closing():
+        if not writer.is_closing(): # Check if writer is not already closing
             writer.close()
             try:
-                await writer.wait_closed() # Ждем, пока соединение действительно закроется
+                await writer.wait_closed()
             except Exception as e_close:
                 logger.error(f"Ошибка при ожидании закрытия writer для {addr}: {e_close}")
         logger.debug(f"Соединение с {addr} полностью закрыто.")

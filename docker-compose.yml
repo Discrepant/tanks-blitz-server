@@ -2,19 +2,83 @@
 version: '3.8'
 
 services:
+  zookeeper:
+    image: confluentinc/cp-zookeeper:latest
+    container_name: zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_TICK_TIME: 2000
+    ports:
+      - "2181:2181"
+
+  kafka:
+    image: confluentinc/cp-kafka:latest
+    container_name: kafka
+    depends_on:
+      - zookeeper
+    ports:
+      - "9092:9092" # Port for internal docker network communication
+      - "29092:29092" # Port for host access
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
+      KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
+      KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0 # Optional: Speeds up consumer group rebalances for development
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    container_name: rabbitmq
+    ports:
+      - "5672:5672"  # AMQP port
+      - "15672:15672" # Management UI port
+    environment:
+      RABBITMQ_DEFAULT_USER: user # Change as needed
+      RABBITMQ_DEFAULT_PASS: password # Change as needed
+
+  auth_server:
+    build:
+      context: ./auth_server/
+      dockerfile: Dockerfile # Assuming Dockerfile exists in auth_server/
+    image: auth_server_image
+    container_name: auth_server
+    ports:
+      - "8000:8000" # Example port
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RABBITMQ_HOST: rabbitmq
+      # Add other necessary environment variables for auth_server
+    depends_on:
+      - kafka
+      - rabbitmq
+    # volumes:
+    #   - ./auth_server:/app # Mount code for development if needed
+
+  game_server:
+    build:
+      context: ./game_server/
+      dockerfile: Dockerfile # Assuming Dockerfile exists in game_server/
+    image: game_server_image
+    container_name: game_server
+    ports:
+      - "8001:8001" # Example port
+    environment:
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      RABBITMQ_HOST: rabbitmq
+      # Add other necessary environment variables for game_server
+    depends_on:
+      - kafka
+      - rabbitmq
+    # volumes:
+    #   - ./game_server:/app # Mount code for development if needed
+
   prometheus:
     image: prom/prometheus:latest
     container_name: prometheus
     volumes:
       - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
-      # Если серверы запущены локально НЕ в Docker, Prometheus должен иметь доступ к localhost хоста.
-      # Для Linux: extra_hosts: ["host.docker.internal:host-gateway"] и использовать host.docker.internal:8000 в prometheus.yml
-      # Или network_mode: "host" (но это менее безопасно и не рекомендуется на macOS)
-      # Если серверы запущены в Docker из другого docker-compose или отдельно, нужно настроить общую Docker-сеть.
-      # Если серверы запущены через Dockerfile из этого проекта (см. README), то Prometheus из docker-compose не сможет их "видеть" по localhost без общей сети.
-      # Для простоты, предполагаем, что серверы запущены локально на хост-машине,
-      # и Prometheus (запущенный в Docker) может достучаться до них по localhost:PORT (может потребовать network_mode: host на Linux).
-      # Для Windows/Mac можно использовать host.docker.internal:PORT в prometheus.yml если Prometheus в Docker.
     ports:
       - "9090:9090"
     command:
@@ -31,9 +95,6 @@ services:
       - GF_SECURITY_ADMIN_PASSWORD=admin # Изменить на более безопасный
     volumes:
       - grafana_data:/var/lib/grafana
-      # Можно добавить провижионинг датасорсов и дашбордов
-      # - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
-      # - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
     depends_on:
       - prometheus
     # network_mode: host # Если Grafana должна быть в той же сети, что и Prometheus (host)

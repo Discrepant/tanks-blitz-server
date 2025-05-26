@@ -5,5 +5,5 @@ redis
 pytest
 pytest-asyncio
 locust
-kafka-python
-pika
+kafka-python==2.0.2
+pika==1.3.2

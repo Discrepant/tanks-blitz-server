@@ -5,6 +5,7 @@ import logging # Добавляем импорт
 from .session_manager import SessionManager
 from .tank_pool import TankPool
 from .metrics import TOTAL_DATAGRAMS_RECEIVED, TOTAL_PLAYERS_JOINED
+from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS # Added import
 
 # Создаем логгер для этого модуля
 logger = logging.getLogger(__name__)
@@ -127,12 +128,33 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                 if session:
                     player_data = session.players.get(player_id)
                     if player_data:
-                        tank = self.tank_pool.get_tank(player_data['tank_id'])
-                        if tank:
-                            tank.shoot()
-                            logger.info(f"Tank {tank.tank_id} of player {player_id} fired a shot.")
-                            shoot_event = {"action": "player_shot", "player_id": player_id, "tank_id": tank.tank_id}
-                            self.broadcast_to_session(session, shoot_event, f"player_shot from player {player_id}")
+                        tank_id = player_data.get('tank_id') # Get tank_id from player_data
+                        if tank_id: # Check if tank_id exists
+                            # Tank existence will be checked by the consumer. We just need player_id and command.
+                            command_message = {
+                                "player_id": player_id,
+                                "command": "shoot",
+                                "details": {
+                                    "source": "udp_handler",
+                                    "tank_id": tank_id # Include tank_id for the consumer to easily find the tank
+                                    # "timestamp": time.time() # Optionally include client timestamp if available and relevant
+                                }
+                            }
+                            try:
+                                # Use default exchange by passing empty string, routing key is the queue name
+                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
+                                logger.info(f"Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ queue '{RABBITMQ_QUEUE_PLAYER_COMMANDS}'.")
+                            except Exception as e:
+                                logger.error(f"Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
+                                # Optionally, send an error back to the player or handle retry
+                                # For now, just logging the error.
+
+                            # Removed direct tank.shoot() and broadcast_to_session for shoot_event
+                            # The consumer is now responsible for processing the command and any resulting game state updates/broadcasts.
+                            # An optimistic update could be sent here if desired, but prompt suggests consumer handles it.
+                            # Example: self.transport.sendto(json.dumps({"status":"shoot_command_sent"}).encode(), addr)
+                        else:
+                            logger.warning(f"No tank_id found for player {player_id} in session, cannot perform 'shoot'.")
                 else:
                     logger.warning(f"Player {player_id} not in session, cannot perform 'shoot'.")
             

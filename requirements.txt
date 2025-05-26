@@ -5,3 +5,5 @@ redis
 pytest
 pytest-asyncio
 locust
+kafka-python
+pika

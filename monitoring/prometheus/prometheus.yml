@@ -1,0 +1,12 @@
+# monitoring/prometheus/prometheus.yml
+global:
+  scrape_interval: 15s # Интервал сбора метрик
+
+scrape_configs:
+  - job_name: 'auth_server'
+    static_configs:
+      - targets: ['localhost:8000'] # Порт для метрик сервера аутентификации
+
+  - job_name: 'game_server'
+    static_configs:
+      - targets: ['localhost:8001'] # Порт для метрик игрового сервера

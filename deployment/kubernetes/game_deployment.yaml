@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: game-server
+  labels:
+    app: game-server
+spec:
+  replicas: 3 # Пример: 3 реплики
+  selector:
+    matchLabels:
+      app: game-server
+  template:
+    metadata:
+      labels:
+        app: game-server
+    spec:
+      containers:
+      - name: game-server
+        image: your_image_name:latest # Заменить на имя вашего Docker образа
+        command: ["/app/entrypoint.sh"]
+        args: ["game"]
+        ports:
+        - containerPort: 9999
+          protocol: UDP
+          name: game-udp
+        - containerPort: 8001 # HTTP Metrics
+          name: game-metrics
+        # resources:
+        #   requests:
+        #     memory: "128Mi"
+        #     cpu: "500m"
+        #   limits:
+        #     memory: "256Mi"
+        #     cpu: "1"

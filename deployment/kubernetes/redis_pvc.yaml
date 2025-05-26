@@ -1,0 +1,12 @@
+# deployment/kubernetes/redis_pvc.yaml
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: redis-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce # Доступен для записи одной нодой
+  resources:
+    requests:
+      storage: 5Gi # Запрашиваем 5 ГБ хранилища для Redis (можно изменить)
+  # storageClassName: "your-storage-class" # Указать, если есть специфичный StorageClass

@@ -1,0 +1,51 @@
+# docker-compose.yml (в корне проекта)
+version: '3.8'
+
+services:
+  prometheus:
+    image: prom/prometheus:latest
+    container_name: prometheus
+    volumes:
+      - ./monitoring/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+      # Если серверы запущены локально НЕ в Docker, Prometheus должен иметь доступ к localhost хоста.
+      # Для Linux: extra_hosts: ["host.docker.internal:host-gateway"] и использовать host.docker.internal:8000 в prometheus.yml
+      # Или network_mode: "host" (но это менее безопасно и не рекомендуется на macOS)
+      # Если серверы запущены в Docker из другого docker-compose или отдельно, нужно настроить общую Docker-сеть.
+      # Если серверы запущены через Dockerfile из этого проекта (см. README), то Prometheus из docker-compose не сможет их "видеть" по localhost без общей сети.
+      # Для простоты, предполагаем, что серверы запущены локально на хост-машине,
+      # и Prometheus (запущенный в Docker) может достучаться до них по localhost:PORT (может потребовать network_mode: host на Linux).
+      # Для Windows/Mac можно использовать host.docker.internal:PORT в prometheus.yml если Prometheus в Docker.
+    ports:
+      - "9090:9090"
+    command:
+      - '--config.file=/etc/prometheus/prometheus.yml'
+    # network_mode: host # Раскомментировать для Linux, если Prometheus в Docker, а сервисы на localhost хоста
+
+  grafana:
+    image: grafana/grafana:latest
+    container_name: grafana
+    ports:
+      - "3000:3000"
+    environment:
+      - GF_SECURITY_ADMIN_USER=admin
+      - GF_SECURITY_ADMIN_PASSWORD=admin # Изменить на более безопасный
+    volumes:
+      - grafana_data:/var/lib/grafana
+      # Можно добавить провижионинг датасорсов и дашбордов
+      # - ./monitoring/grafana/provisioning/datasources:/etc/grafana/provisioning/datasources
+      # - ./monitoring/grafana/provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on:
+      - prometheus
+    # network_mode: host # Если Grafana должна быть в той же сети, что и Prometheus (host)
+
+volumes:
+  grafana_data: {}
+
+# Примечание по network_mode: host и доступу к localhost из Docker:
+# Если ваши Python серверы (Auth, Game) запущены на хост-машине (например, `python -m auth_server.main`),
+# а Prometheus/Grafana запускаются через этот docker-compose:
+# - На Linux: `network_mode: host` для Prometheus/Grafana позволит им обращаться к `localhost:<port>` хоста.
+# - На Windows/Mac: Используйте `host.docker.internal:<port>` в `prometheus.yml` вместо `localhost:<port>`.
+#   `network_mode: host` не работает так же на Windows/Mac.
+# Если все компоненты (включая ваши серверы) запускаются через Docker (например, отдельные `docker run` или другой docker-compose),
+# то им нужна общая Docker-сеть для взаимодействия по именам сервисов.

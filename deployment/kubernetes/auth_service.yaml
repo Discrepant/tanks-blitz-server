@@ -1,0 +1,17 @@
+apiVersion: v1
+kind: Service
+metadata:
+  name: auth-server-service
+spec:
+  type: LoadBalancer # Или NodePort/ClusterIP в зависимости от окружения
+  selector:
+    app: auth-server
+  ports:
+  - name: auth-tcp
+    protocol: TCP
+    port: 8888       # Внешний порт
+    targetPort: auth-tcp # Имя порта из Deployment
+  - name: auth-metrics
+    protocol: TCP
+    port: 8000
+    targetPort: auth-metrics

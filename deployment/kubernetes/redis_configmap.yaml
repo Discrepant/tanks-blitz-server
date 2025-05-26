@@ -1,0 +1,32 @@
+# deployment/kubernetes/redis_configmap.yaml
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: redis-config
+data:
+  redis.conf: |
+    # Включаем AOF (Append Only File) для большей надежности
+    appendonly yes
+    appendfilename "appendonly.aof"
+    # appendfsync everysec # Синхронизация каждую секунду (компромисс между скоростью и надежностью)
+    # appendfsync always # Очень медленно, но максимально надежно
+    appendfsync no # Полагаемся на ОС для синхронизации, быстро, но менее надежно при сбое питания
+
+    # RDB snapshots
+    # Сохранять, если изменилось хотя бы 1 ключ за 900 секунд
+    save 900 1
+    # Сохранять, если изменилось хотя бы 10 ключей за 300 секунд
+    save 300 10
+    # Сохранять, если изменилось хотя бы 10000 ключей за 60 секунд
+    save 60 10000
+
+    # Имя файла RDB
+    dbfilename dump.rdb
+
+    # Директория для хранения файлов AOF и RDB
+    # В Kubernetes это будет путь внутри Persistent Volume
+    dir /data
+
+    # Установить пароль для Redis (рекомендуется)
+    # requirepass YourStrongPasswordHere 
+    # Если пароль установлен, его нужно будет указать в клиентах Redis

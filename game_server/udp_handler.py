@@ -22,19 +22,21 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
 
     def datagram_received(self, data, addr):
         TOTAL_DATAGRAMS_RECEIVED.inc()
+        message_str = "" # Initialize message_str for use in error logging if decoding fails early
         
-        decoded_message = data.decode('utf-8') # Декодируем в UTF-8
-        logger.debug(f"Получена UDP датаграмма от {addr} (сырые байты: {data!r}), декодировано: '{decoded_message}'")
-        
-        message_str = decoded_message.strip() # Убираем пробельные символы по краям
-
-        if not message_str:
-            logger.warning(f"Получено пустое сообщение (после strip) от {addr}. Игнорируется.")
-            return
-
         try:
+            # Log raw data before decoding attempt
+            logger.debug(f"Получена UDP датаграмма от {addr} (сырые байты: {data!r})")
+            decoded_message = data.decode('utf-8') # Декодируем в UTF-8
+            message_str = decoded_message.strip() # Убираем пробельные символы по краям
+            logger.debug(f"Декодированное (и strip-нутое) сообщение от {addr}: '{message_str}'")
+
+            if not message_str:
+                logger.warning(f"Received empty message from {addr} after strip. Ignoring.")
+                return
+
             message = json.loads(message_str)
-            logger.debug(f"Декодированный JSON от {addr}: {message}")
+            logger.debug(f"Успешно декодированный JSON от {addr}: {message}")
 
             action = message.get("action")
             player_id = message.get("player_id") # Предполагаем, что ID игрока передается в каждом сообщении
@@ -128,21 +130,25 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             else:
                 logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {message_str}")
                 response = {"status": "error", "message": "Unknown action"}
-                self.transport.sendto(json.dumps(response).encode(), addr)
+                self.transport.sendto(json.dumps(response).encode('utf-8'), addr) # Ensure UTF-8 for sending
                 logger.debug(f"Отправлен ответ об ошибке (Unknown action) для {player_id} ({addr}): {response}")
 
-        except json.JSONDecodeError:
-            logger.error(f"Невалидный JSON получен от {addr}: '{message_str}'")
-            self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode(), addr)
+        except UnicodeDecodeError as ude:
+            logger.error(f"Unicode decoding error from {addr}: {ude}. Raw data: {data!r}")
+            self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
+        except json.JSONDecodeError as e: # Alias the exception to 'e'
+            # Updated log message to include the error 'e' and raw 'data'
+            logger.error(f"Invalid JSON received from {addr}: '{message_str}' | Error: {e}. Raw bytes: {data!r}")
+            self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr) # Ensure UTF-8 for sending
         except Exception as e:
-            logger.exception(f"Ошибка при обработке датаграммы от {addr} ({message_str}):")
+            logger.exception(f"Ошибка при обработке датаграммы от {addr} (декодированное сообщение перед ошибкой: '{message_str}'):")
             try:
-                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode(), addr)
+                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr) # Ensure UTF-8
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить сообщение об ошибке клиенту {addr}: {ex_send}")
 
     def broadcast_to_session(self, session, message_dict, log_reason=""):
-        message_bytes = json.dumps(message_dict).encode()
+        message_bytes = json.dumps(message_dict).encode('utf-8') # Ensure UTF-8 for sending
         # Логируем само сообщение только на DEBUG уровне, чтобы не засорять логи при частых обновлениях
         logger.debug(f"Широковещательное сообщение для сессии {session.session_id} ({log_reason}): {message_dict}")
         for player_id, player_info in session.players.items():

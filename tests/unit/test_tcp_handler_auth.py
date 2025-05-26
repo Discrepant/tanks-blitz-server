@@ -111,8 +111,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         await handle_auth_client(reader, writer)
 
-        # This should result in an "Invalid JSON format" error because an empty string is not valid JSON
-        expected_response = {"status": "error", "message": "Invalid JSON format"}
+        # This should result in an "Empty message received" error because a newline becomes an empty string after strip
+        expected_response = {"status": "error", "message": "Empty message received"}
         actual_call_args = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args.endswith(b'\n'))

@@ -15,13 +15,34 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     response_data = {} # Initialize response_data
 
     try:
-        data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
-        if not data:
-            logger.warning(f"Нет данных от клиента {addr}. Закрытие соединения.")
+        raw_data_bytes = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
+        
+        if not raw_data_bytes or raw_data_bytes == b'\n': # Check for empty or newline-only
+            logger.warning(f"Empty or newline-only message received from {addr} before decoding. Closing connection.")
+            if not writer.is_closing():
+                writer.close()
+                await writer.wait_closed()
+            return
+            
+        raw_data = raw_data_bytes.decode('utf-8', errors='ignore')
+        # The subtask asks for raw_data.strip() and then check.
+        # The existing code decodes, then strips, and assigns to message_json_str.
+        # Let's keep message_json_str as the stripped version for minimal changes to subsequent code.
+        
+        message_json_str = raw_data.strip()
+        
+        if not message_json_str: # Check if message_json_str is empty AFTER stripping
+            logger.warning(f"Empty message received from {addr} after strip. Sending error and closing.")
+            response_data = {"status": "error", "message": "Empty message received"}
+            writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
+            await writer.drain()
+            if not writer.is_closing():
+                writer.close()
+                await writer.wait_closed()
             return
 
         try:
-            message_json_str = data.decode('utf-8').strip() # Explicitly decode UTF-8
+            # message_json_str is already decoded and stripped
             logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
             message_data = json.loads(message_json_str)
             action = message_data.get("action")

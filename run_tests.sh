@@ -2,16 +2,19 @@
 set -e # Выход при ошибке
 
 echo "Running Unit Tests..."
-# Запускаем pytest из корневой директории проекта
-# Убедимся, что PYTHONPATH настроен так, чтобы тесты могли найти модули приложения
-# Если структура проекта стандартная (например, src/auth_server), то pytest обычно находит.
-# Если нет, может потребоваться: export PYTHONPATH=$(pwd):$PYTHONPATH
-
 # Для текущей структуры, где auth_server и game_server - пакеты в корне:
 pytest -v tests/unit/
-
 echo "Unit Tests Completed."
 
+echo ""
+echo "Running Integration Tests..."
+# Примечание: Интеграционные тесты могут требовать, чтобы сервисы были запущены
+# или доступна специфическая конфигурация окружения.
+pytest -v tests/test_integration.py
+echo "Integration Tests Completed."
+
+echo ""
+echo "All automated tests (Unit and Integration) completed."
 echo ""
 echo "To run Load Tests (example for Auth Server):"
 echo "1. Make sure the Auth Server is running (e.g., python -m auth_server.main)."

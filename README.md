@@ -1,6 +1,6 @@
 # Серверная архитектура Tanks Blitz (Прототип)
 
-Этот проект представляет собой прототип серверной архитектуры для многопользовательской игры Tanks Blitz, разработанный на Python. 
+Этот проект представляет собой прототип серверной архитектуры для многопользовательской игры Tanks Blitz, разработанный на Python.
 Он включает компоненты для аутентификации, игровой логики, масштабирования, мониторинга и резервного копирования.
 
 ## Обзор проекта
@@ -27,17 +27,19 @@
     *   Может быть настроен для базовой защиты от DDoS.
     *   Разворачивается в Kubernetes.
 3.  **Сервер Аутентификации (Auth Server):**
-    *   Протокол: TCP.
-    *   Назначение: Регистрация и аутентификация пользователей. В реальной системе генерировал бы сессионные токены.
+    *   **Протокол: TCP, текстовый.**
+    *   **Формат команд:** `LOGIN <имя_пользователя> <пароль>` (например, `LOGIN player1 password123`). Команда должна завершаться переводом строки при ручном тестировании через `echo` или `telnet` (нажатием Enter).
+    *   Назначение: Регистрация (в текущей реализации заглушка) и аутентификация пользователей. В реальной системе генерировал бы сессионные токены.
     *   Технологии: Python, `asyncio`.
     *   Экспортирует метрики для Prometheus на порт `8000`.
 4.  **Игровой Сервер (Game Server):**
-    *   Протокол: UDP.
+    *   **Протокол: UDP, сообщения в формате JSON.**
+    *   **Формат сообщений:** Каждое сообщение - это JSON-объект, например, `{"action": "join_game", "player_id": "some_player_id"}`.
     *   Назначение: Обработка игровой логики, синхронизация состояния игры.
     *   Паттерны:
         *   `SessionManager` (Singleton) для управления активными игровыми сессиями.
         *   `TankPool` (Object Pool) для управления объектами танков.
-    *   Дельта-обновления: Концептуально заложены (отправка только изменений), но требуют полной реализации.
+    *   Дельта-обновления: Концептуально заложены, но требуют полной реализации.
     *   Технологии: Python, `asyncio`.
     *   Экспортирует метрики для Prometheus на порт `8001`.
 5.  **Redis:**
@@ -53,13 +55,27 @@
 
 ### Структура проекта
 
-(Краткое описание основных директорий, созданных ранее, например):
 - `auth_server/`: Код сервера аутентификации.
+  - `main.py`: Точка входа, запуск TCP-сервера.
+  - `tcp_handler.py`: Логика обработки TCP-соединений и команд.
+  - `user_service.py`: Логика аутентификации (сейчас заглушка).
+  - `metrics.py`: Определения метрик Prometheus.
 - `game_server/`: Код игрового сервера.
-- `core/`: Общие модули (например, клиент Redis, модели данных).
+  - `main.py`: Точка входа, запуск UDP-сервера.
+  - `udp_handler.py`: Логика обработки UDP-пакетов и игровой логики.
+  - `session_manager.py`: Управление игровыми сессиями (Singleton).
+  - `tank_pool.py`: Управление объектами танков (Object Pool).
+  - `tank.py`: Класс, представляющий танк.
+  - `metrics.py`: Определения метрик Prometheus.
+- `core/`: Общие модули (например, `redis_client.py`).
 - `tests/`: Юнит и нагрузочные тесты.
-- `monitoring/`: Конфигурации для Prometheus и Grafana.
+  - `unit/`: Юнит-тесты (`pytest`).
+  - `load/`: Нагрузочные тесты (`locust`).
+- `monitoring/`: Конфигурации для Prometheus (`prometheus.yml`) и Grafana.
 - `deployment/`: Dockerfile, скрипты и манифесты Kubernetes, конфигурации Nginx и Redis.
+- `README.md`: Этот файл.
+- `requirements.txt`: Зависимости Python.
+- `docker-compose.yml`: Для локального запуска Prometheus и Grafana.
 
 ## Требования
 
@@ -68,6 +84,7 @@
 - `kubectl` (для развертывания в Kubernetes)
 - Доступ к кластеру Kubernetes (например, Minikube, Kind, или облачный EKS, GKE, AKS)
 - `locust` (для запуска нагрузочных тестов)
+- `netcat` (`nc`) или `telnet` (для ручного тестирования TCP/UDP)
 
 ## Установка зависимостей
 
@@ -89,6 +106,77 @@ python -m game_server.main
 ```
 Сервер будет доступен по UDP на `localhost:9999`. Метрики Prometheus на `http://localhost:8001/metrics`.
 
+## Ручное тестирование и отладка
+
+### Общие советы по отладке:
+- **Проверяйте логи серверов:** Серверы настроены на подробное логирование (уровень DEBUG). Вся активность, ошибки, полученные данные и отправленные ответы должны там отображаться.
+- **Формат данных:** Убедитесь, что вы отправляете данные в ожидаемом сервером формате (текстовая команда для Auth Server, JSON для Game Server).
+- **Кодировка:** Все текстовые данные должны быть в UTF-8.
+- **Проверка портов:** Убедитесь, что порты (8888, 9999, 8000, 8001) не заняты другими приложениями.
+  ```bash
+  # Для Windows (PowerShell)
+  netstat -ano | findstr :8888
+  netstat -ano | findstr :9999
+  # Для Linux/macOS
+  sudo netstat -tulnp | grep :8888
+  sudo netstat -tulnp | grep :9999
+  ```
+- **Сетевой анализатор (Wireshark):** Если возникают трудно диагностируемые проблемы с сетью или форматом пакетов, Wireshark может помочь увидеть, что именно передается по сети.
+
+### Тестирование Сервера Аутентификации (TCP)
+- **Запустите сервер:** `python -m auth_server.main`
+- **Способ 1: `netcat` (nc)**
+  ```bash
+  # Успешная аутентификация (замените player1 и password123 на данные из MOCK_USERS_DB)
+  echo "LOGIN player1 password123" | nc localhost 8888
+  # Ожидаемый ответ: AUTH_SUCCESS Пользователь player1 успешно аутентифицирован.
+
+  # Неверный пароль
+  echo "LOGIN player1 wrongpassword" | nc localhost 8888
+  # Ожидаемый ответ: AUTH_FAILURE Неверный пароль.
+
+  # Несуществующий пользователь
+  echo "LOGIN nonexist foobar" | nc localhost 8888
+  # Ожидаемый ответ: AUTH_FAILURE Пользователь не найден.
+
+  # Неверный формат команды
+  echo "REGISTER player1 password123" | nc localhost 8888
+  # Ожидаемый ответ: INVALID_COMMAND Формат: LOGIN username password
+  ```
+  *Примечание: `echo` добавляет `
+` в конце, что хорошо для TCP.*
+- **Способ 2: `telnet`**
+  ```bash
+  telnet localhost 8888
+  ```
+  После подключения вводите команды вручную и нажимайте Enter:
+  ```
+  LOGIN player1 password123
+  ```
+  Затем `Ctrl+]` и `quit` для выхода из telnet.
+
+### Тестирование Игрового Сервера (UDP)
+- **Запустите сервер:** `python -m game_server.main`
+- **Способ 1: `netcat` (nc) для UDP**
+  ```bash
+  # Присоединение игрока (замените player_id_test на уникальный ID)
+  echo '{"action": "join_game", "player_id": "player_id_test"}' | nc -u localhost 9999
+  # Ожидаемый ответ (если сервер отвечает на join, текущая реализация отвечает): 
+  # {"status": "joined", "session_id": "...", "tank_id": "...", "initial_state": {...}}
+
+  # Движение (замените player_id_test)
+  echo '{"action": "move", "player_id": "player_id_test", "position": [10,20]}' | nc -u localhost 9999
+  # На это действие сервер может не отвечать напрямую клиенту, а рассылать обновления другим. Проверяйте логи.
+
+  # Невалидный JSON
+  echo 'Это не JSON' | nc -u localhost 9999
+  # Проверяйте логи сервера на наличие `ERROR - Невалидный JSON получен`.
+  ```
+  *Примечание: Для UDP `nc` отправляет пакет и завершается. Ответы нужно смотреть в логах сервера или ожидать их в отдельном слушающем процессе, если сервер их шлет.*
+- **Способ 2: Python-скрипт (см. `tests/load/send_udp_test.py` для примера)**
+  Вы можете адаптировать скрипт `send_udp_test.py` для отправки специфичных UDP-сообщений и логирования ответов, если они есть.
+
+
 ## Сборка и запуск с Docker
 
 1.  **Собрать Docker образ:**
@@ -106,7 +194,6 @@ python -m game_server.main
     ```bash
     docker run -p 9999:9999/udp -p 8001:8001 your_image_name:latest game
     ```
-    *(Примечание: Для UDP важно указать `/udp` при публикации порта)*
 
 ## Развертывание в Kubernetes
 
@@ -116,49 +203,12 @@ python -m game_server.main
 
 1.  **Настройте `kubectl`** для работы с вашим кластером Kubernetes.
 2.  **Соберите и загрузите Docker образ** (`your_image_name:latest`) в репозиторий образов, доступный вашему кластеру Kubernetes (например, Docker Hub, AWS ECR, Google GCR). Обновите имя образа в файлах `*.deployment.yaml`.
-    *   Если вы используете локальный кластер типа Minikube, вы можете собрать образ непосредственно в Docker-демоне Minikube: `eval $(minikube -p minikube docker-env)` перед `docker build`. В этом случае в `imagePullPolicy: IfNotPresent` в Deployment'ах может быть достаточно.
+    *   Если вы используете локальный кластер типа Minikube, вы можете собрать образ непосредственно в Docker-демоне Minikube: `eval $(minikube -p minikube docker-env)` перед `docker build`. В этом случае `imagePullPolicy: IfNotPresent` в Deployment'ах может быть достаточно.
 
 **Порядок развертывания компонентов:**
 
-1.  **ConfigMaps (Nginx, Redis):**
-    ```bash
-    kubectl apply -f deployment/kubernetes/nginx_configmap.yaml
-    kubectl apply -f deployment/kubernetes/redis_configmap.yaml
-    ```
-
-2.  **PersistentVolumeClaim для Redis:**
-    *Убедитесь, что в вашем кластере настроен StorageClass или доступны PersistentVolumes.*
-    ```bash
-    kubectl apply -f deployment/kubernetes/redis_pvc.yaml
-    ```
-    *Дождитесь, пока PVC получит статус `Bound` (`kubectl get pvc redis-pvc`).*
-
-3.  **Redis (Deployment и Service):**
-    ```bash
-    kubectl apply -f deployment/kubernetes/redis_deployment.yaml
-    kubectl apply -f deployment/kubernetes/redis_service.yaml
-    ```
-
-4.  **Серверы Приложения (Auth и Game):**
-    ```bash
-    kubectl apply -f deployment/kubernetes/auth_deployment.yaml
-    kubectl apply -f deployment/kubernetes/auth_service.yaml
-    kubectl apply -f deployment/kubernetes/game_deployment.yaml
-    kubectl apply -f deployment/kubernetes/game_service.yaml
-    ```
-
-5.  **Nginx (Deployment и Service LoadBalancer):**
-    ```bash
-    kubectl apply -f deployment/kubernetes/nginx_deployment.yaml
-    kubectl apply -f deployment/kubernetes/nginx_service.yaml
-    ```
-    *После этого Nginx будет доступен через внешний IP (если используется `type: LoadBalancer` и облачный провайдер его поддерживает). Получите IP: `kubectl get svc nginx-loadbalancer`.*
-
-6.  **Резервное копирование Redis (CronJob):**
-    *Внимание: Конфигурация `backup-target-storage` в `redis_backup_cronjob.yaml` использует `emptyDir` в качестве заглушки. Для реальных бэкапов это необходимо заменить на PersistentVolume, подключенный к внешнему хранилищу.*
-    ```bash
-    kubectl apply -f deployment/kubernetes/redis_backup_cronjob.yaml
-    ```
+(См. предыдущую версию README для детального порядка `kubectl apply ...`)
+Порядок: ConfigMaps (Nginx, Redis) -> PVC (Redis) -> Redis (Deployment, Service) -> Приложения (Auth, Game Deployments & Services) -> Nginx (Deployment, Service).
 
 **Доступ к сервисам:**
 - После развертывания Nginx с `type: LoadBalancer`, внешний IP-адрес Nginx будет точкой входа для TCP (порт 8888) и UDP (порт 9999) трафика.
@@ -166,83 +216,52 @@ python -m game_server.main
 
 ## Мониторинг (Prometheus и Grafana)
 
-1.  **Развертывание Prometheus и Grafana:**
-    Проще всего использовать готовые Helm-чарты (например, `kube-prometheus-stack`) или Docker Compose для локального тестирования (см. `docker-compose.yml` в этом README - *необходимо его добавить или сослаться на созданный ранее файл*).
-    Предполагается, что Prometheus настроен на сбор метрик с эндпоинтов:
-    - Auth Server: `http://auth-server-service:8000/metrics`
-    - Game Server: `http://game-server-service:8001/metrics`
-    (Конфигурация Prometheus: `monitoring/prometheus/prometheus.yml`)
+1.  **Развертывание Prometheus и Grafana (локально):**
+    Используйте `docker-compose.yml` из корня проекта:
+    ```bash
+    docker-compose up -d
+    ```
+    *Примечание: Убедитесь, что в `monitoring/prometheus/prometheus.yml` правильно указаны адреса ваших локально запущенных серверов (например, `host.docker.internal:8000` если серверы на хосте, а Prometheus в Docker на Windows/Mac, или `localhost:8000` если используется `network_mode: host` на Linux).*
 
 2.  **Настройка Grafana:**
-    - Добавить Prometheus как источник данных (URL: `http://prometheus_service_name:9090`).
+    - Откройте Grafana: `http://localhost:3000` (логин/пароль по умолчанию: admin/admin).
+    - Добавить Prometheus как источник данных (URL: `http://prometheus:9090`).
     - Импортировать или создать дашборды для визуализации метрик.
 
 ## Тестирование
 
 **Юнит-тесты:**
-Для запуска юнит-тестов (используется `pytest`):
 ```bash
-# Убедитесь, что вы в корневой директории проекта
-# и зависимости установлены
-sh run_tests.sh 
+sh run_tests.sh
 # или напрямую:
 # pytest -v tests/unit/
 ```
 
 **Нагрузочные тесты (Locust):**
 Требуют запущенных серверов.
-
 1.  **Для сервера аутентификации:**
-    - Запустите Auth Server (локально или в Docker).
-    - Выполните:
-      ```bash
-      locust -f tests/load/locustfile_auth.py AuthUser --host <auth_server_host>
-      # Например: locust -f tests/load/locustfile_auth.py AuthUser --host localhost
-      ```
-    - Откройте веб-интерфейс Locust (обычно `http://localhost:8089`).
-
+    - Запустите Auth Server.
+    - `locust -f tests/load/locustfile_auth.py AuthUser --host <auth_server_host>`
 2.  **Для игрового сервера:**
-    - Запустите Game Server (локально или в Docker).
-    - Выполните:
-      ```bash
-      locust -f tests/load/locustfile_game.py GameUser --host <game_server_host>
-      # Например: locust -f tests/load/locustfile_game.py GameUser --host localhost
-      ```
+    - Запустите Game Server.
+    - `locust -f tests/load/locustfile_game.py GameUser --host <game_server_host>`
+Откройте веб-интерфейс Locust (обычно `http://localhost:8089`).
 
 ## Резервное копирование Redis
 
 - Redis настроен на использование RDB снапшотов и AOF логов для персистентности.
-- Kubernetes CronJob (`deployment/kubernetes/redis_backup_cronjob.yaml`) настроен для выполнения скрипта резервного копирования (копирование RDB/AOF файлов).
+- Kubernetes CronJob (`deployment/kubernetes/redis_backup_cronjob.yaml`) настроен для выполнения скрипта резервного копирования.
 - **Важно:** Место для хранения бэкапов (`backup-target-storage` в CronJob) должно быть настроено на использование надежного внешнего хранилища.
 
 ## Дальнейшие улучшения и TODO
 
-- **Полная интеграция базы данных (PostgreSQL)** для сервера аутентификации вместо заглушки.
-- **Реализация системы токенов** (JWT) для аутентификации и авторизации между сервисами.
+- **Полная интеграция базы данных (PostgreSQL)** для сервера аутентификации.
+- **Реализация системы токенов** (JWT) для аутентификации и авторизации.
 - **Детализированная реализация дельта-обновлений** на игровом сервере.
-- **Более сложная игровая логика:** обработка столкновений, физика, разные типы танков и оружия и т.д.
+- **Более сложная игровая логика.**
 - **Матчмейкинг.**
-- **Защищенное хранение секретов** в Kubernetes (например, с помощью Sealed Secrets или HashiCorp Vault).
+- **Защищенное хранение секретов** в Kubernetes.
 - **Настройка HTTPS/TLS** для Nginx и эндпоинтов метрик.
-- **Более продвинутая конфигурация Nginx** для DDoS-защиты.
-- **Логирование:** Централизованный сбор и анализ логов (например, ELK Stack или Grafana Loki).
-- **Улучшение скриптов резервного копирования:** использование `redis-cli BGREWRITEAOF`, загрузка в облачные хранилища, стратегии ротации бэкапов.
-- **Тестирование восстановления** из бэкапов.
-- **Helm-чарт** для упрощения развертывания всего приложения в Kubernetes.
-
-## Названия файлов (ключевые)
-
-- `Dockerfile`: Описание Docker-образа.
-- `requirements.txt`: Зависимости Python.
-- `auth_server/main.py`: Точка входа сервера аутентификации.
-- `game_server/main.py`: Точка входа игрового сервера.
-- `deployment/kubernetes/`: Манифесты для развертывания в Kubernetes.
-  - `*_deployment.yaml`: Описания развертываний подов.
-  - `*_service.yaml`: Описания сервисов для доступа к подам.
-  - `nginx_*.yaml`: Конфигурации для Nginx.
-  - `redis_*.yaml`: Конфигурации для Redis.
-- `monitoring/prometheus/prometheus.yml`: Конфигурация Prometheus.
-- `tests/`: Каталог с тестами.
-  - `unit/`: Юнит-тесты.
-  - `load/`: Нагрузочные тесты Locust.
-- `README.md`: Этот файл.
+- **Централизованный сбор и анализ логов** (ELK Stack, Grafana Loki).
+- **Улучшение скриптов резервного копирования и тестирование восстановления.**
+- **Helm-чарт** для упрощения развертывания.

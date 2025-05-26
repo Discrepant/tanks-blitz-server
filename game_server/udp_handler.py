@@ -23,8 +23,14 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
     def datagram_received(self, data, addr):
         TOTAL_DATAGRAMS_RECEIVED.inc()
         
-        message_str = data.decode()
-        logger.debug(f"Получена UDP датаграмма от {addr}: '{message_str}'")
+        decoded_message = data.decode('utf-8') # Декодируем в UTF-8
+        logger.debug(f"Получена UDP датаграмма от {addr} (сырые байты: {data!r}), декодировано: '{decoded_message}'")
+        
+        message_str = decoded_message.strip() # Убираем пробельные символы по краям
+
+        if not message_str:
+            logger.warning(f"Получено пустое сообщение (после strip) от {addr}. Игнорируется.")
+            return
 
         try:
             message = json.loads(message_str)

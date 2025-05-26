@@ -5,7 +5,6 @@ import unittest
 from unittest.mock import MagicMock, patch, call
 
 from game_server.udp_handler import GameUDPProtocol
-# Исправленный импорт: SessionManager и GameSession
 from game_server.session_manager import SessionManager, GameSession
 from game_server.tank_pool import TankPool
 from game_server.tank import Tank
@@ -27,13 +26,11 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         player_id = "player1"
         tank_id = "tank_A"
 
-        mock_session = MagicMock(spec=GameSession)  # Используем GameSession для spec, если нужно
+        mock_session = MagicMock(spec=GameSession)
         mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
+        # Для этого теста session_id не используется в broadcast, т.к. shoot уходит в RabbitMQ
+        # mock_session.session_id = "test_session_shoot" 
         self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
-
-        mock_tank = MagicMock(spec=Tank)
-        mock_tank.tank_id = tank_id
-        # self.protocol.tank_pool.get_tank.return_value = mock_tank # Эта строка была закомментирована в вашем логе, оставляю так
 
         message_data = {
             "action": "shoot",
@@ -64,14 +61,15 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         tank_id = "tank_B"
         new_position = [50, 50]
 
-        mock_session = MagicMock(spec=GameSession)  # Используем GameSession для spec
+        mock_session = MagicMock(spec=GameSession)
         mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
         mock_session.get_tanks_state = MagicMock(
             return_value=[{"id": tank_id, "position": new_position, "health": 100}])
+        mock_session.session_id = "test_session_move"  # <--- ИСПРАВЛЕНИЕ ДЛЯ session_id
         self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
 
         mock_tank = MagicMock(spec=Tank)
-        # Убедимся, что get_tank возвращает наш мок танка, если он вызывается
+        mock_tank.tank_id = tank_id
         self.protocol.tank_pool.get_tank.return_value = mock_tank
 
         message_data = {
@@ -96,14 +94,12 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         acquired_tank_mock.get_state.return_value = {"id": "tank_C", "position": (0, 0), "health": 100}
         self.protocol.tank_pool.acquire_tank.return_value = acquired_tank_mock
 
-        # Исправлено: используется spec=GameSession
         mock_session_instance = MagicMock(spec=GameSession)
-        mock_session_instance.session_id = "session_new"
+        mock_session_instance.session_id = "test_session_join"  # Добавим session_id и здесь для полноты
         mock_session_instance.get_players_count.return_value = 0
 
         self.protocol.session_manager.get_session_by_player_id.return_value = None
         self.protocol.session_manager.sessions = {}
-        # Убеждаемся, что create_session возвращает наш мок
         self.protocol.session_manager.create_session.return_value = mock_session_instance
 
         message_data = {"action": "join_game", "player_id": player_id}

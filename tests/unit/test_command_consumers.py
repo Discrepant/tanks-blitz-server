@@ -16,7 +16,8 @@ from game_server.tank import Tank # Needed for mock tank interactions
 @patch('pika.BlockingConnection') # Patch globally for all test methods in this class
 class TestPlayerCommandConsumer(unittest.TestCase):
 
-    def setUp(self):
+    @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True)
+    def setUp(self, mock_connect_and_declare, mock_pika_connection): # mock_pika_connection is passed due to class decorator
         # Mock dependencies
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
@@ -117,9 +118,11 @@ class TestPlayerCommandConsumer(unittest.TestCase):
 @patch('pika.BlockingConnection') # Patch globally for all test methods in this class
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
-    def setUp(self):
+    @patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True)
+    def setUp(self, mock_connect_and_declare, mock_pika_connection): # mock_pika_connection is passed due to class decorator
         self.mock_session_manager = MagicMock(spec=SessionManager)
         # The pika.BlockingConnection is already patched at class level
+        # The _connect_and_declare is patched by the method decorator and passed as mock_connect_and_declare
         self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
         self.mock_channel = MagicMock()
         self.consumer.rabbitmq_channel = self.mock_channel

@@ -12,7 +12,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_successful_login(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # MODIFIED LINE (back to this)
         writer.close = AsyncMock()
         writer.write = AsyncMock()
         
@@ -41,7 +41,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_failed_login_wrong_password(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # Corrected to single line
         writer.close = AsyncMock()
         writer.write = AsyncMock()
 
@@ -65,7 +65,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_invalid_json_format(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # Corrected to single line
         writer.close = AsyncMock()
         writer.write = AsyncMock()
 
@@ -86,7 +86,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_unicode_decode_error(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # Corrected to single line
         writer.close = AsyncMock()
         writer.write = AsyncMock()
 
@@ -130,7 +130,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_empty_message_just_newline(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # Corrected to single line
         writer.close = AsyncMock()
         writer.write = AsyncMock()
         
@@ -150,7 +150,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     async def test_no_data_from_client(self):
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing = AsyncMock(return_value=False) # MODIFIED LINE
+        writer.is_closing.return_value = False # Reverted to this
         writer.close = AsyncMock()
         writer.write = AsyncMock()
         

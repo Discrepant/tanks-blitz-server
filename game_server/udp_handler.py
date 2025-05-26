@@ -26,23 +26,28 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
         
         try:
             # Log raw data before decoding attempt
-            logger.debug(f"Получена UDP датаграмма от {addr} (сырые байты: {data!r})")
-            decoded_message = data.decode('utf-8') # Декодируем в UTF-8
-            message_str = decoded_message.strip() # Убираем пробельные символы по краям
-            logger.debug(f"Декодированное (и strip-нутое) сообщение от {addr}: '{message_str}'")
+            logger.debug(f"Raw bytes received: {data}")
+            raw_data = data.decode('utf-8', errors='ignore').strip() # Декодируем в UTF-8, игнорируем ошибки и убираем пробелы
+            
+            cleaned_data = raw_data.replace('\x00', '')
+            if cleaned_data != raw_data:
+                logger.warning("Removed null characters from data")
+                raw_data = cleaned_data
+            
+            logger.debug(f"Декодированное (и strip-нутое) сообщение от {addr}: '{raw_data}'")
 
-            if not message_str:
+            if not raw_data:
                 logger.warning(f"Received empty message from {addr} after strip. Ignoring.")
                 return
 
-            message = json.loads(message_str)
+            message = json.loads(raw_data)
             logger.debug(f"Успешно декодированный JSON от {addr}: {message}")
 
             action = message.get("action")
             player_id = message.get("player_id") # Предполагаем, что ID игрока передается в каждом сообщении
 
             if not player_id:
-                logger.warning(f"Нет player_id в сообщении от {addr}. Сообщение: '{message_str}'. Игнорируется.")
+                logger.warning(f"Нет player_id в сообщении от {addr}. Сообщение: '{raw_data}'. Игнорируется.")
                 return
 
             logger.info(f"Получено действие '{action}' от игрока '{player_id}' ({addr})")
@@ -128,7 +133,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                     logger.debug(f"Отправлен ответ на leave_game для {player_id} ({addr}): {response}")
 
             else:
-                logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {message_str}")
+                logger.warning(f"Неизвестное действие '{action}' от игрока {player_id} ({addr}). Сообщение: {raw_data}")
                 response = {"status": "error", "message": "Unknown action"}
                 self.transport.sendto(json.dumps(response).encode('utf-8'), addr) # Ensure UTF-8 for sending
                 logger.debug(f"Отправлен ответ об ошибке (Unknown action) для {player_id} ({addr}): {response}")
@@ -138,10 +143,10 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
         except json.JSONDecodeError as e: # Alias the exception to 'e'
             # Updated log message to include the error 'e' and raw 'data'
-            logger.error(f"Invalid JSON received from {addr}: '{message_str}' | Error: {e}. Raw bytes: {data!r}")
+            logger.error(f"Invalid JSON received from {addr}: '{raw_data}' | Error: {e}. Raw bytes: {data!r}")
             self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr) # Ensure UTF-8 for sending
         except Exception as e:
-            logger.exception(f"Ошибка при обработке датаграммы от {addr} (декодированное сообщение перед ошибкой: '{message_str}'):")
+            logger.exception(f"Ошибка при обработке датаграммы от {addr} (декодированное сообщение перед ошибкой: '{raw_data}'):")
             try:
                 self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr) # Ensure UTF-8
             except Exception as ex_send:

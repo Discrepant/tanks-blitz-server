@@ -2,9 +2,10 @@
 import asyncio
 import json
 import logging
-from .game_logic import GameRoom, Player  # Убедитесь, что пути импорта верны
-from core.message_broker_clients import publish_rabbitmq_message, \
-    RABBITMQ_QUEUE_PLAYER_COMMANDS  # Убедитесь, что пути импорта верны
+
+# Убедитесь, что пути импорта соответствуют вашей структуре проекта
+from .game_logic import GameRoom, Player
+from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS
 
 logger = logging.getLogger(__name__)
 
@@ -30,52 +31,48 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 await game_room.add_player(player)
                 writer.write(f"LOGIN_SUCCESS {auth_message} Token: {session_token}\n".encode())
                 await writer.drain()
-                logger.info(f"DEBUG: LOGIN_SUCCESS sent to {addr}. Player: {player.name if player else 'None'}")
+                logger.info(f"Player {player.name} successfully logged in from {addr}.")
             else:
                 writer.write(f"LOGIN_FAILURE {auth_message}\n".encode())
                 await writer.drain()
-                logger.info(f"DEBUG: LOGIN_FAILURE sent to {addr}. Returning.")
+                logger.warning(f"Login failed for {username} from {addr}: {auth_message}")
                 return
         elif command == 'REGISTER' and len(parts) == 3:
             writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
             await writer.drain()
-            logger.info(f"DEBUG: REGISTER_FAILURE sent to {addr}. Returning.")
+            logger.info(f"Registration attempt failed for {addr} (not supported).")
             return
         else:
             writer.write("INVALID_COMMAND Expected: LOGIN username password or REGISTER username password\n".encode())
             await writer.drain()
-            logger.info(f"DEBUG: INVALID_COMMAND (auth) sent to {addr}. Returning.")
+            logger.warning(f"Invalid initial command from {addr}: {intro_message}")
             return
 
-        logger.info(f"DEBUG: Authentication block passed. Player is {player.name if player else 'None'}.")
-
         if not player or not player.writer:
-            logger.error(
-                f"DEBUG: Player object not valid or writer missing for {addr}. Player: {player}, Player.writer: {player.writer if player else 'N/A'}. Returning.")
+            logger.error(f"Player object not created or writer missing after auth for {addr}. Player: {player}")
             if writer and not writer.is_closing():
                 writer.close()
                 await writer.wait_closed()
             return
 
-        logger.info(f"DEBUG: Player {player.name} authenticated. Entering command loop.")
+        logger.info(f"Player {player.name} authenticated. Entering command processing loop.")
 
         while True:
-            logger.info(f"DEBUG: Top of command loop for {player.name}.")
             if player.writer.is_closing():
-                logger.info(f"DEBUG: Player {player.name} writer is closing. Exiting loop.")
+                logger.info(f"Writer for player {player.name} is closing. Exiting command loop.")
                 break
             try:
-                logger.info(f"DEBUG: Player {player.name} waiting for command...")
                 data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=300.0)
                 message_str = data.decode().strip()
-                logger.info(f"DEBUG: Received from {player.name}: '{message_str}' (raw data: {data!r})")
 
                 if not message_str:
                     logger.info(
-                        f"DEBUG: Received empty message string from {player.name}, sending EMPTY_COMMAND response and continuing.")
+                        f"Received empty message string from {player.name}. Sending EMPTY_COMMAND response and continuing.")
                     writer.write(b"EMPTY_COMMAND\n")
                     await writer.drain()
                     continue
+
+                logger.info(f"Received from {player.name} ({addr}): '{message_str}'")
 
                 parts = message_str.split()
                 cmd = parts[0].upper() if parts else ""
@@ -88,7 +85,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                         "command": "shoot",
                         "details": {"source": "tcp_handler"}
                     }
-                    logger.info(f"DEBUG: Prepared 'shoot' command for {player.name}")
+                    logger.debug(f"Prepared 'shoot' command for {player.name}")
                 elif cmd == "MOVE" and len(parts) == 3:
                     try:
                         x, y = int(parts[1]), int(parts[2])
@@ -97,78 +94,89 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                             "command": "move",
                             "details": {"new_position": [x, y], "source": "tcp_handler"}
                         }
-                        logger.info(f"DEBUG: Prepared 'move' command for {player.name} to [{x},{y}]")
+                        logger.debug(f"Prepared 'move' command for {player.name} to [{x},{y}]")
                     except ValueError:
-                        logger.warning(f"DEBUG: Invalid MOVE parameters from {player.name}: {parts[1:]}")
+                        logger.warning(f"Invalid MOVE parameters from {player.name}: {parts[1:]}")
                         response_message = "BAD_COMMAND_FORMAT Invalid MOVE parameters. Expected MOVE X Y (integers).\n"
                 elif not cmd:
-                    logger.warning(f"DEBUG: Empty command parsed for {player.name}")
+                    logger.warning(f"Empty command parsed for {player.name} (after split).")
                     response_message = "EMPTY_COMMAND\n"
                 else:
-                    logger.warning(f"DEBUG: Unknown command '{cmd}' from {player.name}. Full message: '{message_str}'")
+                    logger.warning(f"Unknown command '{cmd}' from {player.name}. Full message: '{message_str}'")
 
                 if command_data:
                     try:
                         publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
                         logger.info(
-                            f"DEBUG: Published command '{command_data['command']}' for player {player.name} to RabbitMQ.")
+                            f"Published command '{command_data['command']}' for player {player.name} to RabbitMQ.")
                         response_message = "COMMAND_ACKNOWLEDGED\n"
                     except Exception as e_pub:
-                        logger.error(f"DEBUG: Failed to publish command for player {player.name} to RabbitMQ: {e_pub}",
+                        logger.error(f"Failed to publish command for player {player.name} to RabbitMQ: {e_pub}",
                                      exc_info=True)
                         response_message = "ERROR_PROCESSING_COMMAND\n"
 
-                logger.info(f"DEBUG: Player {player.name} attempting to send response: {response_message.strip()}")
-                writer.write(response_message.encode())
-                await writer.drain()
-                logger.info(f"DEBUG: Player {player.name} response sent and drained.")
+                if not writer.is_closing():
+                    writer.write(response_message.encode())
+                    await writer.drain()
+                else:
+                    logger.warning(
+                        f"Writer for {player.name} was closing before sending response: {response_message.strip()}")
+                    break
 
             except ConnectionResetError:
-                logger.info(f"DEBUG: ConnectionResetError for {player.name} ({addr}). Exiting loop.")
+                logger.info(f"ConnectionResetError for {player.name} ({addr}). Exiting command loop.")
                 break
             except asyncio.IncompleteReadError:
-                logger.info(f"DEBUG: IncompleteReadError for {player.name} ({addr}). Exiting loop.")
+                logger.info(
+                    f"IncompleteReadError for {player.name} ({addr}). Client closed connection. Exiting command loop.")
                 break
             except asyncio.TimeoutError:
-                logger.info(f"DEBUG: Timeout waiting for message from {player.name} ({addr}).")
+                logger.info(f"Timeout waiting for message from {player.name} ({addr}).")
                 try:
                     if not writer.is_closing():
                         writer.write("SERVER: You have been disconnected due to inactivity.\n".encode())
                         await writer.drain()
                 except Exception as e_send:
-                    logger.error(f"DEBUG: Failed to send inactivity message to {player.name}: {e_send}")
+                    logger.error(f"Failed to send inactivity message to {player.name}: {e_send}")
                 break
             except Exception as e:
-                logger.error(f"DEBUG: Error processing command from {player.name} ({addr}): {e}", exc_info=True)
+                logger.error(f"Error processing command from {player.name} ({addr}): {e}", exc_info=True)
                 try:
                     if not writer.is_closing():
                         writer.write(f"SERVER_ERROR: An error occurred: {type(e).__name__}\n".encode())
                         await writer.drain()
                 except Exception as e_send:
-                    logger.error(f"DEBUG: Failed to send server error message to {player.name}: {e_send}")
+                    logger.error(f"Failed to send server error message to {player.name}: {e_send}")
                 break
 
     except Exception as e:
-        logger.critical(f"DEBUG: Critical error in handle_game_client for {addr}: {e}", exc_info=True)
+        logger.critical(f"Critical error in handle_game_client for {addr}: {e}", exc_info=True)
         if writer and not writer.is_closing():
             try:
                 writer.write(f"CRITICAL_ERROR {type(e).__name__}\n".encode())
                 await writer.drain()
             except Exception as we:
-                logger.error(f"DEBUG: Failed to send critical error message to client {addr}: {we}")
+                logger.error(f"Failed to send critical error message to client {addr}: {we}")
     finally:
         if player:
-            if asyncio.iscoroutinefunction(game_room.remove_player):
-                await game_room.remove_player(player)
-            else:
-                game_room.remove_player(player)
-            logger.info(f"DEBUG: Player {player.name} ({addr}) disconnected and removed from game room.")
+            logger.info(f"Player {player.name} ({addr}) disconnecting.")
+            try:
+                if asyncio.iscoroutinefunction(game_room.remove_player):
+                    await game_room.remove_player(player)
+                else:
+                    game_room.remove_player(player)
+                logger.info(f"Player {player.name} removed from game room.")
+            except Exception as e_remove:
+                logger.error(f"Error removing player {player.name} from game room: {e_remove}", exc_info=True)
         else:
-            logger.info(f"DEBUG: Connection from {addr} closed (player not fully added or already removed).")
+            logger.info(f"Connection from {addr} closed (player was not fully initialized or already removed).")
 
         if writer and not writer.is_closing():
             try:
+                logger.info(f"Closing writer for {addr}.")
                 writer.close()
                 await writer.wait_closed()
             except Exception as e_close:
-                logger.error(f"DEBUG: Error during writer close for {addr}: {e_close}")
+                logger.error(f"Error during writer close for {addr}: {e_close}")
+        else:
+            logger.info(f"Writer for {addr} already closed or None.")

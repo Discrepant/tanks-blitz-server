@@ -3,7 +3,6 @@ import pytest
 from unittest.mock import patch # Added import
 from auth_server.user_service import authenticate_user, MOCK_USERS_DB, register_user
 
-@pytest.mark.asyncio
 async def test_authenticate_user_success():
     # Используем тестовых пользователей из MOCK_USERS_DB
     test_username = "player1"
@@ -12,7 +11,6 @@ async def test_authenticate_user_success():
     assert is_auth is True
     assert "успешно аутентифицирован" in message
 
-@pytest.mark.asyncio
 async def test_authenticate_user_wrong_password():
     test_username = "player1"
     wrong_password = "wrongpassword"
@@ -20,7 +18,6 @@ async def test_authenticate_user_wrong_password():
     assert is_auth is False
     assert "Неверный пароль" in message
 
-@pytest.mark.asyncio
 async def test_authenticate_user_not_found():
     unknown_username = "unknownuser"
     test_password = "password123"
@@ -28,7 +25,6 @@ async def test_authenticate_user_not_found():
     assert is_auth is False
     assert "Пользователь не найден" in message
 
-@pytest.mark.asyncio
 async def test_register_user_success_mock(): # mocker argument removed
     # Мокаем MOCK_USERS_DB для этого теста, чтобы не влиять на другие
     # Хотя register_user в текущей реализации ничего не меняет, это для примера
@@ -41,7 +37,6 @@ async def test_register_user_success_mock(): # mocker argument removed
     # В реальном тесте мы бы проверили, что пользователь добавлен в MOCK_USERS_DB
     # или что был вызван метод сохранения в БД, если бы он был реализован.
 
-@pytest.mark.asyncio
 async def test_register_user_already_exists_mock(): # mocker argument removed
     existing_username = "player1"
     # Убедимся, что пользователь существует для этого теста

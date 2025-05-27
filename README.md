@@ -174,18 +174,53 @@ TCP: localhost:8888. Prometheus: http://localhost:8000/metrics.
 python -m game_server.main
 
 UDP: localhost:9999. Prometheus: http://localhost:8001/metrics.
-Тестирование
 
-Для запуска всех юнит-тестов, находясь в корневой директории проекта и активировав виртуальное окружение, выполните:
+## Testing
 
-python -m pytest tests/unit/ -v -s
+### Unit Tests
 
-Или, используя стандартный unittest discovery:
+Unit tests cover individual modules and components of the system to ensure their correctness in isolation. They are located in the `tests/unit/` directory.
 
-python -m unittest discover tests/unit
+To run all unit tests, use either of the following commands from the project root directory:
 
-Также отдельные файлы с тестами могут быть запущены как обычные Python скрипты, если они содержат соответствующий блок if __name__ == '__main__': unittest.main().
-Запуск и отладка юнит-тестов
+-   **Using pytest:**
+    ```bash
+    python -m pytest tests/unit/ -v -s
+    ```
+-   **Using unittest discovery:**
+    ```bash
+    python -m unittest discover tests/unit
+    ```
+
+### Integration Tests
+
+Integration tests (`tests/test_integration.py`) are designed to check the interaction between the `auth_server` and `game_server` processes.
+
+To run the integration tests:
+```bash
+python -m unittest tests/test_integration.py
+```
+
+**Mock Mode (Default for tests):**
+By default, for these integration tests to run without requiring live external services (Redis, Kafka, RabbitMQ), the servers are configured to run in a "mock mode". This is achieved by the test script (`tests/test_integration.py`) automatically setting the environment variable `USE_MOCKS=true` for the server subprocesses it launches. In this mode, clients for Redis, Kafka, and RabbitMQ within the core modules (`core/redis_client.py`, `core/message_broker_clients.py`) are simulated using Python's `unittest.mock.MagicMock` and do not attempt to connect to actual service instances.
+
+**Using Real Services (Optional):**
+A `docker-compose.yml` file is provided to run real instances of dependencies (Redis, Kafka, Zookeeper, RabbitMQ). To start these services:
+```bash
+# It's recommended to check if docker-compose or docker compose is available
+# docker-compose --version
+# docker compose version
+docker compose up -d redis-service kafka rabbitmq 
+# or for older docker-compose:
+# docker-compose up -d redis-service kafka rabbitmq
+```
+If you wish to test the servers against these real services, the `USE_MOCKS=true` environment variable setting should be removed or set to `false` within `tests/test_integration.py` before the server subprocesses are launched. Alternatively, you can run the servers manually outside the test script, configured with the appropriate environment variables pointing to the live services.
+
+**Known Issues:**
+-   **Game Server Integration Tests:** As of the latest test runs, some integration tests for the `game_server` (specifically `test_05` through `test_09`) are failing. This is due to a `TypeError: argument of type 'int' is not iterable` occurring within the `GameRoom` logic in `game_server/game_logic.py`. The root cause is that the `GameRoom` instance's `self.players` attribute is incorrectly an integer `0` instead of a dictionary `{}` at runtime. This is suspected to be due to the Python interpreter executing an older, cached version of `game_logic.py` within the subprocess, despite recent code corrections and cache cleaning attempts. This requires further local investigation to ensure the correct code version is consistently executed.
+-   **Auth Server Integration Tests:** All integration tests for the `auth_server` (`test_01` to `test_04`) are currently passing, correctly utilizing the centralized `MOCK_USERS_DB` and JSON request/response formats.
+
+### Запуск и отладка юнит-тестов
 
 В проекте используется стандартная библиотека unittest для написания и запуска юнит-тестов. Файлы тестов находятся в директории tests/unit/.
 

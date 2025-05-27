@@ -1,11 +1,15 @@
 import asyncio
+import json # Added import
+import logging # Added import
+
+logger = logging.getLogger(__name__) # Added logger
 
 class AuthClient:
     def __init__(self, auth_server_host: str, auth_server_port: int):
         self.auth_host = auth_server_host
         self.auth_port = auth_server_port
 
-    async def _send_auth_command(self, command: str):
+    async def _send_auth_command(self, command_dict: dict): # command is now a dict
         try:
             reader, writer = await asyncio.open_connection(self.auth_host, self.auth_port)
         except ConnectionRefusedError:
@@ -18,48 +22,63 @@ class AuthClient:
             return "AUTH_FAILURE", error_msg, None # Добавляем None для токена
 
 
-        print(f"Отправка на сервер аутентификации ({self.auth_host}:{self.auth_port}): {command}")
-        writer.write(command.encode() + b"\n") # Добавляем \n
+        json_payload_str = json.dumps(command_dict)
+        json_payload_bytes = json_payload_str.encode('utf-8')
+        print(f"Отправка на сервер аутентификации ({self.auth_host}:{self.auth_port}): {json_payload_str}")
+        writer.write(json_payload_bytes + b"\n") # Добавляем \n
         await writer.drain()
 
         try:
             # Увеличиваем буфер и добавляем таймаут
             response_data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=10.0)
             response = response_data.decode().strip()
-            print(f"Ответ от сервера аутентификации: {response}")
+            logger.info(f"Ответ от сервера аутентификации: {response}") # Changed print to logger.info
         except asyncio.TimeoutError:
-            response = "AUTH_FAILURE Ответ от сервера аутентификации не получен (таймаут)."
-            print(response)
+            logger.error("AuthClient: Ответ от сервера аутентификации не получен (таймаут).") # Changed print to logger.error
+            response = "" # Ensure response is an empty string for consistent error handling below
+            # Fall through to JSON parsing which will fail and set generic error message
         except asyncio.IncompleteReadError:
-            response = "AUTH_FAILURE Сервер аутентификации закрыл соединение без полного ответа."
-            print(response)
+            logger.error("AuthClient: Сервер аутентификации закрыл соединение без полного ответа.") # Changed print to logger.error
+            response = "" # Ensure response is an empty string
         except Exception as e:
-            response = f"AUTH_FAILURE Ошибка при чтении ответа от сервера аутентификации: {e}"
-            print(response)
+            logger.error(f"AuthClient: Ошибка при чтении ответа от сервера аутентификации: {e}") # Changed print to logger.error
+            response = "" # Ensure response is an empty string
         finally:
             writer.close()
             await writer.wait_closed()
 
-        parts = response.split(" ", 1)
-        status = parts[0]
-        message = parts[1] if len(parts) > 1 else "Нет дополнительного сообщения."
+        try:
+            response_json = json.loads(response)
+            status_from_auth_server = response_json.get("status")
+            message_from_auth_server = response_json.get("message", "No message field in JSON response.")
 
-        # Предполагаем, что токен может быть частью сообщения при успехе
-        # Это очень упрощенная логика для токена!
-        session_token = None
-        if status == "AUTH_SUCCESS":
-            # Пример: "AUTH_SUCCESS Пользователь player1 успешно аутентифицирован. Token: блаблабла"
-            # В user_service.py пока нет генерации токена, это задел на будущее.
-            # Сейчас просто используем имя пользователя как заглушку для токена, если он успешен.
-            # В реальном приложении сервер аутентификации должен был бы вернуть токен.
-            # Мы здесь его не генерируем, а ожидаем от auth_server.
-            # Так как auth_server его не шлет, токен будет None.
-            # Для демонстрации можно было бы сделать так:
-            # if "Token: " in message: session_token = message.split("Token: ")[1]
-            # Но пока что оставим None, т.к. auth_server не возвращает токен
-            pass # session_token остается None
+            if status_from_auth_server == "success":
+                status_to_return = "AUTH_SUCCESS" # Standardize status for AuthClient users
+            elif status_from_auth_server == "failure":
+                status_to_return = "AUTH_FAILURE"
+            else: # Unknown status in JSON
+                status_to_return = "AUTH_FAILURE"
+                message_from_auth_server = f"Unknown status '{status_from_auth_server}' in auth server response. Full response: {response}"
+            
+            final_message = message_from_auth_server
 
-        return status, message, session_token
+        except json.JSONDecodeError:
+            logger.error(f"AuthClient: JSONDecodeError when parsing auth server response: '{response}'")
+            status_to_return = "AUTH_FAILURE"
+            final_message = "Invalid JSON response from auth server."
+        except AttributeError: # If response_json is not a dict (e.g. json.loads returns a string/list)
+            logger.error(f"AuthClient: AttributeError, response_json not a dict. Response: '{response}'")
+            status_to_return = "AUTH_FAILURE"
+            final_message = "Non-dictionary JSON response from auth server."
+
+        # The session_token logic remains the same (currently always None from this method)
+        session_token = None 
+        # Example for future token extraction if auth_server provided it in JSON:
+        if status_to_return == "AUTH_SUCCESS" and isinstance(response_json, dict):
+           session_token = response_json.get("session_id") # Assuming auth_server returns session_id
+
+        logger.debug(f"AuthClient._send_auth_command returning: status='{status_to_return}', message='{final_message}', token='{session_token}'")
+        return status_to_return, final_message, session_token
 
 
     async def login_user(self, username, password):
@@ -67,15 +86,20 @@ class AuthClient:
         Отправляет команду LOGIN на сервер аутентификации.
         Возвращает (bool, str, str|None): (успех, сообщение, session_token)
         """
-        command = f"LOGIN {username} {password}"
-        status, message, session_token = await self._send_auth_command(command)
+        command_dict = {"action": "login", "username": username, "password": password}
+        status, message, session_token = await self._send_auth_command(command_dict)
+        
+        authenticated = (status == "AUTH_SUCCESS")
         # Предположим, что сессионный токен - это имя пользователя при успехе (заглушка)
         # В реальном сценарии, токен должен приходить от сервера аутентификации
-        if status == "AUTH_SUCCESS":
+        if authenticated:
             # Это временная заглушка. Сервер аутентификации должен вернуть реальный токен.
             # Пока что используем username как псевдо-токен для демонстрационных целей.
             # session_token = username # Закомментировано, т.к. auth_server его не возвращает
+            logger.debug(f"AuthClient.login_user returning: authenticated={authenticated}, message='{message}', token='{session_token}'")
             return True, message, session_token # session_token здесь будет None
+        
+        logger.debug(f"AuthClient.login_user returning: authenticated={authenticated}, message='{message}', token='{session_token}'")
         return False, message, None
 
     # async def register_user(self, username, password):

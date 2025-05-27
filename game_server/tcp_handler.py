@@ -27,16 +27,30 @@ async def handle_game_client(reader, writer, game_room):
             cmd = parts[0].upper()
             if cmd == 'LOGIN' and len(parts) == 3:
                 username, password = parts[1], parts[2]
-                player = await game_room.add_player(username)
-                if player:
-                    writer.write(f"LOGIN_SUCCESS Login OK Token: {player.token}\n".encode())
+                # Call game_room.authenticate_player
+                authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
+                logger.debug(f"GameTCPHandler: authenticate_player returned: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
+                
+                if authenticated:
+                    # Create Player instance
+                    # Assuming Player is imported correctly (e.g., from .models or .game_logic)
+                    player_obj = Player(writer=writer, name=username, session_token=session_token)
+                    # Add player object to game_room
+                    await game_room.add_player(player_obj) 
+                    player = player_obj # Assign to the handler's player variable
+                    
+                    # Send success response
+                    logger.debug(f"GameTCPHandler: Writing LOGIN_SUCCESS to client. Message='{auth_message}', Token='{session_token if session_token else 'N/A'}'")
+                    writer.write(f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n".encode())
                     await writer.drain()
-                    logger.info(f"Player {username} logged in from {addr}")
+                    logger.info(f"Player {username} logged in from {addr}. Token: {session_token if session_token else 'N/A'}")
                 else:
-                    writer.write("LOGIN_FAILURE Invalid credentials\n".encode())
+                    # Send failure response
+                    logger.debug(f"GameTCPHandler: Writing LOGIN_FAILURE to client. Message='{auth_message}'")
+                    writer.write(f"LOGIN_FAILURE {auth_message}\n".encode())
                     await writer.drain()
-                    logger.info(f"Login failed for {username} from {addr}. Returning.")
-                    return
+                    logger.info(f"Login failed for {username} from {addr}. Message: {auth_message}. Returning.")
+                    return  # Terminate handler for this client
             elif cmd == 'REGISTER' and len(parts) == 3:
                 writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
                 await writer.drain()

@@ -2,7 +2,12 @@
 import asyncio
 import logging # Добавляем импорт
 import time # Added for the main loop in finally example, though not strictly needed for this change
+import functools # Added import
+import os # Added import
 from .udp_handler import GameUDPProtocol
+from .tcp_handler import handle_game_client # Added import
+from .game_logic import GameRoom # Added import
+from .auth_client import AuthClient # Added import
 from .session_manager import SessionManager
 from .tank_pool import TankPool
 from .command_consumer import PlayerCommandConsumer, MatchmakingEventConsumer # Added MatchmakingEventConsumer
@@ -64,11 +69,39 @@ async def start_game_server():
 
     logger.info(f"Игровой UDP сервер запущен и слушает на {transport.get_extra_info('sockname')}")
 
+    # Start TCP server
+    game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
+    game_tcp_port = int(os.getenv('GAME_SERVER_TCP_PORT', 8889))
+    auth_server_host = os.getenv('AUTH_SERVER_HOST', 'localhost')
+    auth_server_port = int(os.getenv('AUTH_SERVER_PORT', 8888))
+
+    auth_client = AuthClient(auth_server_host=auth_server_host, auth_server_port=auth_server_port)
+    game_room = GameRoom(auth_client=auth_client)
+
+    tcp_server_handler = functools.partial(handle_game_client, game_room=game_room)
+    tcp_server = await loop.create_server(
+        tcp_server_handler,
+        game_tcp_host,
+        game_tcp_port
+    )
+    logger.info(f"Игровой TCP сервер запущен и слушает на {game_tcp_host}:{game_tcp_port}")
+    # Example of logging actual bound address: logger.info(f"TCP Server actually listening on {tcp_server.sockets[0].getsockname()}")
+
+
     try:
         await asyncio.Event().wait() 
     finally:
-        logger.info("Остановка игрового UDP сервера...")
-        transport.close()
+        logger.info("Остановка игровых серверов...")
+        # Stop TCP server
+        if 'tcp_server' in locals() and tcp_server:
+            tcp_server.close()
+            await tcp_server.wait_closed()
+            logger.info("Игровой TCP сервер остановлен.")
+        # Stop UDP server
+        if 'transport' in locals() and transport:
+            transport.close()
+            logger.info("Игровой UDP сервер остановлен.")
+
 
 if __name__ == '__main__':
     # Configure logging here so it's set up early

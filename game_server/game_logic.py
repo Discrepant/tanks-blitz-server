@@ -1,6 +1,9 @@
 import asyncio
+import logging # Added import
 from .auth_client import AuthClient # Клиент для сервера аутентификации
 from .models import Player # Модель игрока
+
+logger = logging.getLogger(__name__) # Added logger
 
 class GameRoom:
     def __init__(self, auth_client: AuthClient):
@@ -18,6 +21,8 @@ class GameRoom:
         return authenticated, message, session_token
 
     async def add_player(self, player: Player):
+        logger.debug(f"GameRoom.add_player: About to check 'in'. self.players type: {type(self.players)}, value: {self.players!r}")
+        logger.debug(f"GameRoom.add_player: About to check 'in'. player.name type: {type(player.name)}, value: {player.name!r}")
         if player.name in self.players:
             # Обработка случая, если игрок уже в комнате (например, переподключение)
             # Пока просто не добавляем, если уже существует с таким именем

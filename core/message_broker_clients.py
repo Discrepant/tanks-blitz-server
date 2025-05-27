@@ -4,6 +4,7 @@ import logging
 import os
 import pika
 from confluent_kafka import Producer, KafkaException # KafkaError as ConfluentKafkaError (ConfluentKafkaError is not directly used, KafkaException is broader)
+from unittest.mock import MagicMock # Added import
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +36,16 @@ def delivery_report(err, msg):
 
 def get_kafka_producer():
     global _kafka_producer
+    if os.getenv("USE_MOCKS") == "true":
+        if not (isinstance(_kafka_producer, MagicMock) and hasattr(_kafka_producer, '_is_custom_kafka_mock')):
+            # If _kafka_producer is not already our custom mock, create it
+            _kafka_producer = MagicMock(name="GlobalMockKafkaProducer")
+            _kafka_producer.produce = MagicMock(name="MockKafkaProducer.produce")
+            _kafka_producer.flush = MagicMock(name="MockKafkaProducer.flush", return_value=0)
+            _kafka_producer._is_custom_kafka_mock = True # Mark it
+            logger.info("Global _kafka_producer initialized in MOCK mode.")
+        return _kafka_producer
+
     if _kafka_producer is None:
         try:
             conf = {
@@ -82,6 +93,29 @@ def send_kafka_message(topic, message_dict):
 
 def get_rabbitmq_channel():
     global _rabbitmq_connection, _rabbitmq_channel
+    if os.getenv("USE_MOCKS") == "true":
+        if not (isinstance(_rabbitmq_channel, MagicMock) and hasattr(_rabbitmq_channel, '_is_custom_rabbitmq_mock')):
+            _rabbitmq_connection = MagicMock(name="GlobalMockRabbitMQConnection")
+            _rabbitmq_connection.is_closed = False
+            # _rabbitmq_connection.channel.return_value = _rabbitmq_channel # This creates a circular dep if _rabbitmq_channel is not yet the mock
+            
+            _rabbitmq_channel = MagicMock(name="GlobalMockRabbitMQChannel")
+            _rabbitmq_channel.queue_declare = MagicMock(name="MockRabbitMQChannel.queue_declare")
+            _rabbitmq_channel.basic_qos = MagicMock(name="MockRabbitMQChannel.basic_qos")
+            _rabbitmq_channel.basic_publish = MagicMock(name="MockRabbitMQChannel.basic_publish")
+            _rabbitmq_channel.basic_consume = MagicMock(name="MockRabbitMQChannel.basic_consume")
+            _rabbitmq_channel.start_consuming = MagicMock(name="MockRabbitMQChannel.start_consuming")
+            _rabbitmq_channel.stop_consuming = MagicMock(name="MockRabbitMQChannel.stop_consuming")
+            _rabbitmq_channel.close = MagicMock(name="MockRabbitMQChannel.close")
+            _rabbitmq_channel.is_open = True
+            _rabbitmq_channel.is_closed = False 
+            _rabbitmq_channel._is_custom_rabbitmq_mock = True # Mark it
+
+            # Now that _rabbitmq_channel mock exists, we can set it as the return for connection.channel()
+            _rabbitmq_connection.channel.return_value = _rabbitmq_channel
+            logger.info("Global _rabbitmq_channel and _rabbitmq_connection initialized in MOCK mode.")
+        return _rabbitmq_channel
+
     try:
         if _rabbitmq_connection is None or _rabbitmq_connection.is_closed:
             _rabbitmq_connection = pika.BlockingConnection(

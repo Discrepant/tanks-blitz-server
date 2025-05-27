@@ -1,4 +1,8 @@
 # tests/unit/test_tcp_handler_game.py
+import logging
+# Добавляем конфигурацию логгирования в самое начало, если ее там еще нет
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
+
 import asyncio
 import unittest
 from unittest.mock import MagicMock, patch, call, AsyncMock
@@ -24,6 +28,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
     async def test_handle_game_client_shoot_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq):
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
         mock_writer = AsyncMock(spec=asyncio.StreamWriter)
+        mock_writer.is_closing.return_value = False # <--- ДОБАВЛЕНО
         mock_writer.get_extra_info.return_value = ('127.0.0.1', 12345)
 
         login_command = "LOGIN test_user test_pass\n"
@@ -31,7 +36,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),
             shoot_command.encode('utf-8'),
-            ConnectionResetError() # Используем ConnectionResetError для завершения
+            ConnectionResetError()
         ]
 
         mock_game_room = MagicMock()
@@ -43,7 +48,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
             await handle_game_client(mock_reader, mock_writer, mock_game_room)
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         expected_message_shoot = {
             "player_id": "test_user",
             "command": "shoot",
@@ -51,7 +56,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         }
         mock_publish_rabbitmq.assert_any_call('', 'player_commands', expected_message_shoot)
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
         self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
 
@@ -59,6 +64,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
     async def test_handle_game_client_move_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq):
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
         mock_writer = AsyncMock(spec=asyncio.StreamWriter)
+        mock_writer.is_closing.return_value = False # <--- ДОБАВЛЕНО
         mock_writer.get_extra_info.return_value = ('127.0.0.1', 12345)
 
         login_command = "LOGIN test_user test_pass\n"
@@ -66,7 +72,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),
             move_command.encode('utf-8'),
-            ConnectionResetError() # Используем ConnectionResetError для завершения
+            ConnectionResetError()
         ]
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
@@ -77,7 +83,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
             await handle_game_client(mock_reader, mock_writer, mock_game_room)
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         expected_message_move = {
             "player_id": "test_user",
             "command": "move",
@@ -85,13 +91,14 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         }
         mock_publish_rabbitmq.assert_any_call('', 'player_commands', expected_message_move)
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
         self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
 
     async def test_handle_game_client_unknown_command(self, mock_publish_rabbitmq):
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
         mock_writer = AsyncMock(spec=asyncio.StreamWriter)
+        mock_writer.is_closing.return_value = False # <--- ДОБАВЛЕНО
         mock_writer.get_extra_info.return_value = ('127.0.0.1', 12345)
 
         login_command = "LOGIN test_user test_pass\n"
@@ -99,7 +106,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),
             unknown_command.encode('utf-8'),
-            ConnectionResetError() # Используем ConnectionResetError для завершения
+            ConnectionResetError()
         ]
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
@@ -110,12 +117,14 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
             await handle_game_client(mock_reader, mock_writer, mock_game_room)
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         mock_publish_rabbitmq.assert_not_called()
 
-        await asyncio.sleep(0) # Даем время асинхронным задачам
+        await asyncio.sleep(0)
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
+        self.assertIn(b"LOGIN_SUCCESS Login OK Token: token123\n", written_data)
         self.assertIn(b"UNKNOWN_COMMAND\n", written_data)
+
 
 if __name__ == '__main__':
     unittest.main()

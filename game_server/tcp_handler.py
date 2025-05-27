@@ -34,7 +34,7 @@ async def handle_game_client(reader, writer, game_room):
                 else:
                     writer.write("LOGIN_FAILURE Invalid credentials\n".encode())
                     await writer.drain()
-                    logger.info(f"Login failed for {username} from {addr}")
+                    logger.info(f"Login failed for {username} from {addr}. Returning.")
                     return
             elif cmd == 'REGISTER' and len(parts) == 3:
                 writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
@@ -61,10 +61,10 @@ async def handle_game_client(reader, writer, game_room):
                 writer.write("UNKNOWN_COMMAND\n".encode())
                 await writer.drain()
 
-            logger.info(f"DEBUG: Player {player.name} attempting to send response: {cmd.strip()}")
+            logger.info(f"DEBUG: Player {player.name if player else addr} attempting to send response: {cmd.strip()}")
             writer.write(f"COMMAND_RECEIVED {cmd}\n".encode())
             await writer.drain()
-            logger.info(f"DEBUG: Player {player.name} response sent and drained.")
+            logger.info(f"DEBUG: Player {player.name if player else addr} response sent and drained.")
 
     except ConnectionResetError:
         logger.info(f"DEBUG: ConnectionResetError for {player.name if player else addr} ({addr}). Exiting loop.")

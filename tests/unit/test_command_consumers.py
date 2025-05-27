@@ -16,7 +16,7 @@ from game_server.tank import Tank
 @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) 
 class TestPlayerCommandConsumer(unittest.TestCase):
 
-    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection): 
+    def setUp(self, mock_connect_and_declare, mock_pika_connection): 
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
         
@@ -91,7 +91,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
 @patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True) 
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
-    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection):
+    def setUp(self, mock_connect_and_declare, mock_pika_connection):
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
         self.mock_channel = MagicMock()

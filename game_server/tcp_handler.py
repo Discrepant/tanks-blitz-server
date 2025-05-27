@@ -1,6 +1,7 @@
 import asyncio
 import json  # Added import
 import logging  # Added import
+import time # Added import
 from .game_logic import GameRoom, Player
 from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS  # Убедитесь, что пути импорта верны
 logger = logging.getLogger(__name__)
@@ -26,7 +27,7 @@ async def handle_game_client(reader, writer, game_room):
             cmd = parts[0].upper()
             if cmd == 'LOGIN' and len(parts) == 3:
                 username, password = parts[1], parts[2]
-                player = game_room.add_player(username)
+                player = await game_room.add_player(username)
                 if player:
                     writer.write(f"LOGIN_SUCCESS Login OK Token: {player.token}\n".encode())
                     await writer.drain()
@@ -47,15 +48,32 @@ async def handle_game_client(reader, writer, game_room):
                     await writer.drain()
                     continue
 
-                command_data = {
-                    "player_id": player.name,
-                    "command": cmd.lower(),
-                    "details": {
-                        "source": "tcp_handler",
-                        "timestamp": time.time()
+                if cmd == 'MOVE':
+                    if len(parts) < 3:
+                        writer.write("MOVE_ERROR Missing coordinates\n".encode())
+                        await writer.drain()
+                        continue
+                    try:
+                        x = int(parts[1])
+                        y = int(parts[2])
+                        command_data = {
+                            "player_id": player.name,
+                            "command": "move",
+                            "details": {"new_position": [x, y]}
+                        }
+                        await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
+                    except ValueError:
+                        writer.write("MOVE_ERROR Invalid coordinates\n".encode())
+                        await writer.drain()
+                        logger.error(f"Invalid coordinates for MOVE command from {player.name}: {parts[1:]}")
+                        continue
+                elif cmd == 'SHOOT':
+                    command_data = {
+                        "player_id": player.name,
+                        "command": "shoot",
+                        "details": {"source": "tcp_handler"}
                     }
-                }
-                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
+                    await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
             else:
                 logger.warning(f"Unknown command '{cmd}' from {player.name if player else addr}. Full message: '{message_str}'")
                 writer.write("UNKNOWN_COMMAND\n".encode())
@@ -80,7 +98,7 @@ async def handle_game_client(reader, writer, game_room):
                 logger.error(f"Failed to send critical error message to client {addr}: {we}")
     finally:
         if player:
-            game_room.remove_player(player)
+            await game_room.remove_player(player)
         logger.info(f"Connection from {addr} closed (player not fully added or already removed).")
         if writer and not writer.is_closing():
             try:

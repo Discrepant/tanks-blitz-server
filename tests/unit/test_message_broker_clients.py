@@ -28,6 +28,10 @@ class TestKafkaClientConfluent(unittest.TestCase):
     def tearDown(self):
         # Clean up the global producer after each test
         # Call the actual close_kafka_producer to ensure its logic is covered.
+        if isinstance(core.message_broker_clients._kafka_producer, MagicMock):
+            if hasattr(core.message_broker_clients._kafka_producer, 'flush') and \
+               isinstance(core.message_broker_clients._kafka_producer.flush, MagicMock):
+                core.message_broker_clients._kafka_producer.flush.return_value = 0
         close_kafka_producer()
         # Explicitly set to None again in case close_kafka_producer was mocked or failed.
         core.message_broker_clients._kafka_producer = None
@@ -107,6 +111,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
     @patch('core.message_broker_clients.Producer')
     def test_close_kafka_producer_flushes(self, MockProducer):
         mock_producer_instance = MockProducer.return_value
+        mock_producer_instance.flush.return_value = 0
         # Simulate that a producer was created and is active
         core.message_broker_clients._kafka_producer = mock_producer_instance
         

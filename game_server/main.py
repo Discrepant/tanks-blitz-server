@@ -1,6 +1,13 @@
 # game_server/main.py
-import asyncio
 import logging # Добавляем импорт
+# Set DEBUG level for the entire 'game_server' package and add a handler
+_gs_logger = logging.getLogger('game_server')
+_gs_logger.setLevel(logging.DEBUG)
+_gs_logger.addHandler(logging.StreamHandler()) 
+# Ensure the root logger also shows debug if not configured by basicConfig yet
+logging.getLogger().setLevel(logging.DEBUG)
+
+import asyncio
 import time # Added for the main loop in finally example, though not strictly needed for this change
 import functools # Added import
 import os # Added import
@@ -105,7 +112,7 @@ async def start_game_server():
 
 if __name__ == '__main__':
     # Configure logging here so it's set up early
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
     logger.info("Starting game server application...")
 
     # Initialize shared instances of SessionManager and TankPool

@@ -34,7 +34,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),  # For login
             shoot_command.encode('utf-8'),  # For SHOOT command
-            asyncio.IncompleteReadError(b"", 0) # To break loop
+            ConnectionResetError() # To break loop
         ]
 
         mock_game_room = MagicMock()
@@ -59,9 +59,11 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
             "details": {"source": "tcp_handler"}
         }
         # Check publish_rabbitmq_message was called with the shoot command
+        await asyncio.sleep(0) # Allow tasks to settle
         mock_publish_rabbitmq.assert_any_call('', 'player_commands', expected_message_shoot)
         
         # Verify ack was sent (approximate check)
+        await asyncio.sleep(0) # Allow tasks to settle
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
         self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
 
@@ -76,7 +78,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),
             move_command.encode('utf-8'),
-            asyncio.IncompleteReadError(b"", 0)
+            ConnectionResetError()
         ]
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
@@ -92,7 +94,9 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
             "command": "move",
             "details": {"new_position": [10, 20], "source": "tcp_handler"}
         }
+        await asyncio.sleep(0) # Allow tasks to settle
         mock_publish_rabbitmq.assert_any_call('', 'player_commands', expected_message_move)
+        await asyncio.sleep(0) # Allow tasks to settle
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
         self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
 
@@ -106,7 +110,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_reader.readuntil.side_effect = [
             login_command.encode('utf-8'),
             unknown_command.encode('utf-8'),
-            asyncio.IncompleteReadError(b"", 0)
+            ConnectionResetError()
         ]
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
@@ -117,7 +121,9 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
             await handle_game_client(mock_reader, mock_writer, mock_game_room)
 
+        await asyncio.sleep(0) # Allow tasks to settle
         mock_publish_rabbitmq.assert_not_called() # Should not publish for unknown command
+        await asyncio.sleep(0) # Allow tasks to settle
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
         self.assertIn(b"UNKNOWN_COMMAND\n", written_data)
 

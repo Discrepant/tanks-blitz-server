@@ -6,7 +6,7 @@ from unittest.mock import MagicMock, patch, call
 
 from game_server.udp_handler import GameUDPProtocol
 # Assuming SessionManager, TankPool, Tank are imported or mocked as needed
-from game_server.session_manager import SessionManager
+from game_server.session_manager import SessionManager, GameSession
 from game_server.tank_pool import TankPool
 from game_server.tank import Tank
 
@@ -92,6 +92,7 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
         
         mock_tank = MagicMock(spec=Tank)
+        mock_tank.tank_id = tank_id # ADD THIS LINE
         self.protocol.tank_pool.get_tank.return_value = mock_tank
 
         message_data = {
@@ -121,12 +122,12 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         self.protocol.tank_pool.acquire_tank.return_value = acquired_tank_mock
         
         # Mock session creation and adding player
-        mock_session_instance = MagicMock(spec=SessionManager.GameSession) # Use spec for GameSession if it's nested
+        mock_session_instance = MagicMock(spec=GameSession) # Use spec for GameSession
         mock_session_instance.session_id="session_new"
         mock_session_instance.get_players_count.return_value = 0 # Before adding current player
 
         self.protocol.session_manager.get_session_by_player_id.return_value = None # Player not in session initially
-        # self.protocol.session_manager.create_session.return_value = mock_session_instance # UDP handler might try to find existing session first
+        self.protocol.session_manager.create_session.return_value = mock_session_instance # Ensure this is active for new session creation path
         # Let's simulate finding no existing session for player, then no available session with < 2 players, so create new.
         self.protocol.session_manager.sessions = {} # No existing sessions initially to force creation
 

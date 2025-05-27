@@ -16,8 +16,7 @@ from core.message_broker_clients import (
     _kafka_producer as global_kafka_producer # For cleanup checks
 )
 
-# Mock Producer from confluent_kafka
-@patch('core.message_broker_clients.Producer')
+# Mock Producer from confluent_kafka # Class-level patch removed
 class TestKafkaClientConfluent(unittest.TestCase):
 
     def setUp(self):
@@ -33,6 +32,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         # Explicitly set to None again in case close_kafka_producer was mocked or failed.
         core.message_broker_clients._kafka_producer = None
 
+    @patch('core.message_broker_clients.Producer')
     def test_get_kafka_producer_creates_producer(self, MockProducer):
         mock_producer_instance = MockProducer.return_value
         
@@ -48,6 +48,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         }
         MockProducer.assert_called_once_with(expected_config)
 
+    @patch('core.message_broker_clients.Producer')
     def test_get_kafka_producer_returns_existing_producer(self, MockProducer):
         # First call creates producer
         first_producer = get_kafka_producer()
@@ -57,10 +58,11 @@ class TestKafkaClientConfluent(unittest.TestCase):
         self.assertIs(first_producer, second_producer)
         MockProducer.assert_called_once() # Producer should only be created once
 
-    @patch('core.message_broker_clients.delivery_report') # Mock our delivery_report callback
+    @patch('core.message_broker_clients.Producer') # Outer decorator, mock will be last
+    @patch('core.message_broker_clients.delivery_report') # Inner decorator, mock will be first
     def test_send_kafka_message_success(self, mock_delivery_report_param, MockProducer):
         # mock_delivery_report_param is the one from @patch
-        # MockProducer is from the class-level patch
+        # MockProducer is from the method-level patch
         
         mock_producer_instance = MockProducer.return_value
         # Manually set the global producer to our mock instance for this test
@@ -80,26 +82,29 @@ class TestKafkaClientConfluent(unittest.TestCase):
         )
         mock_producer_instance.poll.assert_called_once_with(0)
 
+    @patch('core.message_broker_clients.Producer')
     def test_send_kafka_message_no_producer_after_init_failure(self, MockProducer):
-        # Simulate producer creation failure in get_kafka_producer
+        # Simulate producer creation failure when get_kafka_producer is called
         MockProducer.side_effect = core.message_broker_clients.KafkaException("Producer creation failed")
         
-        # Explicitly ensure _kafka_producer is None before calling get_kafka_producer
+        # Ensure _kafka_producer is None so get_kafka_producer (called inside send_kafka_message)
+        # will attempt to create it.
         core.message_broker_clients._kafka_producer = None 
         
-        # First call to get_kafka_producer will try to create, fail, and should set _kafka_producer to None
-        producer_init_attempt = get_kafka_producer() 
-        self.assertIsNone(producer_init_attempt) # get_kafka_producer should return None after failure
-        self.assertIsNone(core.message_broker_clients._kafka_producer) # Global should be None
-
-        # Now try to send a message; it should use the None producer path
+        # Call send_kafka_message. This will internally call get_kafka_producer,
+        # which will attempt to create Producer (and fail).
         result = send_kafka_message("test_topic_fail", {"key": "value"})
-        self.assertFalse(result) # Should return False as producer is None
+        
+        # Assert that send_kafka_message handled the failure correctly
+        self.assertFalse(result) 
+        
+        # Assert that Producer was attempted to be created exactly once
+        MockProducer.assert_called_once() 
+        
+        # Assert that the global producer remains None after the failure
+        self.assertIsNone(core.message_broker_clients._kafka_producer)
 
-        # Ensure Producer was attempted to be created once
-        MockProducer.assert_called_once()
-
-
+    @patch('core.message_broker_clients.Producer')
     def test_close_kafka_producer_flushes(self, MockProducer):
         mock_producer_instance = MockProducer.return_value
         # Simulate that a producer was created and is active
@@ -111,7 +116,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         self.assertIsNone(core.message_broker_clients._kafka_producer)
 
     # These tests for delivery_report are direct unit tests for the callback function itself.
-    def test_delivery_report_success_direct_call(self, MockProducer): # MockProducer is here due to class decorator
+    def test_delivery_report_success_direct_call(self): # REMOVE MockProducer
         mock_msg = MagicMock()
         mock_msg.topic.return_value = "my_topic"
         mock_msg.partition.return_value = 0
@@ -123,7 +128,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
                 f"Message delivered to topic my_topic partition 0 offset 100"
             )
 
-    def test_delivery_report_failure_direct_call(self, MockProducer):
+    def test_delivery_report_failure_direct_call(self): # REMOVE MockProducer
         mock_msg = MagicMock()
         mock_msg.topic.return_value = "my_topic"
         mock_msg.partition.return_value = 1

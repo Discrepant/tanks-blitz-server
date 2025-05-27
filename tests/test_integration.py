@@ -16,14 +16,14 @@ HOST = '127.0.0.1' # Используем localhost для тестов
 
 # Убедимся, что тестовые пользователи существуют в auth_server.user_service.MOCK_USERS_DB
 # Это важно, если MOCK_USERS_DB инициализируется при импорте user_service
-try:
-    from auth_server.user_service import MOCK_USERS_DB
-    if "integ_user" not in MOCK_USERS_DB:
-        MOCK_USERS_DB["integ_user"] = "integ_pass"
-    if "integ_user_fail" not in MOCK_USERS_DB:
-        MOCK_USERS_DB["integ_user_fail"] = "correct_pass"
-except ImportError:
-    print("Не удалось импортировать MOCK_USERS_DB для инициализации тестовых пользователей.")
+# try:
+#     from auth_server.user_service import MOCK_USERS_DB
+#     if "integ_user" not in MOCK_USERS_DB:
+#         MOCK_USERS_DB["integ_user"] = "integ_pass"
+#     if "integ_user_fail" not in MOCK_USERS_DB:
+#         MOCK_USERS_DB["integ_user_fail"] = "correct_pass"
+# except ImportError:
+#     print("Не удалось импортировать MOCK_USERS_DB для инициализации тестовых пользователей.")
     # Можно добавить заглушку, если это критично для тестов без запущенного сервера
     # MOCK_USERS_DB = {"integ_user": "integ_pass", "integ_user_fail": "correct_pass"}
 
@@ -107,9 +107,17 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         if cls.auth_server_process:
             cls.auth_server_process.terminate()
             cls.auth_server_process.wait(timeout=5)
+            print("\n--- Auth Server STDOUT ---")
+            print(cls.auth_server_process.stdout.read().decode(errors='ignore'))
+            print("--- Auth Server STDERR ---")
+            print(cls.auth_server_process.stderr.read().decode(errors='ignore'))
         if cls.game_server_process:
             cls.game_server_process.terminate()
             cls.game_server_process.wait(timeout=5)
+            print("\n--- Game Server STDOUT ---")
+            print(cls.game_server_process.stdout.read().decode(errors='ignore'))
+            print("--- Game Server STDERR ---")
+            print(cls.game_server_process.stderr.read().decode(errors='ignore'))
         print("Серверы остановлены.")
 
     async def asyncSetUp(self):
@@ -195,7 +203,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         # Логин клиента 2 (используем другого пользователя, если MOCK_USERS_DB это позволяет,
         # или того же, если сервер это корректно обрабатывает - сейчас для простоты того же)
         # Для этого теста создадим еще одного пользователя в MOCK_USERS_DB
-        if "integ_user2" not in MOCK_USERS_DB: MOCK_USERS_DB["integ_user2"] = "integ_pass2"
+        # if "integ_user2" not in MOCK_USERS_DB: MOCK_USERS_DB["integ_user2"] = "integ_pass2" # Commented out
         # Перезапускать сервер аутентификации не нужно, т.к. MOCK_USERS_DB - глобальный объект модуля
         # и изменения в нем подхватятся при следующем вызове authenticate_user
 

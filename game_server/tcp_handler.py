@@ -29,6 +29,7 @@ async def handle_game_client(reader, writer, game_room):
                 username, password = parts[1], parts[2]
                 # Call game_room.authenticate_player
                 authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
+                logger.debug(f"GameTCPHandler: authenticate_player returned: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
                 
                 if authenticated:
                     # Create Player instance
@@ -39,11 +40,13 @@ async def handle_game_client(reader, writer, game_room):
                     player = player_obj # Assign to the handler's player variable
                     
                     # Send success response
+                    logger.debug(f"GameTCPHandler: Writing LOGIN_SUCCESS to client. Message='{auth_message}', Token='{session_token if session_token else 'N/A'}'")
                     writer.write(f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n".encode())
                     await writer.drain()
                     logger.info(f"Player {username} logged in from {addr}. Token: {session_token if session_token else 'N/A'}")
                 else:
                     # Send failure response
+                    logger.debug(f"GameTCPHandler: Writing LOGIN_FAILURE to client. Message='{auth_message}'")
                     writer.write(f"LOGIN_FAILURE {auth_message}\n".encode())
                     await writer.drain()
                     logger.info(f"Login failed for {username} from {addr}. Message: {auth_message}. Returning.")

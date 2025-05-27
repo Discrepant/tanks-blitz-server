@@ -1,12 +1,19 @@
 import asyncio
+import logging # Added import
+
+logger = logging.getLogger(__name__) # Added logger
 
 # Заглушка для базы данных пользователей
 MOCK_USERS_DB = {
-    "player1": "password123",
-    "testuser": "testpass"
+    "player1": "password123",  # Existing user
+    "testuser": "testpass",    # Existing user
+    "integ_user": "integ_pass", # For test_01
+    "integ_user_fail": "correct_pass", # For test_02
+    "integ_user2": "integ_pass2"  # For test_08 (chat)
 }
 
 async def authenticate_user(username, password):
+    logger.debug(f"Authenticating against MOCK_USERS_DB: {MOCK_USERS_DB}") # Added logging
     """
     Асинхронная функция для аутентификации пользователя.
     Пока что использует заглушку.

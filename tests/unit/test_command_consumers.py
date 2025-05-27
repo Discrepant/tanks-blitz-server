@@ -9,28 +9,28 @@ from game_server.session_manager import SessionManager
 from game_server.tank_pool import TankPool
 from game_server.tank import Tank
 
-# Class-level decorators are back, setUp will take mocks as arguments
+# Используем порядок декораторов:
+# 1. @patch('pika.BlockingConnection') # Применяется ПЕРВЫМ (дальше от определения класса) -> второй мок-аргумент в setUp
+# 2. @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) # Применяется ВТОРЫМ (ближе к определению класса) -> первый мок-аргумент в setUp
 
-@patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) # Outer decorator
-@patch('pika.BlockingConnection') # Inner decorator
+@patch('pika.BlockingConnection') 
+@patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) 
 class TestPlayerCommandConsumer(unittest.TestCase):
 
-    # setUp now takes mock arguments from class decorators
-    # Order of args: self, mock_from_inner_decorator, mock_from_outer_decorator
-    def setUp(self, mock_pika_connection, mock_connect_and_declare_consumer):
+    # Порядок аргументов: self, mock_от_декоратора_ближе_к_классу, mock_от_декоратора_дальше_от_класса
+    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection): 
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
         
-        # mock_pika_connection and mock_connect_and_declare_consumer are now active
-        # if PlayerCommandConsumer or its _connect_and_declare uses them during __init__
+        # mock_pika_connection и mock_connect_and_declare_consumer активны здесь
         self.consumer = PlayerCommandConsumer(
             session_manager=self.mock_session_manager,
             tank_pool=self.mock_tank_pool
         )
         self.mock_channel = MagicMock()
-        self.consumer.rabbitmq_channel = self.mock_channel # For testing callbacks directly
+        self.consumer.rabbitmq_channel = self.mock_channel # Для прямого тестирования колбэков
 
-    # Test methods no longer take individual mock arguments for these patches
+    # Тестовые методы больше не принимают эти моки как аргументы
     def test_callback_shoot_command_success(self):
         mock_tank_instance = MagicMock(spec=Tank)
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
@@ -105,11 +105,11 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=129)
 
-@patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True) # Outer decorator
-@patch('pika.BlockingConnection') # Inner decorator
+@patch('pika.BlockingConnection') 
+@patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True) 
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
-    def setUp(self, mock_pika_connection, mock_connect_and_declare_consumer):
+    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection):
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
         self.mock_channel = MagicMock()

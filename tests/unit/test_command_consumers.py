@@ -3,34 +3,31 @@ from unittest.mock import MagicMock, patch, call
 import json
 import time # May be needed if consumers use time.sleep on errors
 
-# Assuming the project structure allows this import path
 from game_server.command_consumer import PlayerCommandConsumer, MatchmakingEventConsumer
 from game_server.session_manager import SessionManager
 from game_server.tank_pool import TankPool
 from game_server.tank import Tank
 
-# Используем порядок декораторов:
-# 1. @patch('pika.BlockingConnection') # Применяется ПЕРВЫМ (дальше от определения класса) -> второй мок-аргумент в setUp
-# 2. @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) # Применяется ВТОРЫМ (ближе к определению класса) -> первый мок-аргумент в setUp
+# Порядок декораторов на классе: внешний @patch, затем внутренний @patch.object
+# Аргументы в setUp: self, mock_от_внутреннего, mock_от_внешнего
 
-@patch('pika.BlockingConnection') 
-@patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) 
+@patch('pika.BlockingConnection')
+@patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True)
 class TestPlayerCommandConsumer(unittest.TestCase):
 
-    # Порядок аргументов: self, mock_от_декоратора_ближе_к_классу, mock_от_декоратора_дальше_от_класса
-    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection): 
+    def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection):
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
         
-        # mock_pika_connection и mock_connect_and_declare_consumer активны здесь
+        # Теперь mock_connect_and_declare_consumer и mock_pika_connection активны
+        # и будут использованы конструктором PlayerCommandConsumer, если он их вызывает
         self.consumer = PlayerCommandConsumer(
             session_manager=self.mock_session_manager,
             tank_pool=self.mock_tank_pool
         )
         self.mock_channel = MagicMock()
-        self.consumer.rabbitmq_channel = self.mock_channel # Для прямого тестирования колбэков
+        self.consumer.rabbitmq_channel = self.mock_channel
 
-    # Тестовые методы больше не принимают эти моки как аргументы
     def test_callback_shoot_command_success(self):
         mock_tank_instance = MagicMock(spec=Tank)
         self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
@@ -105,8 +102,8 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.consumer._callback(self.mock_channel, mock_method, None, message_body.encode('utf-8'))
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=129)
 
-@patch('pika.BlockingConnection') 
-@patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True) 
+@patch('pika.BlockingConnection')
+@patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True)
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
     def setUp(self, mock_connect_and_declare_consumer, mock_pika_connection):

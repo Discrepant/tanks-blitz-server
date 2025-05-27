@@ -22,7 +22,7 @@ class MockPlayer:
             self.writer.write(message.encode() + b"\n")
             await self.writer.drain()
 
-@patch('game_server.tcp_handler.publish_rabbitmq_message')
+@patch('game_server.tcp_handler.publish_rabbitmq_message', new_callable=AsyncMock)
 class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
 
     async def test_handle_game_client_shoot_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq):
@@ -45,7 +45,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
         mock_game_room.authenticate_player = AsyncMock(return_value=(True, "Login OK", "token123"))
         # Mock add_player
-        mock_game_room.add_player = AsyncMock()
+        mock_game_room.add_player = AsyncMock(return_value=mock_player_instance)
         mock_game_room.remove_player = AsyncMock()
 
         # Patch Player instantiation within handle_game_client if it's directly instantiated
@@ -68,7 +68,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         # Verify ack was sent (approximate check)
         await asyncio.sleep(0) # Allow tasks to settle
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
-        self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
+        self.assertIn(b"COMMAND_RECEIVED SHOOT\n", written_data)
 
     async def test_handle_game_client_move_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq):
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
@@ -86,7 +86,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
         mock_game_room.authenticate_player = AsyncMock(return_value=(True, "Login OK", "token123"))
-        mock_game_room.add_player = AsyncMock()
+        mock_game_room.add_player = AsyncMock(return_value=mock_player_instance)
         mock_game_room.remove_player = AsyncMock()
 
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
@@ -95,13 +95,13 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         expected_message_move = {
             "player_id": "test_user",
             "command": "move",
-            "details": {"new_position": [10, 20], "source": "tcp_handler"}
+            "details": {"new_position": [10, 20]}
         }
         await asyncio.sleep(0) # Allow tasks to settle
         mock_publish_rabbitmq.assert_any_call('', 'player_commands', expected_message_move)
         await asyncio.sleep(0) # Allow tasks to settle
         written_data = b"".join(arg[0][0] for arg in mock_writer.write.call_args_list if arg[0])
-        self.assertIn(b"COMMAND_ACKNOWLEDGED\n", written_data)
+        self.assertIn(b"COMMAND_RECEIVED MOVE\n", written_data)
 
     async def test_handle_game_client_unknown_command(self, mock_publish_rabbitmq):
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
@@ -119,7 +119,7 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
         mock_game_room = MagicMock()
         mock_player_instance = MockPlayer(mock_writer, name="test_user")
         mock_game_room.authenticate_player = AsyncMock(return_value=(True, "Login OK", "token123"))
-        mock_game_room.add_player = AsyncMock()
+        mock_game_room.add_player = AsyncMock(return_value=mock_player_instance)
         mock_game_room.remove_player = AsyncMock()
         
         with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):

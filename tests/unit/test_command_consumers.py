@@ -13,13 +13,10 @@ from game_server.tank import Tank
 class TestPlayerCommandConsumer(unittest.TestCase):
 
     def setUp(self):
+        # Патчим ТОЛЬКО pika.BlockingConnection на время setUp
         self.patcher_pika_setup = patch('pika.BlockingConnection')
         self.mock_pika_connection_for_setup = self.patcher_pika_setup.start()
         self.addCleanup(self.patcher_pika_setup.stop)
-
-        self.patcher_connect_declare_setup = patch.object(PlayerCommandConsumer, '_connect_and_declare') # WITHOUT AUTOSPEC
-        self.mock_connect_declare_for_setup = self.patcher_connect_declare_setup.start()
-        self.addCleanup(self.patcher_connect_declare_setup.stop)
         
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
@@ -30,7 +27,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.mock_channel = MagicMock()
         self.consumer.rabbitmq_channel = self.mock_channel
 
-    @patch.object(PlayerCommandConsumer, '_connect_and_declare') # WITHOUT AUTOSPEC
+    @patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True) 
     @patch('pika.BlockingConnection') 
     def test_callback_shoot_command_success(self, mock_pika_connection_test, mock_connect_and_declare_test):
         mock_tank_instance = MagicMock(spec=Tank)
@@ -50,25 +47,22 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         mock_tank_instance.shoot.assert_called_once()
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=123)
 
-    # ... (all other TestPlayerCommandConsumer test methods with @patch.object WITHOUT AUTOSPEC) ...
+    # ... (все остальные тестовые методы TestPlayerCommandConsumer как в полном коде выше, с обоими декораторами @patch и @patch.object) ...
 
 class TestMatchmakingEventConsumer(unittest.TestCase):
 
     def setUp(self):
+        # Патчим ТОЛЬКО pika.BlockingConnection на время setUp
         self.patcher_pika_setup = patch('pika.BlockingConnection')
         self.mock_pika_connection_for_setup = self.patcher_pika_setup.start()
         self.addCleanup(self.patcher_pika_setup.stop)
-
-        self.patcher_connect_declare_setup = patch.object(MatchmakingEventConsumer, '_connect_and_declare') # WITHOUT AUTOSPEC
-        self.mock_connect_declare_for_setup = self.patcher_connect_declare_setup.start()
-        self.addCleanup(self.patcher_connect_declare_setup.stop)
 
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
         self.mock_channel = MagicMock()
         self.consumer.rabbitmq_channel = self.mock_channel
 
-    @patch.object(MatchmakingEventConsumer, '_connect_and_declare') # WITHOUT AUTOSPEC
+    @patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True)
     @patch('pika.BlockingConnection')
     def test_callback_new_match_created(self, mock_pika_connection_test, mock_connect_and_declare_test):
         mock_created_session = MagicMock()
@@ -83,7 +77,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_session_manager.create_session.assert_called_once()
         self.mock_channel.basic_ack.assert_called_once_with(delivery_tag=201)
 
-    # ... (all other TestMatchmakingEventConsumer test methods with @patch.object WITHOUT AUTOSPEC) ...
+    # ... (все остальные тестовые методы TestMatchmakingEventConsumer как в полном коде выше, с обоими декораторами @patch и @patch.object) ...
 
 if __name__ == '__main__':
     unittest.main()

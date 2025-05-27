@@ -1,6 +1,7 @@
 # core/redis_client.py
 import redis.asyncio as redis # Используем асинхронный клиент
 import os
+from unittest.mock import MagicMock, AsyncMock # Added import
 
 class RedisClient:
     _instance = None
@@ -12,20 +13,47 @@ class RedisClient:
 
     def __init__(self):
         if not hasattr(self, 'initialized'):
-            self.redis_host = os.getenv("REDIS_HOST", "redis-service") # Имя сервиса K8s
-            self.redis_port = int(os.getenv("REDIS_PORT", 6379))
-            # self.redis_password = os.getenv("REDIS_PASSWORD", None) # Если используется пароль
+            if os.getenv("USE_MOCKS") == "true":
+                self.client = MagicMock(spec=redis.Redis)
+                self._mock_storage = {}
+
+                self.client.ping = AsyncMock(return_value=True)
             
-            # Пул соединений
-            self.pool = redis.ConnectionPool(
-                host=self.redis_host, 
-                port=self.redis_port, 
-                # password=self.redis_password, 
-                decode_responses=True # Декодировать ответы из байтов в строки
-            )
-            self.client = redis.Redis(connection_pool=self.pool)
-            self.initialized = True
-            print(f"Redis client initialized for {self.redis_host}:{self.redis_port}")
+                async def mock_get(name):
+                    return self._mock_storage.get(name)
+                self.client.get = AsyncMock(side_effect=mock_get)
+
+                async def mock_set(name, value, ex=None):
+                    self._mock_storage[name] = value
+                    return True # Simulate Redis SET success
+                self.client.set = AsyncMock(side_effect=mock_set)
+
+                async def mock_delete(*names):
+                    count = 0
+                    for name in names:
+                        if name in self._mock_storage:
+                            del self._mock_storage[name]
+                            count += 1
+                    return count # Simulate Redis DELETE success (returns num keys deleted)
+                self.client.delete = AsyncMock(side_effect=mock_delete)
+                
+                self.initialized = True
+                print("Redis client initialized in MOCK mode.")
+            else:
+                self.redis_host = os.getenv("REDIS_HOST", "redis-service") # Имя сервиса K8s
+                self.redis_port = int(os.getenv("REDIS_PORT", 6379))
+                # self.redis_password = os.getenv("REDIS_PASSWORD", None) # Если используется пароль
+                
+                # Пул соединений
+                self.pool = redis.ConnectionPool(
+                    host=self.redis_host, 
+                    port=self.redis_port, 
+                    # password=self.redis_password, 
+                    decode_responses=True # Декодировать ответы из байтов в строки
+                )
+                self.client = redis.Redis(connection_pool=self.pool)
+                self.initialized = True
+                print(f"Redis client initialized for {self.redis_host}:{self.redis_port}")
 
     async def get(self, name):
         return await self.client.get(name)

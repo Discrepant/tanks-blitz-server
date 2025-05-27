@@ -38,6 +38,13 @@ services:
       RABBITMQ_DEFAULT_USER: user # Change as needed
       RABBITMQ_DEFAULT_PASS: password # Change as needed
 
+  redis-service:
+    image: redis:alpine
+    container_name: redis_service
+    ports:
+      - "6379:6379"
+    restart: unless-stopped
+
   auth_server:
     build:
       context: ./auth_server/
@@ -53,6 +60,7 @@ services:
     depends_on:
       - kafka
       - rabbitmq
+      - redis-service
     # volumes:
     #   - ./auth_server:/app # Mount code for development if needed
 
@@ -71,6 +79,7 @@ services:
     depends_on:
       - kafka
       - rabbitmq
+      - redis-service
     # volumes:
     #   - ./game_server:/app # Mount code for development if needed
 

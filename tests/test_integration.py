@@ -2,6 +2,7 @@ import asyncio
 import unittest
 import subprocess # Для запуска серверов
 import time
+import json # Added import
 
 # Добавляем путь к корневой директории проекта
 import sys
@@ -63,14 +64,26 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
 
+        env["USE_MOCKS"] = "true"
+        # env["REDIS_HOST"] = "localhost" # Commented out for mock mode
+        # env["REDIS_PORT"] = "6379"      # Commented out for mock mode
+        # env["KAFKA_BOOTSTRAP_SERVERS"] = "localhost:29092" # Commented out for mock mode
+        # env["RABBITMQ_HOST"] = "localhost" # Commented out for mock mode
+        
+        # Server addresses and ports for the servers themselves to listen on
+        env["AUTH_SERVER_HOST"] = "localhost" # For GameServer's AuthClient
+        env["AUTH_SERVER_PORT"] = "8888"      # For GameServer's AuthClient and for Auth Server to bind
+        env["GAME_SERVER_TCP_PORT"] = "8889"  # For GameServer's TCP server to bind
+        env["GAME_SERVER_UDP_PORT"] = "9999"  # For GameServer's UDP server to bind
+
         # Запуск сервера аутентификации
         cls.auth_server_process = subprocess.Popen(
-            [sys.executable, os.path.join(project_root, "auth_server", "main.py")],
+            [sys.executable, "-m", "auth_server.main"],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         # Запуск игрового сервера
         cls.game_server_process = subprocess.Popen(
-            [sys.executable, os.path.join(project_root, "game_server", "main.py")],
+            [sys.executable, "-m", "game_server.main"],
             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         # Даем серверам время на запуск
@@ -110,26 +123,35 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         """Тест успешного логина на сервере аутентификации."""
         # Используем пользователя, который должен быть в MOCK_USERS_DB
         # auth_server.user_service.MOCK_USERS_DB["integ_user"] = "integ_pass" (сделано в setUpClass)
-        response = await tcp_client_request(HOST, AUTH_PORT, "LOGIN integ_user integ_pass")
-        self.assertTrue(response.startswith("AUTH_SUCCESS"), f"Ответ: {response}")
-        self.assertIn("integ_user успешно аутентифицирован", response)
+        request_msg = json.dumps({"action": "login", "username": "integ_user", "password": "integ_pass"})
+        response_str = await tcp_client_request(HOST, AUTH_PORT, request_msg)
+        response_json = json.loads(response_str)
+        self.assertEqual(response_json.get("status"), "success", f"Ответ: {response_str}")
+        self.assertIn("integ_user успешно аутентифицирован", response_json.get("message", ""))
 
     async def test_02_auth_server_login_failure_wrong_pass(self):
         """Тест неудачного логина (неверный пароль) на сервере аутентификации."""
-        response = await tcp_client_request(HOST, AUTH_PORT, "LOGIN integ_user_fail wrong_pass")
-        self.assertTrue(response.startswith("AUTH_FAILURE"), f"Ответ: {response}")
-        self.assertIn("Неверный пароль", response)
+        request_msg = json.dumps({"action": "login", "username": "integ_user_fail", "password": "wrong_pass"})
+        response_str = await tcp_client_request(HOST, AUTH_PORT, request_msg)
+        response_json = json.loads(response_str)
+        self.assertEqual(response_json.get("status"), "failure", f"Ответ: {response_str}")
+        self.assertIn("Неверный пароль", response_json.get("message", ""))
 
     async def test_03_auth_server_login_failure_user_not_found(self):
         """Тест неудачного логина (пользователь не найден) на сервере аутентификации."""
-        response = await tcp_client_request(HOST, AUTH_PORT, "LOGIN non_existent_user_integ some_pass")
-        self.assertTrue(response.startswith("AUTH_FAILURE"), f"Ответ: {response}")
-        self.assertIn("Пользователь не найден", response)
+        request_msg = json.dumps({"action": "login", "username": "non_existent_user_integ", "password": "some_pass"})
+        response_str = await tcp_client_request(HOST, AUTH_PORT, request_msg)
+        response_json = json.loads(response_str)
+        self.assertEqual(response_json.get("status"), "failure", f"Ответ: {response_str}")
+        self.assertIn("Пользователь не найден", response_json.get("message", ""))
 
     async def test_04_auth_server_invalid_command(self):
         """Тест неверной команды на сервере аутентификации."""
-        response = await tcp_client_request(HOST, AUTH_PORT, "INVALID_COMMAND_INTEG")
-        self.assertTrue(response.startswith("INVALID_COMMAND"), f"Ответ: {response}")
+        request_msg = json.dumps({"action": "UNKNOWN_ACTION_JSON_TEST", "data": "some_payload"})
+        response_str = await tcp_client_request(HOST, AUTH_PORT, request_msg)
+        response_json = json.loads(response_str)
+        self.assertEqual(response_json.get("status"), "error", f"Ответ: {response_str}")
+        self.assertEqual(response_json.get("message"), "Unknown or missing action", f"Ответ: {response_str}")
 
     async def test_05_game_server_login_success_via_auth(self):
         """Тест успешного логина на игровом сервере (через сервер аутентификации)."""
@@ -200,7 +222,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
             # или сообщение от самого себя, если broadcast идет и отправителю
             msg_after_say1 = await asyncio.wait_for(reader1.readuntil(b"\n"), timeout=1.0)
             # Если это не сообщение о присоединении, то это эхо "SAY" от самого себя
-            if b"integ_user2 присоединился" not in msg_after_say1:
+            if "integ_user2 присоединился".encode('utf-8') not in msg_after_say1:
                  self.assertIn(b"integ_user: Hello from client1", msg_after_say1) # Эхо для отправителя
         except asyncio.TimeoutError:
             self.fail("Клиент 1 не получил подтверждение или сообщение о присоединении после SAY")
@@ -261,7 +283,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         # Сервер должен отправить подтверждение QUIT и закрыть соединение
         try:
             response_quit = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=1.0)
-            self.assertIn(b"SERVER: Вы выходите из комнаты...", response_quit)
+            self.assertIn("SERVER: Вы выходите из комнаты...".encode('utf-8'), response_quit)
 
             # После QUIT сервер должен закрыть соединение, readuntil должен вернуть пустую строку или ошибку
             # В handle_game_client после команды QUIT writer закрывается.

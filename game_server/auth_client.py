@@ -1,11 +1,12 @@
 import asyncio
+import json # Added import
 
 class AuthClient:
     def __init__(self, auth_server_host: str, auth_server_port: int):
         self.auth_host = auth_server_host
         self.auth_port = auth_server_port
 
-    async def _send_auth_command(self, command: str):
+    async def _send_auth_command(self, command_dict: dict): # command is now a dict
         try:
             reader, writer = await asyncio.open_connection(self.auth_host, self.auth_port)
         except ConnectionRefusedError:
@@ -18,8 +19,10 @@ class AuthClient:
             return "AUTH_FAILURE", error_msg, None # Добавляем None для токена
 
 
-        print(f"Отправка на сервер аутентификации ({self.auth_host}:{self.auth_port}): {command}")
-        writer.write(command.encode() + b"\n") # Добавляем \n
+        json_payload_str = json.dumps(command_dict)
+        json_payload_bytes = json_payload_str.encode('utf-8')
+        print(f"Отправка на сервер аутентификации ({self.auth_host}:{self.auth_port}): {json_payload_str}")
+        writer.write(json_payload_bytes + b"\n") # Добавляем \n
         await writer.drain()
 
         try:
@@ -67,8 +70,8 @@ class AuthClient:
         Отправляет команду LOGIN на сервер аутентификации.
         Возвращает (bool, str, str|None): (успех, сообщение, session_token)
         """
-        command = f"LOGIN {username} {password}"
-        status, message, session_token = await self._send_auth_command(command)
+        command_dict = {"action": "login", "username": username, "password": password}
+        status, message, session_token = await self._send_auth_command(command_dict)
         # Предположим, что сессионный токен - это имя пользователя при успехе (заглушка)
         # В реальном сценарии, токен должен приходить от сервера аутентификации
         if status == "AUTH_SUCCESS":

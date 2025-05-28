@@ -87,7 +87,7 @@ async def register_user(username, password):
     
     # Строка ниже закомментирована, чтобы MOCK_USERS_DB оставалась неизменной во время тестов.
     # В реальном приложении здесь было бы сохранение в БД:
-    # MOCK_USERS_DB[username] = password
+    MOCK_USERS_DB[username] = password
     # Также необходимо было бы хешировать пароль перед сохранением.
-    logger.info(f"Пользователь '{username}' успешно зарегистрирован (заглушка).")
-    return True, f"Пользователь {username} успешно зарегистрирован (заглушка)."
+    logger.info(f"Пользователь '{username}' успешно зарегистрирован и добавлен в MOCK_USERS_DB.")
+    return True, f"Пользователь {username} успешно зарегистрирован."

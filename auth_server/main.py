@@ -11,7 +11,7 @@ import threading # Используется для запуска сервера
 
 # Настройка базового логирования для всего приложения.
 # Уровень логирования DEBUG, формат включает время, имя логгера, уровень и сообщение.
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
 logger = logging.getLogger(__name__) # Создаем логгер для текущего модуля
 
 def start_metrics_server():

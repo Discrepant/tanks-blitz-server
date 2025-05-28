@@ -8,13 +8,13 @@
 # - Потребители сообщений из RabbitMQ для команд игроков и событий матчмейкинга.
 # - Сервер метрик Prometheus.
 import logging # Добавляем импорт для логирования
-# Устанавливаем уровень DEBUG для всего пакета 'game_server' и добавляем обработчик.
-# Это позволяет детально логировать события внутри этого пакета.
-_gs_logger = logging.getLogger('game_server')
-_gs_logger.setLevel(logging.DEBUG)
-_gs_logger.addHandler(logging.StreamHandler()) 
-# Убеждаемся, что корневой логгер также показывает DEBUG, если basicConfig еще не настроен.
-logging.getLogger().setLevel(logging.DEBUG)
+# # Устанавливаем уровень DEBUG для всего пакета 'game_server' и добавляем обработчик.
+# # Это позволяет детально логировать события внутри этого пакета.
+# _gs_logger = logging.getLogger('game_server')
+# _gs_logger.setLevel(logging.DEBUG)
+# _gs_logger.addHandler(logging.StreamHandler()) 
+# # Убеждаемся, что корневой логгер также показывает DEBUG, если basicConfig еще не настроен.
+# logging.getLogger().setLevel(logging.DEBUG)
 
 import asyncio
 import time # Добавлен для цикла finally в примере, хотя здесь не строго необходим
@@ -31,6 +31,7 @@ from .metrics import ACTIVE_SESSIONS, TANKS_IN_USE # Метрики Prometheus
 from prometheus_client import start_http_server # Функция для запуска сервера метрик
 import threading # Для запуска компонентов в отдельных потоках
 
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
 # Настройка базового логирования.
 # Перенесена в блок if __name__ == '__main__', чтобы гарантировать настройку
 # до инициализации других логгеров.
@@ -148,7 +149,7 @@ async def start_game_server():
 
 if __name__ == '__main__':
     # Настраиваем логирование здесь, чтобы оно было установлено как можно раньше.
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
+    # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # Removed as per instruction
     logger.info("Запуск приложения игрового сервера...")
 
     # Инициализация общих экземпляров SessionManager и TankPool.

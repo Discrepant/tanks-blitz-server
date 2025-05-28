@@ -21,7 +21,7 @@ def start_metrics_server():
     """
     # ... (код без изменений) # Эта строка комментария кажется излишней или устаревшей. Удалим ее.
     start_http_server(8000) 
-    logger.info("Сервер метрик Prometheus для Сервера Аутентификации запущен на порту 8000.")
+    logger.info("Prometheus metrics server for Authentication Server started on port 8000.")
 
 
 async def main():
@@ -44,7 +44,7 @@ async def main():
         handle_auth_client, host, port)
 
     addr = server.sockets[0].getsockname() # Получаем адрес и порт, на котором запущен сервер
-    logger.info(f'Сервер аутентификации запущен на {addr}')
+    logger.info(f'Authentication server started on {addr}')
 
     # Бесконечный цикл для обслуживания подключений.
     # Сервер будет работать до тех пор, пока не будет прерван.

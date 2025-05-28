@@ -124,6 +124,7 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         new_position = [50, 50] # Новая позиция для танка
 
         mock_session = MagicMock(spec=GameSession)
+        mock_session.session_id = "test_udp_session_123" # Установка атрибута session_id
         mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
         # Мокируем get_tanks_state, чтобы он возвращал ожидаемое состояние после перемещения
         mock_session.get_tanks_state.return_value = [{"id": tank_id, "position": new_position, "health": 100}]

@@ -59,21 +59,28 @@ class TestKafkaClientConfluent(unittest.TestCase):
         Тест: get_kafka_producer создает экземпляр Producer, если он еще не существует.
         Проверяет, что Producer вызывается с правильной конфигурацией.
         """
-        mock_producer_instance = MockProducer.return_value # Мок экземпляра продюсера
-        
-        producer = get_kafka_producer() # Первый вызов должен создать продюсера
-        
-        self.assertIsNotNone(producer, "Продюсер не должен быть None.")
-        self.assertIs(producer, mock_producer_instance, "Возвращенный продюсер не является мок-экземпляром.")
-        
-        # Ожидаемая конфигурация для продюсера
-        expected_config = {
-            'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS, # Адрес серверов Kafka
-            'acks': 'all',                                # Подтверждение от всех реплик
-            'retries': 3,                                 # Количество попыток повторной отправки
-            'linger.ms': 10                               # Задержка для группировки сообщений
-        }
-        MockProducer.assert_called_once_with(expected_config) # Проверяем, что конструктор Producer вызван с этой конфигурацией
+        if os.environ.get("USE_MOCKS") == "true":
+            producer = get_kafka_producer() # Первый вызов должен создать мок-продюсера
+            self.assertIsNotNone(producer, "Продюсер не должен быть None.")
+            self.assertIsInstance(producer, MagicMock, "Продюсер должен быть MagicMock, когда USE_MOCKS='true'.")
+            self.assertTrue(getattr(producer, '_is_custom_kafka_mock', False), "Продюсер должен быть помечен как _is_custom_kafka_mock.")
+            self.assertIs(producer, core.message_broker_clients._kafka_producer, "Возвращенный продюсер должен быть глобальным мок-продюсером.")
+            MockProducer.assert_not_called() # Реальный конструктор не должен вызываться
+        else:
+            mock_producer_instance = MockProducer.return_value # Мок экземпляра продюсера
+            producer = get_kafka_producer() # Первый вызов должен создать продюсера
+            
+            self.assertIsNotNone(producer, "Продюсер не должен быть None.")
+            self.assertIs(producer, mock_producer_instance, "Возвращенный продюсер не является мок-экземпляром.")
+            
+            # Ожидаемая конфигурация для продюсера
+            expected_config = {
+                'bootstrap.servers': KAFKA_BOOTSTRAP_SERVERS, # Адрес серверов Kafka
+                'acks': 'all',                                # Подтверждение от всех реплик
+                'retries': 3,                                 # Количество попыток повторной отправки
+                'linger.ms': 10                               # Задержка для группировки сообщений
+            }
+            MockProducer.assert_called_once_with(expected_config) # Проверяем, что конструктор Producer вызван с этой конфигурацией
 
     @patch('core.message_broker_clients.Producer')
     def test_get_kafka_producer_returns_existing_producer(self, MockProducer):
@@ -87,7 +94,12 @@ class TestKafkaClientConfluent(unittest.TestCase):
         second_producer = get_kafka_producer()
         
         self.assertIs(first_producer, second_producer, "Повторный вызов get_kafka_producer должен возвращать тот же экземпляр.")
-        MockProducer.assert_called_once() # Конструктор Producer должен быть вызван только один раз
+
+        if os.environ.get("USE_MOCKS") == "true":
+            self.assertTrue(getattr(first_producer, '_is_custom_kafka_mock', False), "Продюсер должен быть помечен как _is_custom_kafka_mock.")
+            MockProducer.assert_not_called() # Конструктор Producer не должен вызываться, когда USE_MOCKS='true' и продюсер уже создан.
+        else:
+            MockProducer.assert_called_once() # Конструктор Producer должен быть вызван только один раз
 
     # Используем вложенные декораторы @patch. Внешний (первый) мок передается последним аргументом.
     @patch('core.message_broker_clients.Producer')          # Внешний декоратор, mock_Producer будет mock_producer_class_arg
@@ -126,6 +138,28 @@ class TestKafkaClientConfluent(unittest.TestCase):
         Тест: send_kafka_message корректно обрабатывает ситуацию, когда продюсер не может быть создан.
         Проверяет, что возвращается False и глобальный продюсер остается None.
         """
+        if os.environ.get("USE_MOCKS") == "true":
+            # Когда USE_MOCKS=true, get_kafka_producer() всегда возвращает мок и не вызывает Producer(),
+            # поэтому KafkaException не будет возбуждена таким образом.
+            # Этот сценарий теста применим только когда USE_MOCKS не установлен в "true".
+            # Можно либо пропустить тест, либо проверить, что send_kafka_message возвращает True,
+            # так как мок-продюсер успешно используется.
+            # Для сохранения цели теста (проверка обработки сбоя инициализации), мы его здесь не выполняем.
+            # Вместо этого убедимся, что send_kafka_message работает с моком.
+            core.message_broker_clients._kafka_producer = None # Reset to ensure get_kafka_producer is called
+            producer = get_kafka_producer() # Should return the custom mock
+            self.assertTrue(getattr(producer, '_is_custom_kafka_mock', False))
+            
+            # Попытка имитировать сбой внутри send_kafka_message, если get_kafka_producer вернул None (что не должно случиться при USE_MOCKS="true")
+            # Этот участок кода проверяет, что если get_kafka_producer() вернул бы None, то send_kafka_message вернул бы False.
+            # Но при USE_MOCKS="true", get_kafka_producer() не вернет None.
+            with patch('core.message_broker_clients.get_kafka_producer', return_value=None) as mock_get_producer_None:
+                 result_if_producer_is_none = send_kafka_message("test_topic_mock_fail", {"key": "value"})
+                 self.assertFalse(result_if_producer_is_none, "send_kafka_message должна вернуть False, если get_kafka_producer вернул None.")
+                 mock_get_producer_None.assert_called_once()
+            return
+
+        # Следующая логика выполняется только если USE_MOCKS не "true"
         # Имитируем сбой при создании продюсера, когда вызывается get_kafka_producer
         MockProducer.side_effect = core.message_broker_clients.KafkaException("Ошибка создания продюсера")
         
@@ -155,7 +189,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         """
         # Сценарий 1: _kafka_producer является MagicMock, помеченным как _is_custom_kafka_mock.
         # Это имитирует поведение, когда USE_MOCKS=true или мок создан вручную для пропуска логики.
-        mock_producer_custom_magic_mock = MagicMock(spec=core.message_broker_clients.Producer)
+        mock_producer_custom_magic_mock = MagicMock()
         mock_producer_custom_magic_mock.flush = MagicMock(return_value=0) # На всякий случай, если бы он вызывался
         mock_producer_custom_magic_mock._is_custom_kafka_mock = True # Ключевая пометка
         

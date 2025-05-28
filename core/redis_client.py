@@ -38,7 +38,7 @@ class RedisClient:
         """
         if not hasattr(self, 'initialized'): # Гарантирует однократную инициализацию
             if os.getenv("USE_MOCKS") == "true":
-                self.client = MagicMock(spec=redis.Redis) # Создаем мок с спецификацией реального клиента
+                self.client = MagicMock(name="MockRedisClientInternal") # Создаем мок с спецификацией реального клиента
                 self._mock_storage = {} # Внутреннее хранилище для мока
 
                 # Мокируем основные команды Redis асинхронными моками

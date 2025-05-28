@@ -47,35 +47,30 @@ class PlayerCommandConsumer:
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost') # Хост RabbitMQ
         self.player_commands_queue = RABBITMQ_QUEUE_PLAYER_COMMANDS # Имя очереди команд
 
-        self._connect_and_declare() # Подключаемся и объявляем очередь
+        # self._connect_and_declare() # Удалено из __init__
 
     def _connect_and_declare(self):
-        """
-        Устанавливает соединение с RabbitMQ и объявляет очередь команд игроков.
-        Включает механизм повторных попыток подключения в случае сбоя.
-        """
         logger.info(f"PlayerCommandConsumer: Попытка подключения к RabbitMQ по адресу {self.rabbitmq_host}...")
         try:
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
-                    heartbeat=600, # Поддерживать соединение активным
-                    blocked_connection_timeout=300 # Таймаут для заблокированного соединения
+                    heartbeat=600,
+                    blocked_connection_timeout=300
                 )
             )
             self.rabbitmq_channel = self.connection.channel()
-            # Объявляем очередь как durable (устойчивую к перезапуску брокера)
             self.rabbitmq_channel.queue_declare(queue=self.player_commands_queue, durable=True)
-            # Обрабатывать по одному сообщению за раз (для равномерного распределения нагрузки, если есть несколько консьюмеров)
-            self.rabbitmq_channel.basic_qos(prefetch_count=1) 
+            self.rabbitmq_channel.basic_qos(prefetch_count=1)
             logger.info(f"PlayerCommandConsumer: Успешное подключение к RabbitMQ и объявление очереди '{self.player_commands_queue}'.")
         except AMQPConnectionError as e:
-            logger.error(f"PlayerCommandConsumer: Не удалось подключиться к RabbitMQ: {e}. Повторная попытка через 5 секунд...")
-            time.sleep(5)
-            self._connect_and_declare() # Рекурсивная попытка переподключения
+            logger.error(f"PlayerCommandConsumer: Не удалось подключиться к RabbitMQ в _connect_and_declare: {e}")
+            self.connection = None # Убедимся, что они None при ошибке
+            self.rabbitmq_channel = None
         except Exception as e:
             logger.error(f"PlayerCommandConsumer: Произошла непредвиденная ошибка во время настройки RabbitMQ: {e}", exc_info=True)
-            # В зависимости от политики, можно повторить попытку или вызвать исключение выше
+            self.connection = None
+            self.rabbitmq_channel = None
 
     def _callback(self, ch, method, properties, body):
         """
@@ -175,12 +170,11 @@ class PlayerCommandConsumer:
         Начинает потребление сообщений из очереди RabbitMQ.
         Включает механизм повторного подключения и перезапуска потребления в случае ошибок.
         """
+        self._connect_and_declare() # Добавлен вызов в начало метода
+
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
-            logger.warning("PlayerCommandConsumer: Канал RabbitMQ не открыт. Попытка переподключения...")
-            self._connect_and_declare() # Попытка переподключения
-            if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed: # Проверяем снова
-                logger.error("PlayerCommandConsumer: Не удалось переподключить канал RabbitMQ. Потребитель не может запуститься.")
-                return
+            logger.error("PlayerCommandConsumer: Не удалось установить соединение с RabbitMQ. Потребитель не может запуститься.")
+            return
 
         logger.info(f"PlayerCommandConsumer: Начало потребления сообщений из '{self.player_commands_queue}'...")
         self.rabbitmq_channel.basic_consume(
@@ -302,12 +296,9 @@ class MatchmakingEventConsumer:
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost')
         self.matchmaking_events_queue = RABBITMQ_QUEUE_MATCHMAKING_EVENTS
 
-        self._connect_and_declare()
+        # self._connect_and_declare() # Удалено из __init__
 
     def _connect_and_declare(self):
-        """
-        Устанавливает соединение с RabbitMQ и объявляет очередь событий матчмейкинга.
-        """
         logger.info(f"MatchmakingEventConsumer: Попытка подключения к RabbitMQ по адресу {self.rabbitmq_host}...")
         try:
             self.connection = pika.BlockingConnection(
@@ -315,14 +306,16 @@ class MatchmakingEventConsumer:
             )
             self.rabbitmq_channel = self.connection.channel()
             self.rabbitmq_channel.queue_declare(queue=self.matchmaking_events_queue, durable=True)
-            self.rabbitmq_channel.basic_qos(prefetch_count=1) # Обрабатывать по одному событию
+            self.rabbitmq_channel.basic_qos(prefetch_count=1)
             logger.info(f"MatchmakingEventConsumer: Успешное подключение и объявление очереди '{self.matchmaking_events_queue}'.")
         except AMQPConnectionError as e:
-            logger.error(f"MatchmakingEventConsumer: Не удалось подключиться к RabbitMQ: {e}. Повторная попытка через 5 секунд...")
-            time.sleep(5)
-            self._connect_and_declare()
+            logger.error(f"MatchmakingEventConsumer: Не удалось подключиться к RabbitMQ в _connect_and_declare: {e}")
+            self.connection = None
+            self.rabbitmq_channel = None
         except Exception as e:
             logger.error(f"MatchmakingEventConsumer: Произошла непредвиденная ошибка во время настройки RabbitMQ: {e}", exc_info=True)
+            self.connection = None
+            self.rabbitmq_channel = None
 
     def _callback(self, ch, method, properties, body):
         """
@@ -358,12 +351,11 @@ class MatchmakingEventConsumer:
         """
         Начинает потребление событий матчмейкинга.
         """
+        self._connect_and_declare() # Добавлен вызов в начало метода
+
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
-            logger.warning("MatchmakingEventConsumer: Канал RabbitMQ не открыт. Попытка переподключения...")
-            self._connect_and_declare()
-            if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
-                logger.error("MatchmakingEventConsumer: Не удалось переподключить канал RabbitMQ. Потребитель не может запуститься.")
-                return
+            logger.error("MatchmakingEventConsumer: Не удалось установить соединение с RabbitMQ. Потребитель не может запуститься.")
+            return
 
         logger.info(f"MatchmakingEventConsumer: Начало потребления сообщений из '{self.matchmaking_events_queue}'...")
         self.rabbitmq_channel.basic_consume(

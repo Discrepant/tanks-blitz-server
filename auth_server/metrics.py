@@ -1,11 +1,41 @@
 # auth_server/metrics.py
+# Этот модуль определяет метрики Prometheus для сервера аутентификации.
+# Метрики включают количество активных соединений, а также счетчики
+# успешных и неудачных попыток аутентификации.
+
 from prometheus_client import Counter, Gauge
 
-# Счетчик активных соединений
-ACTIVE_CONNECTIONS_AUTH = Gauge('auth_server_active_connections', 'Number of active TCP connections to Auth Server')
-# Счетчик успешных аутентификаций
-SUCCESSFUL_AUTHS = Counter('auth_server_successful_authentications_total', 'Total number of successful authentications')
-# Счетчик неудачных аутентификаций
-FAILED_AUTHS = Counter('auth_server_failed_authentications_total', 'Total number of failed authentications')
+# Gauge (датчик) для отслеживания текущего количества активных TCP-соединений
+# к серверу аутентификации.
+# 'auth_server_active_connections' - имя метрики.
+# 'Количество активных TCP-соединений с Сервером Аутентификации' - описание метрики.
+ACTIVE_CONNECTIONS_AUTH = Gauge(
+    'auth_server_active_connections',
+    'Количество активных TCP-соединений с Сервером Аутентификации'
+)
 
-print("Auth server metrics defined.")
+# Counter (счетчик) для общего числа успешных аутентификаций.
+# Это кумулятивный счетчик, который только увеличивается.
+# 'auth_server_successful_authentications_total' - имя метрики.
+# 'Общее количество успешных аутентификаций' - описание метрики.
+SUCCESSFUL_AUTHS = Counter(
+    'auth_server_successful_authentications_total',
+    'Общее количество успешных аутентификаций'
+)
+
+# Counter (счетчик) для общего числа неудачных аутентификаций.
+# 'auth_server_failed_authentications_total' - имя метрики.
+# 'Общее количество неудачных аутентификаций' - описание метрики.
+FAILED_AUTHS = Counter(
+    'auth_server_failed_authentications_total',
+    'Общее количество неудачных аутентификаций'
+)
+
+# Это сообщение будет выведено при импорте модуля,
+# подтверждая, что определения метрик были загружены.
+# print("Определены метрики для сервера аутентификации.")
+# Примечание: Обычно print() на уровне модуля не является хорошей практикой для библиотек или
+# сервисных модулей, так как это может выводить сообщения в неожиданных местах
+# (например, при импорте в тестах или других утилитах).
+# Если это необходимо для отладки во время инициализации, лучше использовать logging.
+# Закомментируем это, так как логгер в main.py уже сообщает о запуске сервера метрик.

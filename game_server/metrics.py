@@ -1,16 +1,56 @@
 # game_server/metrics.py
-from prometheus_client import Gauge, Counter
+# Этот модуль определяет метрики Prometheus для игрового сервера.
+# Метрики включают количество активных игровых сессий, количество используемых танков,
+# общее число полученных UDP-датаграмм и общее число присоединившихся игроков.
 
-# Определяем метрики Prometheus
-ACTIVE_SESSIONS = Gauge('game_server_active_sessions', 'Number of active game sessions')
-TANKS_IN_USE = Gauge('game_server_tanks_in_use', 'Number of tanks currently in use from the pool')
-TOTAL_DATAGRAMS_RECEIVED = Counter('game_server_datagrams_received_total', 'Total number of UDP datagrams received')
-TOTAL_PLAYERS_JOINED = Counter('game_server_players_joined_total', 'Total number of players joined')
+from prometheus_client import Gauge, Counter # Импортируем типы метрик из библиотеки Prometheus
 
-# Эта функция используется в game_server/main.py для обновления Gauge метрик.
-# Чтобы избежать циклического импорта SessionManager и TankPool сюда,
-# мы оставим эту функцию в game_server.main, но она будет импортировать метрики отсюда.
-# Либо, SessionManager и TankPool должны сами обновлять метрики при изменении их состояния.
-# Пока оставляем логику обновления метрик в main.py, но метрики определены здесь.
+# Определяем метрики Prometheus:
 
-print("Game server metrics defined.")
+# Gauge (датчик) для отслеживания текущего количества активных игровых сессий.
+# 'game_server_active_sessions' - имя метрики.
+# 'Количество активных игровых сессий' - описание метрики.
+ACTIVE_SESSIONS = Gauge(
+    'game_server_active_sessions',
+    'Количество активных игровых сессий'
+)
+
+# Gauge (датчик) для отслеживания текущего количества танков, используемых из пула.
+# 'game_server_tanks_in_use' - имя метрики.
+# 'Количество танков, используемых в данный момент из пула' - описание метрики.
+TANKS_IN_USE = Gauge(
+    'game_server_tanks_in_use',
+    'Количество танков, используемых в данный момент из пула'
+)
+
+# Counter (счетчик) для общего числа полученных UDP-датаграмм.
+# Это кумулятивный счетчик, который только увеличивается.
+# 'game_server_datagrams_received_total' - имя метрики.
+# 'Общее количество полученных UDP-датаграмм' - описание метрики.
+TOTAL_DATAGRAMS_RECEIVED = Counter(
+    'game_server_datagrams_received_total',
+    'Общее количество полученных UDP-датаграмм'
+)
+
+# Counter (счетчик) для общего числа игроков, присоединившихся к серверу.
+# 'game_server_players_joined_total' - имя метрики.
+# 'Общее количество присоединившихся игроков' - описание метрики.
+TOTAL_PLAYERS_JOINED = Counter(
+    'game_server_players_joined_total',
+    'Общее количество присоединившихся игроков'
+)
+
+# Примечание по обновлению метрик:
+# Функция для обновления Gauge-метрик (ACTIVE_SESSIONS, TANKS_IN_USE)
+# обычно находится в `game_server/main.py` или вызывается непосредственно
+# из `SessionManager` и `TankPool` при изменении их состояния.
+# Это делается для избежания циклических импортов, так как `SessionManager` и `TankPool`
+# могут сами импортировать эти метрики для инкрементации Counter-метрик или других нужд.
+# Таким образом, данный файл (`metrics.py`) служит центральным местом для определения
+# метрик, а их обновление происходит в соответствующих компонентах системы.
+
+# logger.info("Определены метрики для игрового сервера.")
+# Заменяем print() на logging, если это необходимо для отладки инициализации.
+# В данном случае, логгер не инициализирован глобально в этом файле,
+# поэтому явный вызов print/logger.info здесь может быть излишним,
+# так как `main.py` уже логирует запуск сервера метрик.

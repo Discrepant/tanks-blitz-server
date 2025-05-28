@@ -5,6 +5,7 @@
 import asyncio
 import json
 import logging # Добавляем импорт для логирования
+from typing import Optional
 from .session_manager import SessionManager, GameSession # Менеджер игровых сессий и GameSession
 from .tank_pool import TankPool # Пул объектов танков
 from .metrics import TOTAL_DATAGRAMS_RECEIVED, TOTAL_PLAYERS_JOINED # Метрики Prometheus
@@ -252,7 +253,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             except Exception as e:
                 logger.error(f"Ошибка при широковещательной отправке игроку {player_id} на {player_addr}: {e}")
     
-    def connection_lost(self, exc: Exception | None):
+    def connection_lost(self, exc: Optional[Exception]):
         """
         Вызывается, когда "соединение" потеряно.
         Для датаграммных протоколов это обычно означает, что сокет был закрыт.

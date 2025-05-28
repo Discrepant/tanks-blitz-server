@@ -150,32 +150,38 @@ class TestKafkaClientConfluent(unittest.TestCase):
     def test_close_kafka_producer_flushes_or_skips_for_mock(self, MockProducer): # Renamed for clarity
         """
         Тест: close_kafka_producer вызывает flush у реального продюсера,
-        но пропускает flush для MagicMock и просто обнуляет.
+        но пропускает flush для MagicMock (помеченного как _is_custom_kafka_mock) и просто обнуляет.
         Проверяет, что глобальный продюсер обнуляется в обоих случаях.
         """
-        # Сценарий 1: _kafka_producer является MagicMock (как в большинстве юнит-тестов)
-        # В этом случае flush не должен вызываться, продюсер просто обнуляется.
-        mock_producer_magic_mock_instance = MagicMock(spec=core.message_broker_clients.Producer)
-        # Убедимся, что у мока есть метод flush, чтобы не было AttributeError при проверке isinstance
-        mock_producer_magic_mock_instance.flush = MagicMock(return_value=0)
+        # Сценарий 1: _kafka_producer является MagicMock, помеченным как _is_custom_kafka_mock.
+        # Это имитирует поведение, когда USE_MOCKS=true или мок создан вручную для пропуска логики.
+        mock_producer_custom_magic_mock = MagicMock(spec=core.message_broker_clients.Producer)
+        mock_producer_custom_magic_mock.flush = MagicMock(return_value=0) # На всякий случай, если бы он вызывался
+        mock_producer_custom_magic_mock._is_custom_kafka_mock = True # Ключевая пометка
         
-        core.message_broker_clients._kafka_producer = mock_producer_magic_mock_instance
+        core.message_broker_clients._kafka_producer = mock_producer_custom_magic_mock
         close_kafka_producer()
         
-        # Для MagicMock flush не должен вызываться согласно логике в close_kafka_producer
-        mock_producer_magic_mock_instance.flush.assert_not_called()
-        self.assertIsNone(core.message_broker_clients._kafka_producer, "Глобальный продюсер (MagicMock) должен быть None после закрытия.")
+        # Для MagicMock, помеченного как _is_custom_kafka_mock, flush не должен вызываться
+        mock_producer_custom_magic_mock.flush.assert_not_called()
+        self.assertIsNone(core.message_broker_clients._kafka_producer, "Глобальный продюсер (кастомный MagicMock) должен быть None после закрытия.")
 
-        # Сценарий 2: _kafka_producer является "реальным" моком от @patch (экземпляр MockProducer)
+        # Сценарий 2: _kafka_producer является "реальным" моком от @patch (экземпляр MockProducer).
+        # Он НЕ должен иметь атрибут _is_custom_kafka_mock = True.
         # В этом случае flush должен вызываться.
         core.message_broker_clients._kafka_producer = None # Сброс перед следующим сценарием
         
         # Создаем новый мок для этого сценария, чтобы счетчики вызовов были чистыми
         mock_real_producer_instance = MockProducer.return_value 
-        mock_real_producer_instance.flush.return_value = 0
+        # Убедимся, что мок реального продюсера не помечен как custom mock.
+        # getattr вернет None если атрибут не существует (или значение по умолчанию), мы проверяем, что он не True.
+        self.assertNotEqual(getattr(mock_real_producer_instance, '_is_custom_kafka_mock', None), True,
+                             "Мок реального продюсера не должен быть помечен как _is_custom_kafka_mock=True для этого сценария.")
+
+        mock_real_producer_instance.flush.return_value = 0 # Настраиваем возвращаемое значение для flush
         core.message_broker_clients._kafka_producer = mock_real_producer_instance
         
-        close_kafka_producer()
+        close_kafka_producer() # Вызываем функцию, которая теперь должна вызвать flush
         
         mock_real_producer_instance.flush.assert_called_once_with(timeout=10)
         self.assertIsNone(core.message_broker_clients._kafka_producer, "Глобальный продюсер (реальный мок) должен быть None после закрытия.")

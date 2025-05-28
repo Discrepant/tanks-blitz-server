@@ -65,7 +65,7 @@ def get_kafka_producer():
             _kafka_producer.produce = MagicMock(name="MockKafkaProducer.produce")
             _kafka_producer.flush = MagicMock(name="MockKafkaProducer.flush", return_value=0) # flush возвращает количество сообщений в очереди
             _kafka_producer._is_custom_kafka_mock = True # Помечаем его как наш кастомный мок
-            logger.info("Глобальный _kafka_producer инициализирован в режиме MOCK.")
+            logger.info("Глобальный _kafka_producer инициализирован в режиме MOCK (из get_kafka_producer).") # Added clarity
         return _kafka_producer
 
     if _kafka_producer is None:
@@ -247,14 +247,24 @@ def close_kafka_producer():
     """
     global _kafka_producer
     if _kafka_producer is not None:
-        if isinstance(_kafka_producer, MagicMock): # Если это мок, просто обнуляем
+        # Проверяем, является ли _kafka_producer специальным моком, который не должен вызывать flush.
+        # Это моки, созданные get_kafka_producer() при USE_MOCKS="true",
+        # или те, что явно установлены в тестах как простые MagicMock без намерения тестировать flush.
+        is_simple_placeholder_mock = isinstance(_kafka_producer, MagicMock) and \
+                                     getattr(_kafka_producer, '_is_custom_kafka_mock', False) is True # Check for explicit True
+
+        if is_simple_placeholder_mock:
+            logger.info(f"Мок-продюсер Kafka '{_kafka_producer._extract_mock_name()}' (помечен как _is_custom_kafka_mock) обнулен без вызова flush.")
             _kafka_producer = None
-            logger.info("Мок-продюсер Kafka обнулен.")
             return
+
+        # Для всех остальных случаев (реальный продюсер или мок реального продюсера от @patch)
+        # пытаемся вызвать flush.
         try:
             # Ожидание отправки всех сообщений из очереди продюсера.
             # Таймаут - это максимальное время ожидания отправки ВСЕХ сообщений,
             # а не для каждого сообщения в отдельности.
+            logger.info(f"Попытка вызова flush() для продюсера: {_kafka_producer}") # Added for clarity
             remaining_messages = _kafka_producer.flush(timeout=10) # таймаут в секундах
             if remaining_messages > 0:
                 logger.warning(f"{remaining_messages} сообщений Kafka все еще в очереди после таймаута flush.")
@@ -265,11 +275,8 @@ def close_kafka_producer():
         except Exception as e: # Любая другая неожиданная ошибка во время flush
             logger.error(f"Произошла неожиданная ошибка во время сброса (flush) продюсера Kafka: {e}", exc_info=True)
         
-        # Продюсер confluent-kafka не имеет явного метода close().
-        # Обычно он управляется сборщиком мусора Python.
-        # Установка в None позволяет переинициализировать его при необходимости.
         _kafka_producer = None 
-        logger.info("Ресурсы продюсера Kafka освобождены (установлен в None).")
+        logger.info("Ресурсы продюсера Kafka освобождены (установлен в None) после попытки flush или ошибки.")
 
 
 def cleanup_message_brokers():

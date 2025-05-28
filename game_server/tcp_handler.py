@@ -1,121 +1,180 @@
+# game_server/tcp_handler.py
+# Этот модуль отвечает за обработку TCP-соединений от игровых клиентов.
+# Включает аутентификацию, обработку команд и взаимодействие с игровой комнатой.
 import asyncio
-import json  # Added import
-import logging  # Added import
-import time # Added import
-from .game_logic import GameRoom, Player
-from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS  # Убедитесь, что пути импорта верны
-logger = logging.getLogger(__name__)
+import json  # Добавлен импорт для возможной работы с JSON, хотя текущие команды текстовые
+import logging  # Добавлен импорт для логирования
+import time # Добавлен импорт (может быть полезен для временных меток или задержек)
+from .game_logic import GameRoom, Player # Импортируем GameRoom и Player из game_logic
+# Убедитесь, что пути импорта верны. Если message_broker_clients в core, то from core.message_broker_clients ...
+from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS  
+logger = logging.getLogger(__name__) # Инициализация логгера для этого модуля
 
 
-async def handle_game_client(reader, writer, game_room):
-    addr = writer.get_extra_info('peername')
-    player = None
+async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, game_room: GameRoom):
+    """
+    Асинхронный обработчик для каждого подключенного игрового клиента по TCP.
+
+    Читает команды от клиента, обрабатывает их (LOGIN, REGISTER, MOVE, SHOOT)
+    и взаимодействует с GameRoom. Команды MOVE и SHOOT публикуются в RabbitMQ.
+
+    Args:
+        reader (asyncio.StreamReader): Объект для чтения данных от клиента.
+        writer (asyncio.StreamWriter): Объект для записи данных клиенту.
+        game_room (GameRoom): Экземпляр игровой комнаты для взаимодействия.
+    """
+    addr = writer.get_extra_info('peername') # Получаем адрес клиента (IP, порт)
+    logger.info(f"Новое TCP-соединение от {addr}")
+    player: Player | None = None # Переменная для хранения объекта Player после успешного логина
+    
     try:
-        while True:
-            data = await reader.readuntil(b'\n')
-            message_str = data.decode().strip()
-            if not message_str:
-                logger.warning(f"Empty command string received from {addr}")
-                writer.write("EMPTY_COMMAND\n".encode())
+        while True: # Основной цикл обработки команд от клиента
+            data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
+            message_str = data.decode('utf-8').strip() # Декодируем и удаляем пробельные символы
+            
+            if not message_str: # Если получена пустая строка
+                logger.warning(f"От {addr} получена пустая командная строка.")
+                writer.write("EMPTY_COMMAND\n".encode('utf-8')) # Отправляем ошибку клиенту
                 await writer.drain()
+                continue # Переходим к следующей итерации цикла
+
+            parts = message_str.split() # Разделяем команду и аргументы
+            if not parts: # Если после разделения ничего не осталось (маловероятно после strip, но для надежности)
                 continue
 
-            parts = message_str.split()
-            if not parts:
-                continue
-
-            cmd = parts[0].upper()
+            cmd = parts[0].upper() # Первое слово - команда, приводим к верхнему регистру
+            
+            # Обработка команды LOGIN
             if cmd == 'LOGIN' and len(parts) == 3:
                 username, password = parts[1], parts[2]
-                # Call game_room.authenticate_player
+                # Вызываем метод аутентификации из игровой комнаты
                 authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
-                logger.debug(f"GameTCPHandler: authenticate_player returned: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
+                logger.debug(f"GameTCPHandler: authenticate_player вернул: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
                 
                 if authenticated:
-                    # Create Player instance
-                    # Assuming Player is imported correctly (e.g., from .models or .game_logic)
+                    # Создаем экземпляр Player
+                    # Предполагается, что Player импортирован корректно (например, из .models или .game_logic)
                     player_obj = Player(writer=writer, name=username, session_token=session_token)
-                    # Add player object to game_room
+                    # Добавляем объект игрока в игровую комнату
                     await game_room.add_player(player_obj) 
-                    player = player_obj # Assign to the handler's player variable
+                    player = player_obj # Присваиваем объект игрока переменной обработчика
                     
-                    # Send success response
-                    logger.debug(f"GameTCPHandler: Writing LOGIN_SUCCESS to client. Message='{auth_message}', Token='{session_token if session_token else 'N/A'}'")
-                    writer.write(f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n".encode())
+                    # Отправляем успешный ответ
+                    response_msg = f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n"
+                    logger.debug(f"GameTCPHandler: Отправка LOGIN_SUCCESS клиенту. Сообщение='{auth_message}', Токен='{session_token if session_token else 'N/A'}'")
+                    writer.write(response_msg.encode('utf-8'))
                     await writer.drain()
-                    logger.info(f"Player {username} logged in from {addr}. Token: {session_token if session_token else 'N/A'}")
+                    logger.info(f"Игрок {username} вошел в систему с {addr}. Токен: {session_token if session_token else 'N/A'}")
                 else:
-                    # Send failure response
-                    logger.debug(f"GameTCPHandler: Writing LOGIN_FAILURE to client. Message='{auth_message}'")
-                    writer.write(f"LOGIN_FAILURE {auth_message}\n".encode())
+                    # Отправляем ответ о неудаче
+                    response_msg = f"LOGIN_FAILURE {auth_message}\n"
+                    logger.debug(f"GameTCPHandler: Отправка LOGIN_FAILURE клиенту. Сообщение='{auth_message}'")
+                    writer.write(response_msg.encode('utf-8'))
                     await writer.drain()
-                    logger.info(f"Login failed for {username} from {addr}. Message: {auth_message}. Returning.")
-                    return  # Terminate handler for this client
+                    logger.info(f"Неудачный вход для {username} с {addr}. Сообщение: {auth_message}. Завершение обработчика.")
+                    return  # Завершаем обработчик для этого клиента
+            
+            # Обработка команды REGISTER (заглушка)
             elif cmd == 'REGISTER' and len(parts) == 3:
-                writer.write("REGISTER_FAILURE Registration via game server is not yet supported.\n".encode())
+                # Регистрация через игровой сервер пока не поддерживается или обрабатывается иначе
+                writer.write("REGISTER_FAILURE Регистрация через игровой сервер пока не поддерживается.\n".encode('utf-8'))
                 await writer.drain()
-                logger.info(f"REGISTER_FAILURE sent to {addr}. Returning.")
-                return
+                logger.info(f"REGISTER_FAILURE отправлен {addr}. Завершение обработчика.")
+                return # Завершаем обработчик
+            
+            # Обработка команд MOVE или SHOOT
             elif cmd == 'MOVE' or cmd == 'SHOOT':
-                if not player:
-                    writer.write("UNAUTHORIZED You must login first\n".encode())
+                if not player: # Если игрок не аутентифицирован
+                    writer.write("UNAUTHORIZED Сначала необходимо войти в систему\n".encode('utf-8'))
                     await writer.drain()
                     continue
 
                 if cmd == 'MOVE':
-                    if len(parts) < 3:
-                        writer.write("MOVE_ERROR Missing coordinates\n".encode())
+                    if len(parts) < 3: # Проверяем наличие координат
+                        writer.write("MOVE_ERROR Отсутствуют координаты\n".encode('utf-8'))
                         await writer.drain()
                         continue
                     try:
-                        x = int(parts[1])
-                        y = int(parts[2])
+                        x = int(parts[1]) # X координата
+                        y = int(parts[2]) # Y координата
+                        # Формируем данные команды для отправки в RabbitMQ
                         command_data = {
-                            "player_id": player.name,
+                            "player_id": player.name, # Используем имя игрока как ID
                             "command": "move",
                             "details": {"new_position": [x, y]}
                         }
+                        # Публикуем команду в RabbitMQ
                         await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
+                        logger.info(f"Команда MOVE от {player.name} ({x},{y}) опубликована в RabbitMQ.")
                     except ValueError:
-                        writer.write("MOVE_ERROR Invalid coordinates\n".encode())
+                        writer.write("MOVE_ERROR Неверные координаты\n".encode('utf-8'))
                         await writer.drain()
-                        logger.error(f"Invalid coordinates for MOVE command from {player.name}: {parts[1:]}")
+                        logger.error(f"Неверные координаты для команды MOVE от {player.name}: {parts[1:]}")
                         continue
                 elif cmd == 'SHOOT':
+                    # Формируем данные команды для отправки в RabbitMQ
                     command_data = {
                         "player_id": player.name,
                         "command": "shoot",
-                        "details": {"source": "tcp_handler"}
+                        "details": {"source": "tcp_handler"} # Дополнительная информация об источнике
                     }
+                    # Публикуем команду в RabbitMQ
                     await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
-            else:
-                logger.warning(f"Unknown command '{cmd}' from {player.name if player else addr}. Full message: '{message_str}'")
-                writer.write("UNKNOWN_COMMAND\n".encode())
-                await writer.drain()
+                    logger.info(f"Команда SHOOT от {player.name} опубликована в RabbitMQ.")
+            
+            # Обработка других команд (например, из GameRoom.handle_player_command)
+            elif player and cmd in ["SAY", "HELP", "PLAYERS", "QUIT"]:
+                # Передаем команду в игровую комнату для обработки логики чата и информации
+                await game_room.handle_player_command(player, message_str)
+                # Ответы игроку будут отправлены из game_room.handle_player_command через player.send_message
+                # Если команда QUIT, то соединение будет закрыто там же.
+                if cmd == "QUIT": # Если QUIT, то handle_player_command инициирует закрытие
+                    logger.info(f"Игрок {player.name} отправил QUIT. Соединение будет закрыто.")
+                    # Цикл прервется, когда writer закроется и readuntil вызовет исключение
+            
+            else: # Неизвестная команда
+                logger.warning(f"Неизвестная команда '{cmd}' от {player.name if player else addr}. Полное сообщение: '{message_str}'")
+                if player: # Если игрок есть, но команда неизвестна для этого обработчика
+                    await player.send_message(f"SERVER: Неизвестная команда '{cmd}'. Введите HELP для списка команд.")
+                else: # Если игрок еще не залогинен и команда не LOGIN/REGISTER
+                    writer.write("UNKNOWN_COMMAND\n".encode('utf-8'))
+                    await writer.drain()
 
-            logger.info(f"DEBUG: Player {player.name if player else addr} attempting to send response: {cmd.strip()}")
-            writer.write(f"COMMAND_RECEIVED {cmd}\n".encode())
-            await writer.drain()
-            logger.info(f"DEBUG: Player {player.name if player else addr} response sent and drained.")
+            # Подтверждение получения команды (если команда не QUIT и не вызвала ошибку ранее)
+            # Этот ответ может быть избыточен, если game_room.handle_player_command уже отправил ответ.
+            # Для MOVE/SHOOT ответ не обязателен, так как они асинхронны.
+            if cmd not in ["QUIT", "LOGIN", "REGISTER"] and (cmd in ["MOVE", "SHOOT"] or player): # Только если это не команды, завершающие соединение или уже обработанные
+                # logger.info(f"DEBUG: Игрок {player.name if player else addr} пытается отправить ответ: {cmd.strip()}")
+                # writer.write(f"COMMAND_RECEIVED {cmd}\n".encode('utf-8'))
+                # await writer.drain()
+                # logger.info(f"DEBUG: Игрок {player.name if player else addr} ответ отправлен и сброшен.")
+                pass # Решено убрать общий COMMAND_RECEIVED, так как ответы специфичны для команд
 
     except ConnectionResetError:
-        logger.info(f"DEBUG: ConnectionResetError for {player.name if player else addr} ({addr}). Exiting loop.")
+        logger.info(f"Соединение сброшено клиентом {player.name if player else addr} ({addr}).")
     except asyncio.IncompleteReadError:
-        logger.info(f"Client {player.name if player else addr} ({addr}) closed connection (IncompleteReadError).")
+        logger.info(f"Клиент {player.name if player else addr} ({addr}) закрыл соединение (IncompleteReadError).")
     except Exception as e:
-        logger.critical(f"Critical error in handle_game_client for {addr}: {e}", exc_info=True)
-        if writer and not writer.is_closing():
+        logger.critical(f"Критическая ошибка в handle_game_client для {addr}: {e}", exc_info=True)
+        if writer and not writer.is_closing(): # Если writer все еще открыт
             try:
-                writer.write(f"CRITICAL_ERROR {type(e).__name__}\n".encode())
+                # Пытаемся уведомить клиента о критической ошибке
+                writer.write(f"CRITICAL_SERVER_ERROR {type(e).__name__}\n".encode('utf-8'))
                 await writer.drain()
             except Exception as we:
-                logger.error(f"Failed to send critical error message to client {addr}: {we}")
+                logger.error(f"Не удалось отправить сообщение о критической ошибке клиенту {addr}: {we}")
     finally:
-        if player:
-            await game_room.remove_player(player)
-        logger.info(f"Connection from {addr} closed (player not fully added or already removed).")
+        logger.info(f"Завершение обработки для {addr}. Игрок: {player.name if player else 'N/A'}.")
+        if player: # Если объект игрока был создан
+            logger.info(f"Удаление игрока {player.name} из игровой комнаты {game_room}.")
+            await game_room.remove_player(player) # Удаляем игрока из игровой комнаты
+        
+        # Закрываем writer, если он еще не закрыт
         if writer and not writer.is_closing():
+            logger.debug(f"Закрытие writer для {addr} в блоке finally.")
+            writer.close()
             try:
-                await writer.wait_closed()
+                await writer.wait_closed() # Ожидаем полного закрытия
             except Exception as e_close:
-                logger.error(f"Error during writer close for {addr}: {e_close}")
+                logger.error(f"Ошибка при ожидании закрытия writer для {addr}: {e_close}", exc_info=True)
+        logger.info(f"Соединение с {addr} (игрок: {player.name if player else 'N/A'}) полностью закрыто.")

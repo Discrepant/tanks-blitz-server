@@ -20,288 +20,457 @@
 
 Система состоит из следующих основных компонентов:
 
-1.  **Клиент Игры** (не входит в этот репозиторий)
-2.  **Nginx (Входная точка/Балансировщик/Защита от DDoS):**
-    *   Принимает весь трафик от клиентов.
-    *   Проксирует TCP-трафик на Сервер Аутентификации.
-    *   Проксирует UDP-трафик на Игровой Сервер.
-    *   Может быть настроен для базовой защиты от DDoS.
-    *   Разворачивается в Kubernetes.
-3.  **Сервер Аутентификации (Auth Server):**
-    *   **Протокол: TCP, JSON.**
-    *   Назначение: Регистрация и аутентификация. Отправляет события аудита в Kafka.
-    *   Технологии: Python, `asyncio`, Kafka-клиент.
-    *   Экспортирует метрики для Prometheus на порт `8000`.
-4.  **Игровой Сервер (Game Server):**
-    *   **Протокол: UDP (основной игровой), TCP (управляющие команды). Сообщения в формате JSON.**
-    *   Назначение: Обработка игровой логики, синхронизация состояния игры. Взаимодействует с RabbitMQ для получения команд игроков и событий матчмейкинга. Отправляет события состояния игры и данные в Kafka.
-    *   Паттерны: `SessionManager` (Singleton), `TankPool` (Object Pool).
-    *   Компоненты:
-        *   `udp_handler.py`, `tcp_handler.py`: Обработка входящих команд, публикация в RabbitMQ.
-        *   `command_consumer.py`: Содержит `PlayerCommandConsumer` (обработка команд из RabbitMQ) и `MatchmakingEventConsumer` (обработка событий матчмейкинга из RabbitMQ).
-        *   `session_manager.py`, `tank_pool.py`, `tank.py`: Основная игровая логика, отправка событий в Kafka.
-    *   Технологии: Python, `asyncio`, Kafka-клиент, Pika (RabbitMQ-клиент).
-    *   Экспортирует метрики для Prometheus на порт `8001`.
-5.  **Kafka (Брокер сообщений):**
-    *   Назначение: Сбор и хранение событий от различных компонентов системы для логирования, аналитики и потенциальной последующей обработки.
-    *   Топики (основные): `player_sessions_history`, `tank_coordinates_history`, `game_events`, `auth_events`.
-6.  **RabbitMQ (Брокер сообщений):**
-    *   Назначение: Обработка асинхронных команд игроков и событий матчмейкинга.
-    *   Очереди (основные): `player_commands`, `matchmaking_events`.
-7.  **Redis:**
-    *   Назначение: Кэширование, хранение временных данных сессий (если необходимо).
-8.  **Prometheus:**
-9.  **Grafana:**
-10. **База данных (PostgreSQL - концептуально):**
+### 1. Клиент Игры
+(Не входит в этот репозиторий) - Предполагается, что это игровое приложение, с которым взаимодействуют пользователи.
 
-### Обновленный Поток Команд и Событий
+### 2. Nginx (Входная точка/Балансировщик/Защита от DDoS)
+*   **Роль:** Принимает весь входящий трафик от клиентов, выполняет SSL-терминирование (если настроено), распределяет нагрузку на соответствующие серверы и может обеспечивать базовую защиту от DDoS-атак.
+*   **Проксирование TCP (Auth Server):** Nginx прослушивает определенный TCP-порт (например, `8888`) и перенаправляет трафик на Сервер Аутентификации.
+    *   Пример конфигурации (в `stream` блоке `nginx.conf`):
+        ```nginx
+        upstream auth_servers {
+            server auth_server_host:auth_server_port; # Например, 127.0.0.1:8888 или k8s_service_name:port
+            # server auth_server_replica_2:port; # Для масштабирования
+        }
 
-С внедрением Kafka и RabbitMQ поток обработки команд и логирования событий изменился:
+        server {
+            listen 8888; # Порт, который слушает Nginx для клиентов
+            proxy_pass auth_servers;
+            proxy_connect_timeout 1s;
+            # Другие директивы proxy_*
+        }
+        ```
+*   **Проксирование UDP (Game Server):** Nginx прослушивает определенный UDP-порт (например, `9999`) и перенаправляет трафик на Игровой Сервер.
+    *   Пример конфигурации (аналогично TCP, но в `stream` блоке для UDP, Nginx должен быть скомпилирован с `--with-stream_udp_module`):
+        ```nginx
+        upstream game_servers_udp {
+            server game_server_host:game_server_udp_port; # Например, 127.0.0.1:9999 или k8s_service_name:port
+        }
 
-1.  **Обработка Команд Игрока (например, "shoot", "move"):**
-    *   Клиент игры отправляет команду (по TCP или UDP) на соответствующий обработчик Игрового Сервера (`tcp_handler.py` или `udp_handler.py`).
-    *   Обработчик формирует сообщение команды и публикует его в очередь `player_commands` в RabbitMQ.
-    *   `PlayerCommandConsumer` (в `game_server/command_consumer.py`) получает команду из очереди.
-    *   Consumer вызывает соответствующий метод игровой логики (например, `tank.shoot()` или `tank.move()`).
+        server {
+            listen 9999 udp; # Порт, который слушает Nginx для клиентов (UDP)
+            proxy_pass game_servers_udp;
+            # Другие директивы proxy_* для UDP
+        }
+        ```
+*   **Развертывание:** Обычно разворачивается как Ingress-контроллер в Kubernetes или как отдельный сервис. Конфигурационный файл: `nginx.conf`.
 
-2.  **Обработка Событий Матчмейкинга:**
-    *   Предполагается, что внешний сервис матчмейкинга (не входит в этот прототип) публикует событие о создании нового матча (например, `new_match_created`) в очередь `matchmaking_events` в RabbitMQ.
-    *   `MatchmakingEventConsumer` (в `game_server/command_consumer.py`) получает это событие.
-    *   Consumer вызывает `SessionManager` для создания новой игровой сессии.
+### 3. Сервер Аутентификации (Auth Server)
+*   **Роль:** Отвечает за регистрацию новых пользователей и аутентификацию существующих.
+*   **Протокол:** TCP, сообщения в формате JSON.
+*   **Процесс регистрации:**
+    1.  Клиент отправляет запрос на регистрацию, например: `{"command": "register", "username": "user1", "password": "password123"}`.
+    2.  Сервер проверяет, не занято ли имя пользователя.
+    3.  Если имя свободно, сервер сохраняет учетные данные (в данном прототипе используется mock-база данных `MOCK_USERS_DB` в `auth_server/auth_logic.py`). В реальной системе это была бы полноценная база данных.
+    4.  Отправляет клиенту ответ: `{"status": "ok", "message": "User registered successfully"}` или `{"status": "error", "message": "Username already taken"}`.
+*   **Процесс аутентификации:**
+    1.  Клиент отправляет запрос на аутентификацию: `{"command": "login", "username": "user1", "password": "password123"}`.
+    2.  Сервер проверяет учетные данные пользователя.
+    3.  В случае успеха, сервер может генерировать сессионный токен (в данном прототипе это не реализовано, но это стандартная практика, например, JWT).
+    4.  Отправляет клиенту ответ: `{"status": "ok", "message": "Login successful"}` (и токен, если используется) или `{"status": "error", "message": "Invalid credentials"}`.
+*   **Хранение данных:** Временно в `auth_server.auth_logic.MOCK_USERS_DB`. В продакшене это была бы PostgreSQL или другая СУБД.
+*   **Формат токенов:** Не используется в текущем прототипе. При внедрении рекомендуется использовать JWT (JSON Web Tokens).
+*   **События в Kafka:** Отправляет события аудита (успешный вход, неудачная попытка, регистрация) в топик `auth_events` в Kafka.
+*   **Технологии:** Python, `asyncio`, Kafka-клиент.
+*   **Метрики:** Экспортирует метрики для Prometheus на порт `8000` (настраивается переменной `AUTH_PROMETHEUS_PORT`).
 
-3.  **Логирование Событий и Данных в Kafka:**
-    *   **События сессий:** `SessionManager` при создании сессии (`session_created`), удалении сессии (`session_removed`), присоединении игрока (`player_joined_session`) или выходе игрока (`player_left_session`) отправляет соответствующие события в топик `player_sessions_history` в Kafka.
-    *   **Координаты танков:** Метод `tank.move()` после обновления позиции танка отправляет событие `tank_moved` с новыми координатами в топик `tank_coordinates_history` в Kafka.
-    *   **Игровые события:** Методы класса `Tank` (например, `shoot()`, `take_damage()`) отправляют события `tank_shot`, `tank_took_damage`, `tank_destroyed` в топик `game_events` в Kafka.
-    *   **События аутентификации:** Сервер аутентификации отправляет события (например, `user_logged_in`, `user_login_failed`) в топик `auth_events` в Kafka.
+### 4. Игровой Сервер (Game Server)
+*   **Роль:** Обрабатывает основную игровую логику, управляет игровыми сессиями, состоянием игроков (танков) и взаимодействием между ними.
+*   **Протоколы:**
+    *   **UDP:** Для основных игровых команд, требующих низкой задержки (движение, состояние). Сообщения в формате JSON.
+    *   **TCP:** Для управляющих команд, где важна надежность (например, инициация выстрела, если это требует подтверждения или сложной логики). Сообщения в формате JSON.
+*   **Управление сессиями (`SessionManager`):**
+    *   `SessionManager` (реализован как Singleton) отвечает за создание, отслеживание и завершение игровых сессий (комнат).
+    *   Новая сессия может быть создана, например, по событию от матчмейкера.
+    *   Хранит информацию об активных сессиях и игроках в них.
+*   **Логика обработки игровых команд:**
+    1.  Команды от клиентов (например, движение, выстрел) поступают на `udp_handler.py` или `tcp_handler.py`.
+    2.  Обработчики валидируют команду и публикуют ее в очередь `player_commands` в RabbitMQ.
+    3.  `PlayerCommandConsumer` (в `game_server/command_consumer.py`) извлекает команду из RabbitMQ.
+    4.  Consumer делегирует выполнение команды соответствующему объекту `Tank` внутри его игровой сессии (`GameRoom`).
+*   **Взаимодействие с `TankPool`:**
+    *   `TankPool` (реализован как Object Pool) управляет объектами танков.
+    *   При присоединении игрока к сессии или создании нового танка, объект танка запрашивается из пула.
+    *   Когда танк уничтожен или игрок покидает сессию, объект танка возвращается в пул для повторного использования. Это помогает снизить накладные расходы на создание и удаление объектов.
+*   **Формат основных игровых сообщений (примеры):**
+    *   **Движение (от клиента серверу, UDP):** `{"command": "move", "player_id": "player123", "direction": "forward", "timestamp": 1678886400.123}`
+    *   **Обновление состояния (от сервера клиентам, UDP):** `{"event": "state_update", "player_id": "player123", "position": {"x": 10, "y": 25}, "health": 80, "timestamp": 1678886400.234}`
+    *   **Выстрел (от клиента серверу, TCP/UDP):** `{"command": "shoot", "player_id": "player123", "target_id": "player456", "timestamp": 1678886401.345}`
+    *   **Результат выстрела (от сервера клиентам, UDP):** `{"event": "shot_fired", "shooter_id": "player123", "target_id": "player456", "damage_done": 20, "timestamp": 1678886401.456}`
+*   **События в Kafka:** Отправляет детальные события о ходе игры (движение, урон, уничтожение танка и т.д.) в соответствующие топики Kafka.
+*   **Технологии:** Python, `asyncio`, Kafka-клиент, Pika (RabbitMQ-клиент).
+*   **Метрики:** Экспортирует метрики для Prometheus на порт `8001` (настраивается переменной `GAME_PROMETHEUS_PORT`).
 
-Эта архитектура с брокерами сообщений позволяет повысить отказоустойчивость, масштабируемость и гибкость системы, а также обеспечивает централизованное логирование для последующего анализа и построения аналитики.
+### 5. Kafka (Брокер сообщений)
+*   **Роль:** Используется для сбора, хранения и потоковой обработки событий от всех компонентов системы. Служит как система логирования для аудита, аналитики, мониторинга и потенциальной последующей асинхронной обработки данных.
+*   **Топики и примеры сообщений:**
+    *   `player_sessions_history`: Записывает события, связанные с жизненным циклом игровых сессий.
+        *   Пример сообщения: `{"event_type": "session_created", "session_id": "sess_abc123", "timestamp": "2023-03-15T10:00:00Z", "created_by": "matchmaker"}`
+        *   Пример сообщения: `{"event_type": "player_joined_session", "session_id": "sess_abc123", "player_id": "player456", "timestamp": "2023-03-15T10:01:00Z"}`
+    *   `tank_coordinates_history`: Хранит историю изменения координат танков.
+        *   Пример сообщения: `{"player_id": "player789", "session_id": "sess_xyz789", "tank_id": "tank_a", "coordinates": {"x": 15.5, "y": 42.0, "z": 0.0}, "timestamp": "2023-03-15T10:05:30.123Z"}`
+    *   `game_events`: Логирует ключевые игровые события.
+        *   Пример сообщения (выстрел): `{"event_type": "tank_shot", "shooter_id": "player1", "target_id": "player2", "weapon_type": "cannon_75mm", "timestamp": "2023-03-15T10:10:15Z"}`
+        *   Пример сообщения (получение урона): `{"event_type": "tank_took_damage", "player_id": "player2", "damage_amount": 30, "source_player_id": "player1", "health_remaining": 70, "timestamp": "2023-03-15T10:10:15.500Z"}`
+    *   `auth_events`: Записывает события аутентификации.
+        *   Пример сообщения (успешный вход): `{"event_type": "user_logged_in", "username": "user1", "ip_address": "192.168.1.100", "timestamp": "2023-03-15T09:55:00Z"}`
+        *   Пример сообщения (неудачный вход): `{"event_type": "user_login_failed", "username": "user2", "reason": "invalid_password", "ip_address": "192.168.1.101", "timestamp": "2023-03-15T09:56:00Z"}`
 
-### Структура проекта
+### 6. RabbitMQ (Брокер сообщений)
+*   **Роль:** Используется для асинхронной обработки команд, где не требуется немедленный ответ, и для передачи событий, требующих немедленной реакции от других сервисов (например, матчмейкинг). Помогает разгрузить основные потоки обработки серверов.
+*   **Очереди и примеры сообщений:**
+    *   `player_commands`: Очередь для команд от игроков, которые обрабатываются Игровым Сервером.
+        *   Пример сообщения (движение): `{"command_type": "move", "player_id": "player123", "details": {"direction": "forward", "speed": 0.5}, "timestamp": "2023-03-15T10:02:00Z"}`
+        *   Пример сообщения (выстрел): `{"command_type": "shoot", "player_id": "player789", "details": {"target_id": "enemy_tank_01"}, "timestamp": "2023-03-15T10:03:00Z"}`
+    *   `matchmaking_events`: Очередь для событий от системы матчмейкинга.
+        *   Пример сообщения: `{"event_type": "new_match_created", "match_id": "match_xyz456", "players": ["player1", "player2", "player3", "player4"], "map_id": "map_desert", "game_mode": "capture_the_flag", "timestamp": "2023-03-15T09:50:00Z"}`
 
-- `auth_server/`: Код сервера аутентификации.
-- `game_server/`: Код игрового сервера.
-- `core/`: Общие модули.
-- `tests/`: Юнит и нагрузочные тесты.
-  - `unit/`: Юнит-тесты (`pytest`).
+### 7. Redis
+*   **Роль:** Используется для кэширования часто запрашиваемых данных и хранения временных данных сессий для быстрого доступа.
+*   **Данные для кэширования/хранения:**
+    *   **Сессионные токены игроков:** Если бы использовались токены, Redis был бы хорошим местом для их хранения (связка токен -> user_id, время жизни токена).
+    *   **Краткосрочные состояния игроков:** Например, временные баффы/дебаффы, которые не требуют немедленной записи в основную БД.
+    *   **Кэш профилей игроков:** Часто запрашиваемая информация о профиле игрока для снижения нагрузки на основную БД.
+    *   **Списки лидеров (Leaderboards):** Если бы в игре были таблицы лидеров, Redis Sorted Sets отлично бы подошли для их реализации.
+    *   В текущем прототипе активное использование Redis не детализировано, но он заложен в архитектуру для этих целей.
+
+### 8. Prometheus
+*   **Роль:** Система мониторинга и оповещения. Собирает метрики с различных сервисов (Auth Server, Game Server, Nginx и др.) через их HTTP эндпоинты (`/metrics`).
+*   **Конфигурация:** `prometheus.yml` (пример находится в `monitoring/prometheus.yml`) определяет, какие эндпоинты опрашивать.
+
+### 9. Grafana
+*   **Роль:** Платформа для визуализации и анализа метрик, собранных Prometheus. Позволяет создавать дашборды для отслеживания состояния системы в реальном времени.
+*   **Конфигурация:** Подключается к Prometheus как к источнику данных. Дашборды настраиваются через веб-интерфейс Grafana.
+
+### 10. База данных (PostgreSQL - концептуально)
+*   **Роль:** Долгосрочное хранение данных игроков, информации о матчах, игровых ассетов и т.д. В данном прототипе не реализована, но предполагается ее наличие в полноценной системе.
+
+## Обновленный Поток Команд и Событий
+(Этот раздел остается в основном без изменений, так как он уже хорошо описывает поток с Kafka и RabbitMQ)
+
+## Структура директорий
+
+Проект имеет следующую структуру:
+
+-   `auth_server/`: Исходный код Сервера Аутентификации.
+    -   `main.py`: Точка входа для запуска сервера.
+    -   `auth_logic.py`: Логика регистрации и аутентификации.
+    -   `tcp_handler.py`: Обработчик TCP-соединений и JSON-запросов.
+-   `game_server/`: Исходный код Игрового Сервера.
+    -   `main.py`: Точка входа для запуска сервера.
+    -   `game_logic.py`: Основная игровая логика, управление комнатами и танками.
+    -   `session_manager.py`: Управление игровыми сессиями.
+    -   `tank.py`: Класс, представляющий танк игрока.
+    -   `tank_pool.py`: Пул объектов танков.
+    *   `udp_handler.py`, `tcp_handler.py`: Обработчики входящих команд от клиентов.
+    *   `command_consumer.py`: Потребители сообщений из RabbitMQ (`PlayerCommandConsumer`, `MatchmakingEventConsumer`).
+-   `core/`: Общие модули, используемые различными компонентами проекта.
+    -   `message_broker_clients.py`: Клиенты для взаимодействия с Kafka и RabbitMQ.
+    -   `prometheus_client.py`: Утилиты для экспорта метрик в Prometheus.
+    -   `redis_client.py`: Клиент для взаимодействия с Redis.
+    -   `patterns.py`: Реализации паттернов проектирования (Singleton, ObjectPool).
+-   `tests/`: Автоматические тесты.
+    -   `unit/`: Юнит-тесты для отдельных модулей и классов (`pytest` или `unittest`).
+    -   `integration/`: Интеграционные тесты для проверки взаимодействия между сервисами.
+    -   `load/`: Нагрузочные тесты (например, с использованием `locust`).
+-   `deployment/`: Файлы конфигурации для развертывания.
+    -   `docker-compose.yml`: Конфигурация для запуска проекта с помощью Docker Compose.
+    -   `kubernetes/`: (Опционально) Манифесты Kubernetes для развертывания в кластере.
+-   `monitoring/`: Файлы конфигурации для систем мониторинга.
+    -   `prometheus.yml`: Конфигурация Prometheus.
+    -   `grafana/`: (Опционально) Конфигурации дашбордов Grafana.
+-   `scripts/`: Вспомогательные скрипты (например, для запуска, сборки, очистки).
+-   `requirements.txt`: Список зависимостей Python.
+-   `README.md`: Этот файл.
 
 ## Требования
 
-- Python 3.9+
-- Docker
-- `docker-compose`
-- `kubectl`
-- `locust`
-- `netcat` (`nc`) или `telnet`
+-   Python 3.9+
+-   Docker
+-   `docker-compose` (или `docker compose` v2+)
+-   `kubectl` (если используется Kubernetes)
+-   `locust` (для нагрузочных тестов)
+-   `netcat` (`nc`) или `telnet` (для ручного тестирования TCP-сервисов)
+-   Git
 
-## Настройка и запуск на Windows
+## Настройка и запуск
 
-Для работы с проектом на Windows рекомендуется следующая конфигурация и шаги:
-
-### 1. Установка Docker Desktop
-
-*   **Скачайте и установите Docker Desktop для Windows** с официального сайта Docker: [https://www.docker.com/products/docker-desktop](https://www.docker.com/products/docker-desktop)
-*   **Рекомендация WSL2:** При установке Docker Desktop выберите бэкенд WSL2.
-
-### 2. Установка Git
-*   Скачайте и установите Git с [https://git-scm.com/download/win](https://git-scm.com/download/win).
-
-### 3. Клонирование репозитория
-*   Откройте командную строку и выполните:
-    ```bash
-    git clone https://<URL_вашего_репозитория>.git
-    cd <имя_папки_репозитория>
-    ```
-
-## Message Broker Setup (Kafka & RabbitMQ)
-
-### Локальный запуск (Docker Compose)
-
-Убедитесь, что Docker Desktop запущен.
-Файл `docker-compose.yml` включает Kafka и RabbitMQ. Для запуска:
+### 1. Клонирование репозитория
 ```bash
-docker-compose up -d
+git clone https://<URL_вашего_репозитория>.git # Замените на реальный URL
+cd <имя_папки_репозитория>
+```
 
-Или только брокеры:
+### 2. Установка зависимостей Python
+Рекомендуется использовать виртуальное окружение:
+```bash
+python -m venv venv
+# Windows
+venv\Scripts\activate
+# Linux / macOS
+source venv/bin/activate
 
-docker-compose up -d zookeeper kafka rabbitmq
+pip install -r requirements.txt
+```
 
-    Zookeeper: zookeeper:2181 (в Docker сети)
-    Kafka: kafka:9092 (в Docker сети), localhost:29092 (с хоста)
-    RabbitMQ: rabbitmq:5672 (в Docker сети), http://localhost:15672 (UI, user/password)
+### 3. Настройка Docker
+*   **Windows:**
+    *   Скачайте и установите Docker Desktop с [официального сайта](https://www.docker.com/products/docker-desktop).
+    *   Рекомендуется использовать бэкенд WSL2 для лучшей производительности.
+*   **Linux:**
+    *   Следуйте [официальной инструкции](https://docs.docker.com/engine/install/) для вашего дистрибутива.
+    *   Установите `docker-compose` (или используйте `docker compose` если доступно).
+*   **macOS:**
+    *   Скачайте и установите Docker Desktop с [официального сайта](https://www.docker.com/products/docker-desktop).
 
-Kubernetes
+### 4. Переменные окружения
+Проект использует переменные окружения для конфигурации. Основные переменные:
 
-Используйте Helm-чарты для Kafka и RabbitMQ.
-Environment Variables
+| Переменная                  | Описание                                                                 | Значение по умолчанию (если есть) | Пример для Docker Compose | Пример для локального запуска |
+| --------------------------- | ------------------------------------------------------------------------ | ----------------------------------- | ------------------------- | ----------------------------- |
+| `KAFKA_BOOTSTRAP_SERVERS`   | Адреса брокеров Kafka.                                                   | `localhost:9092`                    | `kafka:9092`              | `localhost:29092`             |
+| `RABBITMQ_HOST`             | Хост RabbitMQ.                                                           | `localhost`                         | `rabbitmq`                | `localhost`                   |
+| `RABBITMQ_PORT`             | Порт RabbitMQ.                                                           | `5672`                              | `5672`                    | `5672`                        |
+| `RABBITMQ_USER`             | Пользователь RabbitMQ.                                                   | `user`                              | `user`                    | `user`                        |
+| `RABBITMQ_PASSWORD`         | Пароль RabbitMQ.                                                         | `password`                          | `password`                | `password`                    |
+| `REDIS_HOST`                | Хост Redis.                                                              | `localhost`                         | `redis-service`           | `localhost`                   |
+| `REDIS_PORT`                | Порт Redis.                                                              | `6379`                              | `6379`                    | `6379`                        |
+| `AUTH_SERVER_HOST`          | Хост сервера аутентификации.                                             | `0.0.0.0`                           | `0.0.0.0`                 | `localhost`                   |
+| `AUTH_SERVER_PORT`          | Порт сервера аутентификации.                                             | `8888`                              | `8888`                    | `8888`                        |
+| `AUTH_PROMETHEUS_PORT`      | Порт метрик Prometheus для сервера аутентификации.                       | `8000`                              | `8000`                    | `8000`                        |
+| `GAME_SERVER_HOST`          | Хост игрового сервера (для TCP).                                         | `0.0.0.0`                           | `0.0.0.0`                 | `localhost`                   |
+| `GAME_SERVER_TCP_PORT`      | TCP порт игрового сервера.                                               | `8889`                              | `8889`                    | `8889`                        |
+| `GAME_SERVER_UDP_PORT`      | UDP порт игрового сервера.                                               | `9999`                              | `9999`                    | `9999`                        |
+| `GAME_PROMETHEUS_PORT`      | Порт метрик Prometheus для игрового сервера.                             | `8001`                              | `8001`                    | `8001`                        |
+| `USE_MOCKS`                 | Использовать ли моки для внешних сервисов (`true` или `false`).          | `false`                             | -                         | `false` (для тестов `true`)   |
+| `LOG_LEVEL`                 | Уровень логирования (DEBUG, INFO, WARNING, ERROR).                       | `INFO`                              | `INFO`                    | `INFO`                        |
 
-    KAFKA_BOOTSTRAP_SERVERS: Адреса брокеров Kafka. По умолчанию: localhost:9092. Для Docker Compose: kafka:9092 или localhost:29092.
-    RABBITMQ_HOST: Хост RabbitMQ. По умолчанию: localhost. Для Docker Compose: rabbitmq.
+**Способы установки переменных окружения:**
 
-Установка зависимостей
+*   **Файл `.env`:** Создайте файл `.env` в корневой директории проекта. `docker-compose` автоматически подхватит его. Для локального запуска можно использовать библиотеки типа `python-dotenv`.
+    Пример `.env` файла:
+    ```env
+    KAFKA_BOOTSTRAP_SERVERS=localhost:29092
+    RABBITMQ_HOST=localhost
+    # ... другие переменные
+    ```
+*   **Системные переменные:**
+    *   **Linux / macOS (bash/zsh):**
+        ```bash
+        export KAFKA_BOOTSTRAP_SERVERS="localhost:29092"
+        export RABBITMQ_HOST="localhost"
+        # Для сохранения между сессиями добавьте в ~/.bashrc или ~/.zshrc
+        ```
+    *   **Windows (PowerShell):**
+        ```powershell
+        $env:KAFKA_BOOTSTRAP_SERVERS="localhost:29092"
+        $env:RABBITMQ_HOST="localhost"
+        # Для сохранения: [System.Environment]::SetEnvironmentVariable("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092", "User")
+        ```
+    *   **Windows (CMD):**
+        ```cmd
+        set KAFKA_BOOTSTRAP_SERVERS=localhost:29092
+        set RABBITMQ_HOST=localhost
+        # Для сохранения: setx KAFKA_BOOTSTRAP_SERVERS "localhost:29092"
+        ```
 
-pip install -r requirements.txt 
+### 5. Запуск с Docker Compose (Рекомендуемый способ)
+Файл `docker-compose.yml` настроен для запуска всех сервисов, включая Kafka, RabbitMQ и Redis.
 
-Локальный запуск серверов (для разработки)
-Предварительная настройка Python на Windows
+1.  **Сборка и запуск контейнеров:**
+    ```bash
+    docker compose up -d --build
+    # или для старых версий:
+    # docker-compose up -d --build
+    ```
+2.  **Просмотр логов:**
+    ```bash
+    docker compose logs -f auth_server game_server # или имя другого сервиса
+    ```
+3.  **Остановка контейнеров:**
+    ```bash
+    docker compose down
+    ```
+    Для остановки и удаления volumes (данных Kafka, Redis): `docker compose down -v`
 
-    Установите Python (отметьте "Add Python to PATH").
-    Создайте и активируйте виртуальное окружение (python -m venv venv, затем .\venv\Scripts\Activate.ps1 или .\venv\Scripts\activate.bat).
-    Установите зависимости (pip install -r requirements.txt).
+**Доступные сервисы (при использовании Docker Compose):**
+*   Auth Server (TCP): `localhost:8888`
+*   Game Server (TCP): `localhost:8889`
+*   Game Server (UDP): `localhost:9999`
+*   Kafka: `localhost:29092` (с хоста), `kafka:9092` (внутри Docker сети)
+*   RabbitMQ Management UI: `http://localhost:15672` (логин/пароль по умолчанию: `user`/`password` или те, что заданы в `RABBITMQ_USER`/`RABBITMQ_PASSWORD`)
+*   Prometheus: `http://localhost:9090`
+*   Grafana: `http://localhost:3000`
 
-Настройка переменных окружения на Windows (для локального запуска)
+### 6. Локальный запуск серверов (для разработки и отладки)
+Этот способ требует ручного запуска Kafka, RabbitMQ и Redis (например, через Docker Compose, отдельные установки или облачные сервисы).
 
-    PowerShell:
+1.  **Запустите брокеры сообщений и Redis:**
+    Если у вас есть Docker, самый простой способ - использовать `docker-compose.yml` только для них:
+    ```bash
+    docker compose up -d zookeeper kafka rabbitmq redis-service
+    ```
+    Убедитесь, что переменные окружения (см. пункт 4) установлены на `localhost` с соответствующими портами (`localhost:29092` для Kafka, `localhost:5672` для RabbitMQ, `localhost:6379` для Redis).
 
-    $env:KAFKA_BOOTSTRAP_SERVERS="localhost:29092"
-    $env:RABBITMQ_HOST="localhost"
+2.  **Запуск Сервера Аутентификации:**
+    Откройте новый терминал, активируйте виртуальное окружение и запустите:
+    ```bash
+    python -m auth_server.main
+    ```
+    Сервер будет доступен по TCP на `localhost:8888`. Метрики Prometheus: `http://localhost:8000/metrics`.
 
-    CMD:
+3.  **Запуск Игрового Сервера:**
+    Откройте еще один терминал, активируйте виртуальное окружение и запустите:
+    ```bash
+    python -m game_server.main
+    ```
+    Сервер будет доступен по UDP на `localhost:9999` и TCP на `localhost:8889`. Метрики Prometheus: `http://localhost:8001/metrics`.
 
-    set KAFKA_BOOTSTRAP_SERVERS=localhost:29092
-    set RABBITMQ_HOST=localhost
+## Тестирование
 
-Убедитесь, что Kafka и RabbitMQ запущены.
+Проект включает юнит-тесты, интеграционные тесты и основу для нагрузочных тестов.
 
-Сервер аутентификации:
+### Общие советы по запуску тестов:
+*   Убедитесь, что все зависимости для разработки установлены (обычно включаются в `requirements.txt` или отдельный `requirements-dev.txt`).
+*   Запускайте тесты из корневой директории проекта.
+*   Активируйте виртуальное окружение перед запуском.
 
-python -m auth_server.main
+### 1. Юнит-тесты
+Юнит-тесты проверяют отдельные модули и функции в изоляции. Они находятся в директории `tests/unit/`.
 
-TCP: localhost:8888. Prometheus: http://localhost:8000/metrics.
-
-Игровой сервер:
-
-python -m game_server.main
-
-UDP: localhost:9999. Prometheus: http://localhost:8001/metrics.
-
-## Testing
-
-### Unit Tests
-
-Unit tests cover individual modules and components of the system to ensure their correctness in isolation. They are located in the `tests/unit/` directory.
-
-To run all unit tests, use either of the following commands from the project root directory:
-
--   **Using pytest:**
+*   **Запуск всех юнит-тестов (используя `pytest`):**
     ```bash
     python -m pytest tests/unit/ -v -s
     ```
--   **Using unittest discovery:**
+    *   `-v`: подробный вывод.
+    *   `-s`: показывать вывод print() из тестов (полезно для отладки).
+*   **Запуск всех юнит-тестов (используя `unittest` discovery):**
     ```bash
     python -m unittest discover tests/unit
     ```
+*   **Запуск тестов в конкретном файле:**
+    ```bash
+    python -m pytest tests/unit/test_auth_logic.py
+    # или
+    python -m unittest tests/unit/test_auth_logic.py
+    ```
+*   **Запуск конкретного тестового класса или метода (с `pytest`):**
+    ```bash
+    python -m pytest tests/unit/test_auth_logic.py::TestAuthLogic::test_registration_success
+    ```
 
-### Integration Tests
+### 2. Интеграционные тесты
+Интеграционные тесты (`tests/integration/test_integration.py`) проверяют взаимодействие между различными компонентами системы, такими как `auth_server` и `game_server`.
 
-Integration tests (`tests/test_integration.py`) are designed to check the interaction between the `auth_server` and `game_server` processes.
+*   **Запуск интеграционных тестов:**
+    ```bash
+    python -m unittest tests/integration/test_integration.py
+    # или если тесты написаны с использованием pytest:
+    # python -m pytest tests/integration/
+    ```
 
-To run the integration tests:
-```bash
-python -m unittest tests/test_integration.py
+**Режим мокирования (`USE_MOCKS=true`):**
+*   По умолчанию, интеграционные тесты (`tests/integration/test_integration.py`) запускают серверы в режиме мокирования. Это достигается установкой переменной окружения `USE_MOCKS=true` для подпроцессов серверов, запускаемых тестами.
+*   В этом режиме клиенты для Kafka, RabbitMQ и Redis (`core/message_broker_clients.py`, `core/redis_client.py`) используют `unittest.mock.MagicMock` и не пытаются подключиться к реальным сервисам. Это позволяет запускать тесты без развернутой инфраструктуры.
+
+**Тестирование с реальными сервисами:**
+1.  Убедитесь, что Kafka, RabbitMQ, Redis запущены (например, через `docker compose up -d kafka rabbitmq redis-service`).
+2.  Установите переменные окружения для подключения к этим сервисам (например, `KAFKA_BOOTSTRAP_SERVERS=localhost:29092`, `RABBITMQ_HOST=localhost` и т.д.).
+3.  Либо модифицируйте `tests/integration/test_integration.py`, чтобы он не устанавливал `USE_MOCKS=true`, либо установите `USE_MOCKS=false` как переменную окружения перед запуском тестов:
+    ```bash
+    USE_MOCKS=false python -m unittest tests/integration/test_integration.py
+    ```
+
+### 3. Нагрузочные тесты (Locust)
+Проект может включать тесты производительности с использованием Locust. Файлы конфигурации Locust обычно находятся в `tests/load/`.
+
+*   **Запуск Locust:**
+    1.  Убедитесь, что серверы (Auth, Game) запущены (локально или в Docker).
+    2.  Перейдите в директорию с locust-файлом, например `tests/load/`.
+    3.  Запустите Locust:
+        ```bash
+        locust -f your_locust_file.py --host=http://localhost:8089 # Укажите хост вашего веб-интерфейса или API
+        ```
+        (Для TCP/UDP сервисов Locust требует кастомных клиентов).
+    4.  Откройте веб-интерфейс Locust (обычно `http://localhost:8089`) и настройте параметры нагрузки.
+
+### Интерпретация результатов тестов:
+*   **Успешное прохождение:** Все тесты отмечены как "OK" или "PASSED". Это означает, что проверенные функции и компоненты работают в соответствии с ожиданиями в условиях теста.
+*   **Падение тестов (FAIL/ERROR):**
+    *   **Сообщение об ошибке:** Внимательно прочитайте сообщение об ошибке и трейсбек. Они часто указывают на причину проблемы (например, `AssertionError` означает, что результат не совпал с ожидаемым; `TypeError`, `ValueError` указывают на проблемы с данными или типами).
+    *   **Логи:** Проверьте логи, выведенные во время теста (особенно если запускали с `-s` для pytest или настроили логирование). Они могут содержать дополнительную информацию.
+    *   **Контекст:** Поймите, какой именно тест упал и что он проверял. Это поможет локализовать проблему.
+    *   **Воспроизводимость:** Попробуйте запустить упавший тест изолированно.
+
+### Известные проблемы с тестами и их диагностика:
+*   **Проблема:** "Game Server Integration Tests: ...TypeError: argument of type 'int' is not iterable... `self.players` attribute is incorrectly an integer `0` instead of a dictionary `{}`..."
+    *   **Статус:** Эта проблема была упомянута ранее. Если она все еще актуальна:
+    *   **Диагностика:**
+        1.  **Очистка кэша Python:** Удалите директории `__pycache__` и файлы `.pyc` во всем проекте:
+            ```bash
+            find . | grep -E "(__pycache__|\.pyc$)" | xargs rm -rf
+            ```
+        2.  **Проверка версии кода:** Убедитесь, что тестовый скрипт действительно запускает последнюю версию `game_server/game_logic.py`. Можно добавить логирование в начало файла `game_logic.py` или в конструктор `GameRoom`, чтобы видеть, когда он импортируется/инициализируется.
+        3.  **Изолированный запуск:** Попробуйте написать минимальный скрипт, который импортирует и использует `GameRoom` так же, как это делается в тесте, но вне тестового фреймворка, чтобы проверить, возникает ли проблема.
+        4.  **Отладка:** Используйте отладчик (`pdb` или отладчик вашей IDE) для пошагового выполнения кода в тесте и проверки значения `self.players` в момент перед возникновением ошибки.
+
+*   **Особенности мокирования асинхронного кода и зависимостей при инициализации:**
+    *   Разделы "Особенности мокирования асинхронного кода" и "Особенности мокирования зависимостей при инициализации объекта (в setUp)" из предыдущей версии README остаются актуальными и содержат полезные советы.
+
+*   **Важно при отладке тестов:**
+    *   **Очистка кэша pytest:** Удалите папку `.pytest_cache`.
+    *   **Актуальность кода:** Убедитесь, что вы тестируете актуальную версию кода.
+    *   **Настройка логирования:** Включите подробное логирование в тестах или глобально для лучшего понимания происходящего:
+        ```python
+        import logging
+        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
+        ```
+
+## Участие в разработке (Contributing)
+
+Мы приветствуем ваш вклад в развитие проекта! Чтобы сделать процесс максимально гладким, пожалуйста, следуйте этим рекомендациям:
+
+1.  **Форкните репозиторий:** Создайте форк проекта на свой GitHub аккаунт.
+2.  **Создайте ветку:** Для каждой новой фичи или исправления ошибки создавайте отдельную ветку в вашем форке:
+    ```bash
+    git checkout -b feature/новая-фича-Х
+    # или
+    git checkout -b bugfix/исправление-ошибки-Y
+    ```
+3.  **Напишите код:** Внесите необходимые изменения.
+    *   **Стиль кода:** Пожалуйста, следуйте стилю кода **PEP 8**. Используйте линтеры, такие как Flake8 или Black, для автоматической проверки и форматирования.
+    *   **Комментарии:** Добавляйте комментарии к коду там, где это необходимо для понимания логики.
+4.  **Напишите тесты:** Для любого нового функционала или исправления ошибки должны быть добавлены или обновлены соответствующие юнит-тесты и, если применимо, интеграционные тесты. Убедитесь, что все тесты проходят успешно.
+5.  **Сделайте коммит:** Пишите понятные сообщения коммитов.
+    ```bash
+    git add .
+    git commit -m "feat: Реализована новая фича X"
+    # или
+    git commit -m "fix: Исправлена ошибка Y в компоненте Z"
+    ```
+6.  **Синхронизируйте с основной веткой:** Перед созданием Pull Request обновите вашу ветку из основной ветки репозитория:
+    ```bash
+    git fetch upstream # (если upstream - это оригинальный репозиторий)
+    git rebase upstream/main # (или develop, в зависимости от основной ветки)
+    ```
+7.  **Создайте Pull Request (PR):** Отправьте PR из вашей ветки в основную ветку оригинального репозитория.
+    *   Дайте подробное описание внесенных изменений в PR.
+    *   Если ваш PR исправляет существующий Issue, укажите его номер (например, `Closes #123`).
+8.  **Обсуждение и ревью:** Будьте готовы к обсуждению вашего кода и возможному запросу на доработки в процессе код-ревью.
+
+### Сообщение об ошибках
+*   Если вы нашли ошибку, пожалуйста, проверьте существующие Issues, возможно, о ней уже сообщили.
+*   Если нет, создайте новый Issue, предоставив как можно больше информации:
+    *   Описание ошибки и шаги для ее воспроизведения.
+    *   Ожидаемое поведение и фактическое поведение.
+    *   Версии используемого ПО (Python, Docker, ОС и т.д.).
+    *   Логи ошибок и скриншоты (если применимо).
+
+## Дальнейшие улучшения и TODO
+(Этот раздел остается для будущих идей и задач)
+*   Интеграция с системой матчмейкинга для отправки событий `new_match_created` в RabbitMQ.
+*   Разработка клиентов или сервисов, которые будут читать из Kafka для аналитики, мониторинга аномалий, и т.д.
+*   Реализация полноценного хранения данных с PostgreSQL.
+*   Добавление SSL/TLS шифрования для всех внешних коммуникаций.
+*   Более продвинутая защита от DDoS.
 ```
-
-**Mock Mode (Default for tests):**
-By default, for these integration tests to run without requiring live external services (Redis, Kafka, RabbitMQ), the servers are configured to run in a "mock mode". This is achieved by the test script (`tests/test_integration.py`) automatically setting the environment variable `USE_MOCKS=true` for the server subprocesses it launches. In this mode, clients for Redis, Kafka, and RabbitMQ within the core modules (`core/redis_client.py`, `core/message_broker_clients.py`) are simulated using Python's `unittest.mock.MagicMock` and do not attempt to connect to actual service instances.
-
-**Using Real Services (Optional):**
-A `docker-compose.yml` file is provided to run real instances of dependencies (Redis, Kafka, Zookeeper, RabbitMQ). To start these services:
-```bash
-# It's recommended to check if docker-compose or docker compose is available
-# docker-compose --version
-# docker compose version
-docker compose up -d redis-service kafka rabbitmq 
-# or for older docker-compose:
-# docker-compose up -d redis-service kafka rabbitmq
-```
-If you wish to test the servers against these real services, the `USE_MOCKS=true` environment variable setting should be removed or set to `false` within `tests/test_integration.py` before the server subprocesses are launched. Alternatively, you can run the servers manually outside the test script, configured with the appropriate environment variables pointing to the live services.
-
-**Known Issues:**
--   **Game Server Integration Tests:** As of the latest test runs, some integration tests for the `game_server` (specifically `test_05` through `test_09`) are failing. This is due to a `TypeError: argument of type 'int' is not iterable` occurring within the `GameRoom` logic in `game_server/game_logic.py`. The root cause is that the `GameRoom` instance's `self.players` attribute is incorrectly an integer `0` instead of a dictionary `{}` at runtime. This is suspected to be due to the Python interpreter executing an older, cached version of `game_logic.py` within the subprocess, despite recent code corrections and cache cleaning attempts. This requires further local investigation to ensure the correct code version is consistently executed.
--   **Auth Server Integration Tests:** All integration tests for the `auth_server` (`test_01` to `test_04`) are currently passing, correctly utilizing the centralized `MOCK_USERS_DB` and JSON request/response formats.
-
-### Запуск и отладка юнит-тестов
-
-В проекте используется стандартная библиотека unittest для написания и запуска юнит-тестов. Файлы тестов находятся в директории tests/unit/.
-
-Индивидуальный запуск тестов:
-
-Для более детальной диагностики и отладки рекомендуется запускать тесты для конкретного файла напрямую. Это можно сделать из корневой директории проекта с помощью команды:
-
-python -m unittest tests/unit/имя_файла_теста.py
-
-Например:
-
-python -m unittest tests/unit/test_tcp_handler_game.py
-
-Такой подход позволяет увидеть вывод (включая логи) только от интересующего набора тестов, что упрощает анализ.
-
-Особенности мокирования асинхронного кода:
-
-При тестировании асинхронных компонентов, особенно тех, что взаимодействуют с сетевыми операциями (например, asyncio.StreamReader, asyncio.StreamWriter), могут возникнуть следующие нюансы:
-
-    Завершение асинхронных задач: Некоторые асинхронные функции могут порождать фоновые задачи, которые не успевают завершиться до выполнения ассертов в тесте. Чтобы дать этим задачам шанс выполниться, можно использовать await asyncio.sleep(0) непосредственно перед проверками:
-
-    # ... (код вызова тестируемой асинхронной функции)
-    await handle_game_client(mock_reader, mock_writer, mock_game_room)
-    await asyncio.sleep(0) # Даем время на выполнение всех запланированных задач
-    mock_publish_rabbitmq.assert_any_call(...) 
-
-    Мокирование asyncio.StreamWriter: При использовании unittest.mock.AsyncMock для имитации asyncio.StreamWriter, его метод is_closing() по умолчанию может возвращать не то значение, которое ожидает тестируемый код (например, если код проверяет writer.is_closing() в цикле). Чтобы избежать преждевременного выхода из циклов, можно явно задать возвращаемое значение:
-
-    mock_writer = AsyncMock(spec=asyncio.StreamWriter)
-    mock_writer.is_closing.return_value = False 
-
-    Контролируемое завершение чтения из asyncio.StreamReader: При мокировании StreamReader.readuntil(), чтобы симулировать последовательность входящих данных и затем корректно завершить чтение (например, для выхода из цикла while True в обработчике), можно использовать ConnectionResetError() в качестве одного из значений side_effect:
-
-    mock_reader.readuntil.side_effect = [
-        b"LOGIN user pass\n", 
-        b"SOME_COMMAND\n",
-        ConnectionResetError() # Сигнализирует о "разрыве" соединения
-    ]
-
-    Это более надежный способ завершения, чем, например, asyncio.IncompleteReadError, так как он обычно обрабатывается в блоках except сетевого кода.
-
-Особенности мокирования зависимостей при инициализации объекта (в setUp):
-
-Если тестируемый объект при своей инициализации (например, в __init__) обращается к внешним зависимостям (например, пытается установить сетевое соединение), то стандартные декораторы @patch или @patch.object на тестовых методах не успеют сработать для конструктора. Чтобы предотвратить реальные вызовы во время создания объекта в setUp, можно использовать patcher.start() и addCleanup(patcher.stop):
-
-class TestMyConsumer(unittest.TestCase):
-    def setUp(self):
-        # Патчим зависимость ДО создания экземпляра
-        self.patcher_dependency = patch('path.to.dependency')
-        self.mock_dependency_for_setup = self.patcher_dependency.start()
-        self.addCleanup(self.patcher_dependency.stop) # Гарантирует остановку патча
-
-        # Патчим метод самого класса (если он вызывается в __init__)
-        # Используем БЕЗ autospec в setUp, чтобы избежать InvalidSpecError при повторном патчинге на методе
-        self.patcher_method = patch.object(MyConsumerClass, '_internal_method_called_by_init')
-        self.mock_internal_method_for_setup = self.patcher_method.start()
-        self.addCleanup(self.patcher_method.stop)
-
-        self.consumer = MyConsumerClass() # Теперь конструктор использует моки
-
-    # На тестовых методах можно использовать свои декораторы @patch, 
-    # они создадут отдельные моки для самого теста.
-    @patch.object(MyConsumerClass, '_internal_method_called_by_init', autospec=True)
-    @patch('path.to.dependency')
-    def test_something(self, mock_dependency_for_test, mock_internal_method_for_test):
-        # ...
-
-В этом примере, autospec=True используется на декораторе метода для более строгих проверок, в то время как в setUp для patch.object он может быть опущен, если его задача - только "заглушить" метод на время инициализации.
-
-Важно при отладке: Если вы сталкиваетесь с ошибками в тестах, которые не удается воспроизвести или понять по стандартным логам pytest или unittest, убедитесь, что:
-
-    Кеш pytest очищен: Удалите папку .pytest_cache.
-    Локальные изменения соответствуют репозиторию: Если вы работаете со мной или в команде, убедитесь, что анализируемый и изменяемый код актуален. В случае расхождений, может потребоваться ручная замена содержимого файла на версию, предложенную для исправления, чтобы гарантировать применение изменений.
-    Логгирование настроено: Для вывода подробной информации из тестируемых модулей, убедитесь, что логгирование настроено на достаточный уровень (например, DEBUG или INFO) в ваших тестовых файлах или глобально:
-
-    import logging
-    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
-
-Дальнейшие улучшения и TODO
-
-    ...
-    Интеграция с системой матчмейкинга для отправки событий new_match_created в RabbitMQ.
-    Разработка клиентов или сервисов, которые будут читать из Kafka для аналитики, мониторинга аномалий, и т.д.
-    ...

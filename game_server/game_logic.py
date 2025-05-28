@@ -47,7 +47,7 @@ class GameRoom:
                 - str|None: Токен сессии, если аутентификация успешна и токен предоставлен, иначе None.
         """
         authenticated, message, session_token = await self.auth_client.login_user(username, password)
-        logger.info(f"Попытка аутентификации для '{username}': успешно={authenticated}, сообщение='{message}', токен='{session_token}'")
+        logger.info(f"Authentication attempt for '{username}': success={authenticated}, message='{message}', token='{session_token}'")
         return authenticated, message, session_token
 
     async def add_player(self, player: Player):
@@ -70,15 +70,15 @@ class GameRoom:
             # Обработка случая, если игрок уже в комнате (например, попытка повторного подключения с тем же именем).
             # Текущая логика: просто не добавляем, если игрок с таким именем уже существует.
             # Отправляем сообщение об этом существующему (или новому пытающемуся подключиться) игроку.
-            logger.warning(f"Попытка добавить существующего игрока: {player.name}. Отправка сообщения.")
-            await player.send_message(f"SERVER: Игрок с именем {player.name} уже находится в комнате или произошла ошибка.")
+            logger.warning(f"Attempt to add existing player: {player.name}. Sending message.")
+            await player.send_message(f"SERVER: Player with name {player.name} is already in the room or an error occurred.") # Already in English
             # Возможно, стоит рассмотреть закрытие старого соединения или обновление writer для существующего игрока.
             return
 
         self.players[player.name] = player
-        logger.info(f"Игрок {player.name} (ID: {player.id}) добавлен в игровую комнату. Всего игроков: {len(self.players)}")
-        await player.send_message("SERVER: Добро пожаловать в игровую комнату!")
-        await self.broadcast_message(f"SERVER: Игрок {player.name} присоединился к комнате.", exclude_player=player)
+        logger.info(f"Player {player.name} (ID: {player.id}) added to game room. Total players: {len(self.players)}")
+        await player.send_message("SERVER: Welcome to the game room!") # Already in English
+        await self.broadcast_message(f"SERVER: Player {player.name} joined the room.", exclude_player=player) # Already in English
 
     async def remove_player(self, player: Player):
         """
@@ -93,17 +93,17 @@ class GameRoom:
         """
         if player.name in self.players:
             del self.players[player.name]
-            logger.info(f"Игрок {player.name} удален из игровой комнаты. Осталось игроков: {len(self.players)}")
-            await self.broadcast_message(f"SERVER: Игрок {player.name} покинул комнату.")
+            logger.info(f"Player {player.name} removed from game room. Players remaining: {len(self.players)}")
+            await self.broadcast_message(f"SERVER: Player {player.name} left the room.") # Already in English
         
         # Пытаемся корректно закрыть writer, если он существует и не закрывается
         if player.writer and not player.writer.is_closing():
             try:
                 player.writer.close()
                 await player.writer.wait_closed()
-                logger.debug(f"Writer для игрока {player.name} успешно закрыт.")
+                logger.debug(f"Writer for player {player.name} successfully closed.")
             except Exception as e:
-                logger.error(f"Ошибка при закрытии writer для {player.name}: {e}", exc_info=True)
+                logger.error(f"Error closing writer for {player.name}: {e}", exc_info=True)
 
 
     async def broadcast_message(self, message: str, exclude_player: Player = None):
@@ -125,17 +125,17 @@ class GameRoom:
                 try:
                     await p_obj.send_message(message)
                 except ConnectionResetError:
-                    logger.warning(f"Ошибка отправки игроку {p_name}: соединение сброшено. Планируем удаление.")
+                    logger.warning(f"Error sending to player {p_name}: connection reset. Scheduling removal.")
                     disconnected_players.append(p_obj) # Собираем игроков для последующего удаления
                 except Exception as e:
-                    logger.error(f"Ошибка при трансляции сообщения игроку {p_name}: {e}", exc_info=True)
+                    logger.error(f"Error broadcasting message to player {p_name}: {e}", exc_info=True)
                     # Можно добавить логику для обработки других ошибок отправки,
                     # например, пометить игрока как "проблемного" или увеличить счетчик ошибок.
 
         # Удаляем игроков, у которых соединение было сброшено
         for p_obj in disconnected_players:
             if p_obj.name in self.players: # Проверяем, не был ли игрок уже удален (например, двойной вызов)
-                 logger.info(f"Удаление игрока {p_obj.name} из-за сброса соединения во время трансляции.")
+                 logger.info(f"Removing player {p_obj.name} due to connection reset during broadcast.")
                  await self.remove_player(p_obj)
 
 
@@ -157,17 +157,17 @@ class GameRoom:
         command = parts[0].upper() # Команда приводится к верхнему регистру
         args = parts[1] if len(parts) > 1 else "" # Аргументы, если есть
 
-        logger.info(f"Игрок {player.name} отправил команду: {command} с аргументами: '{args}'")
+        logger.info(f"Player {player.name} sent command: {command} with arguments: '{args}'")
 
         if command == "SAY":
             await self.broadcast_message(f"{player.name}: {args}") # Транслируем сообщение от имени игрока
         elif command == "HELP":
-            await player.send_message("SERVER: Доступные команды: SAY <сообщение>, PLAYERS, QUIT")
+            await player.send_message("SERVER: Available commands: SAY <message>, PLAYERS, QUIT") # Already in English
         elif command == "PLAYERS":
             player_list = ", ".join(self.players.keys()) # Формируем список имен игроков
-            await player.send_message(f"SERVER: Игроки в комнате: {player_list}")
+            await player.send_message(f"SERVER: Players in room: {player_list}") # Already in English
         elif command == "QUIT":
-            await player.send_message("SERVER: Вы выходите из комнаты...")
+            await player.send_message("SERVER: You are leaving the room...") # Already in English
             # Фактическое удаление игрока (remove_player) будет вызвано из tcp_handler
             # при обнаружении закрытия соединения со стороны клиента или здесь.
             if player.writer and not player.writer.is_closing():
@@ -176,7 +176,7 @@ class GameRoom:
         # Сюда можно добавить другие игровые команды
         # Например, начало игры, ходы, использование способностей и т.д.
         else:
-            await player.send_message(f"SERVER: Неизвестная команда '{command}'. Введите HELP для списка команд.")
+            await player.send_message(f"SERVER: Unknown command '{command}'. Type HELP for a list of commands.") # Already in English
 
     # Примеры методов для будущей более сложной игровой логики.
     # Они пока не реализованы и служат заглушками.
@@ -186,7 +186,7 @@ class GameRoom:
         В реальной системе здесь бы инициализировалось состояние матча,
         уведомлялись игроки и т.д.
         """
-        logger.info(f"Запрос на начало матча между {player1.name} и {player2.name} (не реализовано).")
+        logger.info(f"Request to start match between {player1.name} and {player2.name} (not implemented).")
         # Логика начала матча
         pass
 
@@ -195,7 +195,7 @@ class GameRoom:
         Заглушка для записи результата завершенного матча.
         Результаты могли бы сохраняться в `self.match_history` или внешней БД.
         """
-        logger.info(f"Запись результата матча: победитель {winner.name}, проигравший {loser.name}, детали: {details} (не реализовано).")
+        logger.info(f"Recording match result: winner {winner.name}, loser {loser.name}, details: {details} (not implemented).")
         # Запись результата матча
         self.match_history.append({
             "winner": winner.name,

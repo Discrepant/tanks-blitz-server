@@ -37,7 +37,7 @@ class GameSession:
         # tanks: {tank_id: tank_object}
         self.tanks = {} 
         self.game_state = {} # Общее состояние игры для этой сессии
-        logger.info(f"Игровая сессия {session_id} создана.")
+        logger.info(f"Game session {session_id} created.")
 
     def add_player(self, player_id, player_address, tank):
         """
@@ -52,13 +52,13 @@ class GameSession:
             bool: True, если игрок успешно добавлен, False, если игрок уже в сессии.
         """
         if player_id in self.players:
-            logger.warning(f"Игрок {player_id} уже находится в сессии {self.session_id}.")
+            logger.warning(f"Player {player_id} is already in session {self.session_id}.")
             return False
         # Сохраняем данные игрока, включая ID его танка и адрес
         self.players[player_id] = {'address': player_address, 'tank_id': tank.tank_id}
         # Сохраняем сам объект танка
         self.tanks[tank.tank_id] = tank
-        logger.info(f"Игрок {player_id} (Танк: {tank.tank_id}) добавлен в сессию {self.session_id} с адреса {player_address}.")
+        logger.info(f"Player {player_id} (Tank: {tank.tank_id}) added to session {self.session_id} from address {player_address}.")
         return True
 
     def remove_player(self, player_id):
@@ -78,9 +78,9 @@ class GameSession:
             # Не удаляем танк из self.tanks здесь, так как он может быть еще нужен
             # для отправки последнего состояния или других операций перед возвратом в пул.
             # Возврат танка в пул - ответственность SessionManager или TankPool.
-            logger.info(f"Игрок {player_id} (Танк: {tank_id_to_remove}) удален из сессии {self.session_id}.")
+            logger.info(f"Player {player_id} (Tank: {tank_id_to_remove}) removed from session {self.session_id}.")
         else:
-            logger.warning(f"Игрок {player_id} не найден в сессии {self.session_id} при попытке удаления.")
+            logger.warning(f"Player {player_id} not found in session {self.session_id} during removal attempt.")
 
     def get_all_player_addresses(self):
         """
@@ -130,7 +130,7 @@ class SessionManager:
             self.sessions = {} # {session_id: GameSession_object}
             self.player_to_session = {} # {player_id: session_id} для быстрого поиска
             self.initialized = True
-            logger.info("SessionManager инициализирован.")
+            logger.info("SessionManager initialized.")
 
     def create_session(self):
         """
@@ -144,7 +144,7 @@ class SessionManager:
         session_id = str(uuid.uuid4()) # Генерируем уникальный ID для сессии
         session = GameSession(session_id)
         self.sessions[session_id] = session
-        logger.info(f"Сессия {session_id} создана менеджером сессий.")
+        logger.info(f"Session {session_id} created by session manager.")
         
         # Отправляем сообщение в Kafka о создании сессии
         kafka_message = {
@@ -199,9 +199,9 @@ class SessionManager:
                 player_ids_in_session = list(session.players.keys()) # Копируем ключи, так как словарь будет изменяться
                 for player_id in player_ids_in_session:
                     self.player_to_session.pop(player_id, None)
-                logger.info(f"Сессия {session_id} удалена менеджером сессий. Причина: {reason}")
+                logger.info(f"Session {session_id} removed by session manager. Reason: {reason}")
             return session # Возвращаем удаленную сессию
-        logger.warning(f"Попытка удалить несуществующую сессию: {session_id}")
+        logger.warning(f"Attempt to remove non-existent session: {session_id}")
         return None # Сессия не найдена
 
     def add_player_to_session(self, session_id, player_id, player_address, tank):
@@ -222,12 +222,12 @@ class SessionManager:
         """
         session = self.get_session(session_id)
         if not session:
-            logger.error(f"Ошибка: Сессия {session_id} не найдена при добавлении игрока {player_id}.")
+            logger.error(f"Error: Session {session_id} not found when adding player {player_id}.")
             return None
         if player_id in self.player_to_session:
             # Игрок уже в какой-то сессии, возможно, в этой же или другой.
             # Это может быть ошибкой логики или попыткой двойного входа.
-            logger.error(f"Ошибка: Игрок {player_id} уже находится в сессии {self.player_to_session[player_id]}.")
+            logger.error(f"Error: Player {player_id} is already in session {self.player_to_session[player_id]}.")
             return None
         
         if session.add_player(player_id, player_address, tank):
@@ -241,9 +241,9 @@ class SessionManager:
                 "timestamp": time.time()
             }
             send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
-            logger.info(f"Игрок {player_id} добавлен в сессию {session_id}.")
+            logger.info(f"Player {player_id} added to session {session_id}.")
             return session
-        logger.warning(f"Не удалось добавить игрока {player_id} в сессию {session_id} (возможно, уже в сессии).")
+        logger.warning(f"Failed to add player {player_id} to session {session_id} (possibly already in session).")
         return None
 
     def remove_player_from_session(self, player_id):
@@ -279,14 +279,14 @@ class SessionManager:
                 if tank_id_for_message: # Добавляем ID танка, если он был найден
                     kafka_message["tank_id"] = tank_id_for_message
                 send_kafka_message(KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS, kafka_message)
-                logger.info(f"Игрок {player_id} удален из сессии {session_id}.")
+                logger.info(f"Player {player_id} removed from session {session_id}.")
                 
                 # Если сессия стала пустой после удаления игрока, удаляем и сессию
                 if session.get_players_count() == 0:
-                    logger.info(f"Сессия {session_id} пуста после выхода игрока {player_id}, удаляем сессию.")
+                    logger.info(f"Session {session_id} is empty after player {player_id} left, removing session.")
                     self.remove_session(session_id, reason="empty_session") # Передаем причину
                 return True
-        logger.warning(f"Игрок {player_id} не найден ни в одной активной сессии при попытке удаления.")
+        logger.warning(f"Player {player_id} not found in any active session during removal attempt.")
         return False
 
     def get_session_by_player_id(self, player_id):
@@ -314,13 +314,13 @@ if __name__ == '__main__':
 
     sm1 = SessionManager() # Первый экземпляр (или единственный, если Singleton работает)
     sm2 = SessionManager() # Должен быть тот же экземпляр, что и sm1
-    logger.info(f"SM1 это SM2: {sm1 is sm2}") # Проверка Singleton
+    logger.info(f"SM1 is SM2: {sm1 is sm2}") # Проверка Singleton
 
     tank_pool = TankPool(pool_size=2) # Создаем пул танков для теста
 
     # Создаем сессию
     session1 = sm1.create_session()
-    logger.info(f"Создана сессия ID: {session1.session_id}")
+    logger.info(f"Created session ID: {session1.session_id}")
     
     # Определяем данные игроков и пытаемся получить для них танки
     player1_id = "player_A"
@@ -333,39 +333,39 @@ if __name__ == '__main__':
     
     # Добавляем игроков в сессию
     if tank1:
-        logger.info(f"Танк для player_A: ID {tank1.tank_id}")
+        logger.info(f"Tank for player_A: ID {tank1.tank_id}")
         sm1.add_player_to_session(session1.session_id, player1_id, player1_addr, tank1)
     else:
-        logger.warning("Не удалось получить танк для player_A")
+        logger.warning("Failed to get tank for player_A")
 
     if tank2:
-        logger.info(f"Танк для player_B: ID {tank2.tank_id}")
+        logger.info(f"Tank for player_B: ID {tank2.tank_id}")
         sm1.add_player_to_session(session1.session_id, player2_id, player2_addr, tank2)
     else:
         # Если pool_size=1, это ожидаемое поведение для второго игрока
-        logger.warning("Не удалось получить танк для player_B") 
+        logger.warning("Failed to get tank for player_B") 
 
     if session1: # Проверяем, что сессия была создана
-        logger.info(f"Игроки в сессии {session1.session_id}: {session1.players}")
-        logger.info(f"Танки в сессии {session1.session_id}: {session1.tanks}")
+        logger.info(f"Players in session {session1.session_id}: {session1.players}")
+        logger.info(f"Tanks in session {session1.session_id}: {session1.tanks}")
     
     # Проверяем поиск сессии по ID игрока
     retrieved_session = sm1.get_session_by_player_id(player1_id)
     if retrieved_session:
-        logger.info(f"Игрок {player1_id} находится в сессии {retrieved_session.session_id}")
+        logger.info(f"Player {player1_id} is in session {retrieved_session.session_id}")
 
     # Удаляем первого игрока
     sm1.remove_player_from_session(player1_id)
     if tank1: # Возвращаем танк в пул, если он был получен
         tank_pool.release_tank(tank1.tank_id)
-        logger.info(f"Танк {tank1.tank_id} возвращен в пул.")
+        logger.info(f"Tank {tank1.tank_id} returned to pool.")
     
     # Если последний игрок удален, сессия должна удалиться автоматически
     # (проверяем по логам или по состоянию sm1.sessions)
     sm1.remove_player_from_session(player2_id) 
     if tank2: # Возвращаем второй танк в пул
         tank_pool.release_tank(tank2.tank_id)
-        logger.info(f"Танк {tank2.tank_id} возвращен в пул.")
+        logger.info(f"Tank {tank2.tank_id} returned to pool.")
 
-    logger.info(f"Текущие сессии в SessionManager: {sm1.sessions}")
-    logger.info(f"Состояние пула танков: свободно {len(tank_pool.available_tanks)}, используется {len(tank_pool.in_use_tanks)}")
+    logger.info(f"Current sessions in SessionManager: {sm1.sessions}")
+    logger.info(f"Tank pool state: available {len(tank_pool.available_tanks)}, in_use {len(tank_pool.in_use_tanks)}")

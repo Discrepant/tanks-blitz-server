@@ -42,18 +42,18 @@ class AuthClient:
             # Устанавливаем соединение с сервером аутентификации
             reader, writer = await asyncio.open_connection(self.auth_host, self.auth_port)
         except ConnectionRefusedError:
-            error_msg = f"Не удалось подключиться к серверу аутентификации по адресу {self.auth_host}:{self.auth_port}. Сервер недоступен."
+            error_msg = f"Failed to connect to authentication server at {self.auth_host}:{self.auth_port}. Server unavailable."
             logger.error(error_msg)
             return "AUTH_FAILURE", error_msg, None # Возвращаем None для токена
         except Exception as e:
-            error_msg = f"Неизвестная ошибка при подключении к серверу аутентификации: {e}"
+            error_msg = f"Unknown error when connecting to authentication server: {e}"
             logger.error(error_msg, exc_info=True)
             return "AUTH_FAILURE", error_msg, None # Возвращаем None для токена
 
         # Сериализуем команду в JSON и кодируем в байты
         json_payload_str = json.dumps(command_dict)
         json_payload_bytes = json_payload_str.encode('utf-8')
-        logger.debug(f"Отправка на сервер аутентификации ({self.auth_host}:{self.auth_port}): {json_payload_str}")
+        logger.debug(f"Sending to authentication server ({self.auth_host}:{self.auth_port}): {json_payload_str}")
         writer.write(json_payload_bytes + b"\n") # Добавляем символ новой строки как разделитель
         await writer.drain() # Ожидаем отправки данных
 
@@ -62,15 +62,15 @@ class AuthClient:
             # Читаем ответ от сервера с таймаутом
             response_data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=10.0)
             response_str = response_data.decode().strip()
-            logger.info(f"Ответ от сервера аутентификации: {response_str}")
+            logger.info(f"Response from authentication server: {response_str}")
         except asyncio.TimeoutError:
-            logger.error(f"AuthClient: Ответ от сервера аутентификации ({self.auth_host}:{self.auth_port}) не получен (таймаут).")
+            logger.error(f"AuthClient: Response from authentication server ({self.auth_host}:{self.auth_port}) not received (timeout).")
             # response_str остается пустым, обработка ошибки произойдет ниже при парсинге JSON
         except asyncio.IncompleteReadError:
-            logger.error(f"AuthClient: Сервер аутентификации ({self.auth_host}:{self.auth_port}) закрыл соединение без полного ответа.")
+            logger.error(f"AuthClient: Authentication server ({self.auth_host}:{self.auth_port}) closed connection without full response.")
             # response_str остается пустым
         except Exception as e:
-            logger.error(f"AuthClient: Ошибка при чтении ответа от сервера аутентификации ({self.auth_host}:{self.auth_port}): {e}", exc_info=True)
+            logger.error(f"AuthClient: Error reading response from authentication server ({self.auth_host}:{self.auth_port}): {e}", exc_info=True)
             # response_str остается пустым
         finally:
             # Закрываем соединение
@@ -81,7 +81,7 @@ class AuthClient:
         try:
             response_json = json.loads(response_str)
             status_from_auth_server = response_json.get("status")
-            message_from_auth_server = response_json.get("message", "Поле message отсутствует в JSON-ответе.")
+            message_from_auth_server = response_json.get("message", "Message field is missing in JSON response.")
 
             # Стандартизируем статус для пользователей AuthClient
             if status_from_auth_server == "success":
@@ -90,19 +90,19 @@ class AuthClient:
                 status_to_return = "AUTH_FAILURE"
             else: # Неизвестный статус в JSON
                 status_to_return = "AUTH_FAILURE"
-                message_from_auth_server = f"Неизвестный статус '{status_from_auth_server}' в ответе сервера аутентификации. Полный ответ: {response_str}"
+                message_from_auth_server = f"Unknown status '{status_from_auth_server}' in authentication server response. Full response: {response_str}"
             
             final_message = message_from_auth_server
 
         except json.JSONDecodeError:
-            logger.error(f"AuthClient: Ошибка декодирования JSON при парсинге ответа от сервера аутентификации: '{response_str}'")
+            logger.error(f"AuthClient: JSON decode error when parsing response from authentication server: '{response_str}'")
             status_to_return = "AUTH_FAILURE"
-            final_message = "Невалидный JSON-ответ от сервера аутентификации."
+            final_message = "Invalid JSON response from authentication server."
             response_json = None # Убедимся, что response_json - None при ошибке
         except AttributeError: # Если response_json не словарь (например, json.loads вернул строку/список)
-            logger.error(f"AuthClient: AttributeError, response_json не является словарем. Ответ: '{response_str}'")
+            logger.error(f"AuthClient: AttributeError, response_json is not a dictionary. Response: '{response_str}'")
             status_to_return = "AUTH_FAILURE"
-            final_message = "Несловарный JSON-ответ от сервера аутентификации."
+            final_message = "Non-dictionary JSON response from authentication server."
             response_json = None
 
         session_token = None 
@@ -110,7 +110,7 @@ class AuthClient:
         if status_to_return == "AUTH_SUCCESS" and isinstance(response_json, dict):
            session_token = response_json.get("session_id") # Предполагаем, что сервер возвращает session_id
 
-        logger.debug(f"AuthClient._send_auth_command возвращает: status='{status_to_return}', message='{final_message}', token='{session_token}'")
+        logger.debug(f"AuthClient._send_auth_command returns: status='{status_to_return}', message='{final_message}', token='{session_token}'")
         return status_to_return, final_message, session_token
 
 
@@ -138,10 +138,10 @@ class AuthClient:
         # в login_user, а только статус. Токен может быть частью 'message' или отдельным полем.
         # Здесь мы просто передаем токен, полученный из _send_auth_command.
         if authenticated:
-            logger.info(f"Пользователь '{username}' успешно аутентифицирован через AuthClient. Токен: {session_token}")
+            logger.info(f"User '{username}' successfully authenticated via AuthClient. Token: {session_token}")
             return True, message, session_token 
         
-        logger.warning(f"Неудачная аутентификация для пользователя '{username}' через AuthClient. Сообщение: {message}")
+        logger.warning(f"Failed authentication for user '{username}' via AuthClient. Message: {message}")
         return False, message, None
 
     # Закомментированные методы ниже - примеры возможных будущих функций клиента.

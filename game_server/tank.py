@@ -37,7 +37,7 @@ class Tank:
         self.health = health
         self.is_active = False # Изначально танк не активен, пока не взят из пула
         self.last_update_time = 0 # Время последнего обновления (полезно для дельта-сжатия или интерполяции)
-        logger.info(f"Танк {self.tank_id} создан с позицией {self.position} и здоровьем {self.health}.")
+        logger.info(f"Tank {self.tank_id} created with position {self.position} and health {self.health}.")
 
     def move(self, new_position):
         """
@@ -51,7 +51,7 @@ class Tank:
         self.position = new_position
         # Здесь может быть более сложная логика движения, валидация перемещения,
         # проверка столкновений и т.д.
-        logger.info(f"Танк {self.tank_id} перемещен в {self.position}")
+        logger.info(f"Tank {self.tank_id} moved to {self.position}")
         # Отправка сообщения в Kafka о движении танка
         kafka_message = {
             "event_type": "tank_moved", # Тип события
@@ -69,7 +69,7 @@ class Tank:
         Конкретная логика попадания, урона и т.д. здесь не реализована.
         """
         # Логика выстрела: создание снаряда, проверка попадания и т.д.
-        logger.info(f"Танк {self.tank_id} стреляет из позиции {self.position}!")
+        logger.info(f"Tank {self.tank_id} is shooting from position {self.position}!")
         # Отправка сообщения в Kafka о выстреле
         kafka_message = {
             "event_type": "tank_shot",
@@ -108,7 +108,7 @@ class Tank:
 
         if self.health <= 0:
             self.health = 0 # Здоровье не может быть отрицательным
-            logger.info(f"Танк {self.tank_id} уничтожен!")
+            logger.info(f"Tank {self.tank_id} destroyed!")
             # Отправляем сообщение об уничтожении танка
             kafka_destroyed_message = {
                 "event_type": "tank_destroyed",
@@ -118,7 +118,7 @@ class Tank:
             send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, kafka_destroyed_message)
             # Здесь может быть логика деактивации танка, удаления из игры и т.д.
         else:
-            logger.info(f"Танк {self.tank_id} получил {damage} урона, текущее здоровье: {self.health}")
+            logger.info(f"Tank {self.tank_id} received {damage} damage, current health: {self.health}")
 
     def reset(self, initial_position=(0,0), health=100):
         """
@@ -134,7 +134,7 @@ class Tank:
         self.health = health
         self.is_active = False # Помечаем как неактивный
         self.last_update_time = 0 # Сбрасываем время обновления
-        logger.info(f"Танк {self.tank_id} был сброшен в начальное состояние.")
+        logger.info(f"Tank {self.tank_id} has been reset to initial state.")
 
     def get_state(self):
         """

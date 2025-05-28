@@ -76,7 +76,7 @@ def start_metrics_server():
     """
     # ... (код без изменений)
     start_http_server(8001) # Запускаем HTTP-сервер Prometheus на порту 8001
-    logger.info("Сервер метрик Prometheus для Игрового Сервера запущен на порту 8001.")
+    logger.info("Prometheus metrics server for Game Server started on port 8001.")
     # Запускаем цикл обновления метрик в отдельном daemon-потоке
     metrics_loop_thread = threading.Thread(target=metrics_updater_loop, daemon=True)
     metrics_loop_thread.setName("MetricsUpdaterThread") # Даем имя потоку для удобства отладки
@@ -91,7 +91,7 @@ async def start_game_server():
     host = '0.0.0.0' # Слушаем на всех доступных интерфейсах
     port = 9999      # Порт для UDP-сервера
 
-    logger.info(f"Запуск игрового UDP сервера на {host}:{port}...")
+    logger.info(f"Starting game UDP server on {host}:{port}...")
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
 
     # SessionManager и TankPool будут инициализированы в main или переданы при необходимости.
@@ -106,7 +106,7 @@ async def start_game_server():
         local_addr=(host, port)
     )
 
-    logger.info(f"Игровой UDP сервер запущен и слушает на {transport.get_extra_info('sockname')}")
+    logger.info(f"Game UDP server started and listening on {transport.get_extra_info('sockname')}")
 
     # Запуск TCP-сервера
     game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0') # Хост TCP-сервера из переменной окружения
@@ -125,7 +125,7 @@ async def start_game_server():
         game_tcp_host,
         game_tcp_port
     )
-    logger.info(f"Игровой TCP сервер запущен и слушает на {game_tcp_host}:{game_tcp_port}")
+    logger.info(f"Game TCP server started and listening on {game_tcp_host}:{game_tcp_port}")
     # Пример логирования фактического адреса, на котором слушает сервер:
     # logger.info(f"TCP-сервер фактически слушает на {tcp_server.sockets[0].getsockname()}")
 
@@ -135,22 +135,22 @@ async def start_game_server():
         # Это стандартный способ поддерживать работу asyncio-сервера в основном потоке.
         await asyncio.Event().wait() 
     finally:
-        logger.info("Остановка игровых серверов...")
+        logger.info("Stopping game servers...")
         # Остановка TCP-сервера
         if 'tcp_server' in locals() and tcp_server:
             tcp_server.close() # Закрываем сервер
             await tcp_server.wait_closed() # Ожидаем полного закрытия
-            logger.info("Игровой TCP сервер остановлен.")
+            logger.info("Game TCP server stopped.")
         # Остановка UDP-сервера
         if 'transport' in locals() and transport:
             transport.close() # Закрываем транспорт UDP
-            logger.info("Игровой UDP сервер остановлен.")
+            logger.info("Game UDP server stopped.")
 
 
 if __name__ == '__main__':
     # Настраиваем логирование здесь, чтобы оно было установлено как можно раньше.
     # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # Removed as per instruction
-    logger.info("Запуск приложения игрового сервера...")
+    logger.info("Starting game server application...")
 
     # Инициализация общих экземпляров SessionManager и TankPool.
     # Вероятно, они спроектированы как синглтоны или управляют глобальным состоянием.
@@ -167,17 +167,17 @@ if __name__ == '__main__':
     start_metrics_server() 
 
     # Инициализация и запуск потребителя команд игроков из RabbitMQ
-    logger.info("Инициализация PlayerCommandConsumer...")
+    logger.info("Initializing PlayerCommandConsumer...")
     player_command_consumer = PlayerCommandConsumer(session_manager, tank_pool)
     
     # Запускаем потребителя в отдельном daemon-потоке
     consumer_thread = threading.Thread(target=player_command_consumer.start_consuming, daemon=True)
     consumer_thread.setName("PlayerCommandConsumerThread") # Имя потока полезно для отладки
     consumer_thread.start()
-    logger.info("PlayerCommandConsumer запущен в отдельном потоке.")
+    logger.info("PlayerCommandConsumer started in a separate thread.")
 
     # Инициализация и запуск потребителя событий матчмейкинга из RabbitMQ
-    logger.info("Инициализация MatchmakingEventConsumer...")
+    logger.info("Initializing MatchmakingEventConsumer...")
     matchmaking_event_consumer = MatchmakingEventConsumer(session_manager) # Использует тот же session_manager
     
     # Запускаем потребителя событий матчмейкинга в отдельном daemon-потоке
@@ -187,41 +187,41 @@ if __name__ == '__main__':
         name="MatchmakingEventConsumerThread" # Имя потока
     )
     matchmaking_consumer_thread.start()
-    logger.info("MatchmakingEventConsumer запущен в отдельном потоке.")
+    logger.info("MatchmakingEventConsumer started in a separate thread.")
 
     # Запуск основного игрового сервера
     try:
-        logger.info("Запуск асинхронных компонентов игрового сервера...")
+        logger.info("Starting asynchronous components of the game server...")
         # Передаем session_manager и tank_pool в start_game_server, если это необходимо явно.
         # Пока предполагается, что GameUDPProtocol получает их через паттерн Singleton из SessionManager/TankPool.
         # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
         asyncio.run(start_game_server()) 
     except KeyboardInterrupt:
-        logger.info("Завершение работы сервера инициировано через KeyboardInterrupt.")
+        logger.info("Server shutdown initiated via KeyboardInterrupt.")
     except Exception as e:
-        logger.critical(f"Критическая ошибка во время выполнения сервера: {e}", exc_info=True)
+        logger.critical(f"Critical error during server execution: {e}", exc_info=True)
     finally:
-        logger.info("Попытка остановить потребителей...")
+        logger.info("Attempting to stop consumers...")
         # Корректная остановка потребителя команд игроков
         if 'player_command_consumer' in locals() and player_command_consumer:
             player_command_consumer.stop_consuming()
         if 'consumer_thread' in locals() and consumer_thread.is_alive():
-            logger.info("Ожидание завершения потока PlayerCommandConsumerThread...")
+            logger.info("Waiting for PlayerCommandConsumerThread to complete...")
             consumer_thread.join(timeout=5) # Ожидаем завершения потока с таймаутом
             if consumer_thread.is_alive():
-                logger.warning("Поток PlayerCommandConsumerThread не завершился корректно.")
+                logger.warning("PlayerCommandConsumerThread did not complete correctly.")
             else:
-                logger.info("Поток PlayerCommandConsumerThread успешно завершен.")
+                logger.info("PlayerCommandConsumerThread completed successfully.")
 
         # Корректная остановка потребителя событий матчмейкинга
         if 'matchmaking_event_consumer' in locals() and matchmaking_event_consumer:
             matchmaking_event_consumer.stop_consuming()
         if 'matchmaking_consumer_thread' in locals() and matchmaking_consumer_thread.is_alive():
-            logger.info("Ожидание завершения потока MatchmakingEventConsumerThread...")
+            logger.info("Waiting for MatchmakingEventConsumerThread to complete...")
             matchmaking_consumer_thread.join(timeout=5) # Ожидаем завершения потока с таймаутом
             if matchmaking_consumer_thread.is_alive():
-                logger.warning("Поток MatchmakingEventConsumerThread не завершился корректно.")
+                logger.warning("MatchmakingEventConsumerThread did not complete correctly.")
             else:
-                logger.info("Поток MatchmakingEventConsumerThread успешно завершен.")
+                logger.info("MatchmakingEventConsumerThread completed successfully.")
         
-        logger.info("Приложение игрового сервера полностью остановлено.")
+        logger.info("Game server application completely stopped.")

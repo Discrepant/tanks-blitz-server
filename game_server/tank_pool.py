@@ -47,7 +47,7 @@ class TankPool:
             # Словарь для отслеживания используемых танков: {tank_id: tank_object}
             self.in_use_tanks = {} 
             self.initialized = True
-            logger.info(f"Пул танков инициализирован с {pool_size} танками.")
+            logger.info(f"Tank pool initialized with {pool_size} tanks.")
 
     def acquire_tank(self):
         """
@@ -65,9 +65,9 @@ class TankPool:
             if not tank.is_active: # Если танк не активен (т.е. свободен)
                 tank.is_active = True # Помечаем как активный
                 self.in_use_tanks[tank.tank_id] = tank # Добавляем в словарь используемых
-                logger.info(f"Танк {tank.tank_id} взят из пула.")
+                logger.info(f"Tank {tank.tank_id} acquired from pool.")
                 return tank
-        logger.warning("В пуле нет свободных танков.")
+        logger.warning("No free tanks available in the pool.")
         return None # Возвращаем None, если все танки заняты
 
     def release_tank(self, tank_id):
@@ -83,10 +83,10 @@ class TankPool:
         tank = self.in_use_tanks.pop(tank_id, None) # Удаляем танк из используемых
         if tank:
             tank.reset() # Сбрасываем состояние танка (включая is_active = False)
-            logger.info(f"Танк {tank.tank_id} возвращен в пул.")
+            logger.info(f"Tank {tank.tank_id} released back to pool.")
         else:
             # Попытка вернуть танк, который не был помечен как используемый или не существует.
-            logger.warning(f"Предупреждение: Попытка вернуть танк с ID ({tank_id}), который не используется или не существует.")
+            logger.warning(f"Warning: Attempt to release tank with ID ({tank_id}) that is not in use or does not exist.")
 
     def get_tank(self, tank_id):
         """
@@ -108,29 +108,29 @@ if __name__ == '__main__':
     pool1 = TankPool(pool_size=5) # Создание/получение экземпляра пула
     pool2 = TankPool() # Это должен быть тот же самый экземпляр (Singleton)
 
-    logger.info(f"Пул1 это Пул2: {pool1 is pool2}") # Проверка Singleton
+    logger.info(f"Pool1 is Pool2: {pool1 is pool2}") # Проверка Singleton
 
     # Берем два танка из пула
     t1 = pool1.acquire_tank()
     t2 = pool1.acquire_tank()
 
     if t1:
-        logger.info(f"Взят танк t1: {t1.tank_id}")
+        logger.info(f"Acquired tank t1: {t1.tank_id}")
         t1.move((10, 20)) # Используем методы танка
         t1.shoot()
     else:
-        logger.warning("Не удалось взять танк t1.")
+        logger.warning("Failed to acquire tank t1.")
 
     if t2:
-        logger.info(f"Взят танк t2: {t2.tank_id}")
+        logger.info(f"Acquired tank t2: {t2.tank_id}")
         pool1.release_tank(t2.tank_id) # Возвращаем t2 в пул
     else:
-        logger.warning("Не удалось взять танк t2.")
+        logger.warning("Failed to acquire tank t2.")
     
     # Пытаемся взять еще один танк. Если t2 был возвращен, t3 должен быть им.
     t3 = pool1.acquire_tank() 
-    logger.info(f"Взят танк t3: {t3.tank_id if t3 else 'None'}")
+    logger.info(f"Acquired tank t3: {t3.tank_id if t3 else 'None'}")
 
     # Проверяем состояние пула
-    logger.info(f"Танки в использовании: {list(pool1.in_use_tanks.keys())}")
-    logger.info(f"Количество свободных танков: {sum(1 for t in pool1.pool if not t.is_active)}")
+    logger.info(f"Tanks in use: {list(pool1.in_use_tanks.keys())}")
+    logger.info(f"Number of free tanks: {sum(1 for t in pool1.pool if not t.is_active)}")

@@ -38,7 +38,7 @@ async def authenticate_user(username, password):
     """
     # Логирование текущей mock-базы данных для отладки.
     # В продакшене следует избегать логирования чувствительных данных, таких как вся база пользователей.
-    logger.debug(f"Попытка аутентификации пользователя '{username}' с использованием MOCK_USERS_DB.")
+    logger.debug(f"Attempting to authenticate user '{username}' using MOCK_USERS_DB.")
     
     await asyncio.sleep(0.01) # Имитация небольшой задержки, как при обращении к БД.
 
@@ -47,16 +47,16 @@ async def authenticate_user(username, password):
         # В реальном приложении здесь бы генерировался и возвращался сессионный токен (например, JWT).
         # Текущее сообщение "Пользователь {username} успешно аутентифицирован." может быть использовано
         # клиентом или сервером для подтверждения, или заменено на токен.
-        logger.info(f"Пользователь '{username}' успешно аутентифицирован.")
-        return True, f"Пользователь {username} успешно аутентифицирован." # В будущем здесь может быть токен
+        logger.info(f"User '{username}' authenticated successfully.")
+        return True, f"User {username} authenticated successfully." # В будущем здесь может быть токен
     elif username in MOCK_USERS_DB:
         # Пользователь найден, но пароль неверный.
-        logger.warning(f"Неудачная попытка аутентификации для пользователя '{username}': неверный пароль.")
-        return False, "Неверный пароль."
+        logger.warning(f"Failed authentication attempt for user '{username}': incorrect password.")
+        return False, "Incorrect password."
     else:
         # Пользователь не найден в базе данных.
-        logger.warning(f"Неудачная попытка аутентификации: пользователь '{username}' не найден.")
-        return False, "Пользователь не найден."
+        logger.warning(f"Failed authentication attempt: user '{username}' not found.")
+        return False, "User not found."
 
 async def register_user(username, password):
     """
@@ -78,16 +78,16 @@ async def register_user(username, password):
                           (True при успехе регистрации, False при неудаче),
                           а второй - сообщение о результате.
     """
-    logger.debug(f"Попытка регистрации нового пользователя '{username}'.")
+    logger.debug(f"Attempting to register new user '{username}'.")
     await asyncio.sleep(0.01) # Имитация задержки обращения к БД.
 
     if username in MOCK_USERS_DB:
-        logger.warning(f"Попытка регистрации существующего пользователя '{username}'.")
-        return False, "Пользователь с таким именем уже существует."
+        logger.warning(f"Attempt to register existing user '{username}'.")
+        return False, "User with this name already exists."
     
     # Строка ниже закомментирована, чтобы MOCK_USERS_DB оставалась неизменной во время тестов.
     # В реальном приложении здесь было бы сохранение в БД:
     MOCK_USERS_DB[username] = password
     # Также необходимо было бы хешировать пароль перед сохранением.
-    logger.info(f"Пользователь '{username}' успешно зарегистрирован и добавлен в MOCK_USERS_DB.")
-    return True, f"Пользователь {username} успешно зарегистрирован."
+    logger.info(f"User '{username}' successfully registered and added to MOCK_USERS_DB.")
+    return True, f"User {username} successfully registered."

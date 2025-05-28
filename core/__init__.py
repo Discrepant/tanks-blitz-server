@@ -1,1 +1,1 @@
-# This file makes 'core' a Python package.
+# Этот файл делает директорию 'core' пакетом Python.

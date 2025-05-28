@@ -1,139 +1,161 @@
 # auth_server/tcp_handler.py
+# Этот модуль отвечает за обработку TCP-соединений и сообщений от клиентов
+# для сервера аутентификации.
 import asyncio
-import json # Add json import
-import logging # Добавляем импорт
-from .user_service import authenticate_user
-from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS
+import json # Импортируем json для работы с JSON-сообщениями
+import logging # Импортируем logging для логирования
+from .user_service import authenticate_user # Импортируем функцию аутентификации пользователя
+from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS # Импортируем метрики Prometheus
 
 # Создаем логгер для этого модуля
 logger = logging.getLogger(__name__)
 
 async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
-    addr = writer.get_extra_info('peername')
+    """
+    Обрабатывает входящее клиентское подключение для аутентификации.
+
+    Читает данные от клиента, ожидает JSON-сообщение с действием (login/register),
+    обрабатывает его и отправляет ответ. Обновляет метрики Prometheus.
+
+    Args:
+        reader: Объект asyncio.StreamReader для чтения данных от клиента.
+        writer: Объект asyncio.StreamWriter для отправки данных клиенту.
+    """
+    addr = writer.get_extra_info('peername') # Получаем адрес клиента
     logger.info(f"Новое подключение от {addr}, ожидается JSON.")
-    ACTIVE_CONNECTIONS_AUTH.inc()
-    response_data = {} # Initialize response_data
+    ACTIVE_CONNECTIONS_AUTH.inc() # Увеличиваем счетчик активных соединений
+    response_data = {} # Инициализируем переменную для данных ответа
 
     try:
-        raw_data_bytes = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
+        # Читаем данные до символа новой строки. Ожидается, что клиент отправит JSON и \n.
+        raw_data_bytes = await reader.readuntil(b'\n') 
         
-        if not raw_data_bytes: # Check for empty or newline-only - MODIFIED
-            logger.warning(f"Empty or newline-only message received from {addr} before decoding. Closing connection.")
-            # Explicit close block removed, rely on finally
-            return
-            
-        raw_data = raw_data_bytes.decode('utf-8') # MODIFIED to strict decoding
-        # The subtask asks for raw_data.strip() and then check.
-        # The existing code decodes, then strips, and assigns to message_json_str.
-        # Let's keep message_json_str as the stripped version for minimal changes to subsequent code.
-        
-        message_json_str = raw_data.strip()
-        
-        if not message_json_str: # Check if message_json_str is empty AFTER stripping
-            logger.warning(f"Empty message received from {addr} after strip. Sending error and closing.")
-            response_data = {"status": "error", "message": "Empty message received"}
+        # Проверка на пустые данные или только символ новой строки перед декодированием
+        if not raw_data_bytes.strip(): # MODIFIED - проверяем после strip(), чтобы учесть \n
+            logger.warning(f"От {addr} получено пустое сообщение или только символ новой строки. Отправка ошибки и закрытие.")
+            response_data = {"status": "error", "message": "Получено пустое сообщение или только символ новой строки"} # Error message updated
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
-            # Explicit close block removed, rely on finally
-            return
+            # Явный блок закрытия удален, полагаемся на finally
+            return # Выход из функции, finally выполнит очистку
+            
+        # Декодируем байты в строку UTF-8. Используем строгую проверку.
+        raw_data = raw_data_bytes.decode('utf-8') 
+        
+        # Удаляем пробельные символы с начала и конца строки.
+        message_json_str = raw_data.strip()
+        
+        # Проверка, не является ли строка пустой ПОСЛЕ удаления пробельных символов.
+        if not message_json_str: 
+            logger.warning(f"От {addr} получено пустое сообщение после strip. Отправка ошибки и закрытие.")
+            response_data = {"status": "error", "message": "Получено пустое сообщение"} # This specific error message
+            writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
+            await writer.drain()
+            # Явный блок закрытия удален, полагаемся на finally
+            return # Выход из функции
 
         try:
-            # message_json_str is already decoded and stripped
+            # message_json_str уже декодирована и очищена от пробелов.
             logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
-            message_data = json.loads(message_json_str)
-            action = message_data.get("action")
-            username = message_data.get("username")
-            password = message_data.get("password")
+            message_data = json.loads(message_json_str) # Парсим JSON-строку в Python dict
+            action = message_data.get("action") # Получаем действие из сообщения
+            username = message_data.get("username") # Получаем имя пользователя
+            password = message_data.get("password") # Получаем пароль
 
             logger.info(f"Получен action '{action}' от {addr} для пользователя '{username}'")
 
-            if action == "login":
+            if action == "login": # Если действие - "login"
                 is_authenticated, response_message = await authenticate_user(username, password)
                 if is_authenticated:
-                    SUCCESSFUL_AUTHS.inc()
-                    response_data = {"status": "success", "message": response_message, "session_id": response_message} # Using message as session_id for now
+                    SUCCESSFUL_AUTHS.inc() # Увеличиваем счетчик успешных аутентификаций
+                    # Временно используем response_message (который является токеном или ID сессии) как session_id
+                    response_data = {"status": "success", "message": response_message, "session_id": response_message} 
                     logger.info(f"Пользователь '{username}' успешно аутентифицирован. Ответ: {response_data}")
                 else:
-                    FAILED_AUTHS.inc()
-                    response_data = {"status": "failure", "message": f"Authentication failed: {response_message}"}
+                    FAILED_AUTHS.inc() # Увеличиваем счетчик неудачных аутентификаций
+                    response_data = {"status": "failure", "message": f"Аутентификация не удалась: {response_message}"}
                     logger.warning(f"Неудачная попытка аутентификации для пользователя '{username}'. Причина: {response_message}. Ответ: {response_data}")
             
-            elif action == "register":
-                # Mock registration response
-                response_data = {"status": "success", "message": "Registration action received (mock)"}
+            elif action == "register": # Если действие - "register"
+                # Это mock-ответ для регистрации. В реальной системе здесь была бы логика регистрации.
+                response_data = {"status": "success", "message": "Действие регистрации получено (mock-ответ)"}
                 logger.info(f"Получен mock-запрос на регистрацию для пользователя '{username}'. Ответ: {response_data}")
             
-            else:
-                response_data = {"status": "error", "message": "Unknown or missing action"}
+            else: # Если действие неизвестно
+                response_data = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
                 logger.warning(f"Неизвестное или отсутствующее действие '{action}' от {addr}. Ответ: {response_data}")
 
-        # UnicodeDecodeError is now handled by the outer try-except due to strict decoding
+        # Обработка ошибки декодирования JSON.
         except json.JSONDecodeError as je:
-            # message_json_str is available here
-            logger.error(f"Invalid JSON received from {addr}: '{message_json_str}' | Error: {je}. Raw bytes: {raw_data_bytes!r}") # MODIFIED to use raw_data_bytes
-            response_data = {"status": "error", "message": "Invalid JSON format"}
-            # FAILED_AUTHS.inc() # Consider if this should count as a failed auth
+            # message_json_str доступна здесь и содержит строку, вызвавшую ошибку.
+            logger.error(f"От {addr} получен невалидный JSON: '{message_json_str}' | Ошибка: {je}. Сырые байты: {raw_data_bytes!r}")
+            response_data = {"status": "error", "message": "Невалидный формат JSON"}
+            # FAILED_AUTHS.inc() # Можно рассмотреть, считать ли это неудачной аутентификацией
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
-            # Explicit close block removed, rely on finally
-            return
+            # Явный блок закрытия удален, полагаемся на finally
+            return # Выход из функции
 
-        # This is the successful path write
+        # Отправка успешного ответа клиенту (если не было ошибок выше)
         writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
         await writer.drain()
         logger.debug(f"Отправлен JSON ответ клиенту {addr}: {response_data}")
-        # Explicit close block removed, rely on finally
-        # No return here, allow finally to execute for ACTIVE_CONNECTIONS_AUTH.dec()
+        # Явный блок закрытия удален, finally закроет соединение и уменьшит счетчик.
+        # Нет return здесь, чтобы finally выполнился для ACTIVE_CONNECTIONS_AUTH.dec()
 
     except ConnectionResetError:
         logger.warning(f"Соединение сброшено клиентом {addr}.")
-        # Explicit close block removed, rely on finally
-        return
+        # Явный блок закрытия удален, полагаемся на finally
+        return # Выход из функции
     except asyncio.IncompleteReadError:
         logger.warning(f"Неполное чтение от клиента {addr}. Соединение могло быть закрыто преждевременно.")
-        # Explicit close block removed, rely on finally
-        return
-    # Make sure UnicodeDecodeError is caught before generic Exception if it occurs outside the inner try-except
-    except UnicodeDecodeError as ude: # This will catch decoding errors if data.decode() is moved outside the inner try
-        logger.error(f"Unicode decoding error from {addr} (outer catch): {ude}. Raw data: {raw_data_bytes!r}")
-        response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
+        # Явный блок закрытия удален, полагаемся на finally
+        return # Выход из функции
+    # Убедимся, что UnicodeDecodeError перехватывается перед общим Exception,
+    # если ошибка декодирования произойдет вне внутреннего try-except.
+    except UnicodeDecodeError as ude: 
+        logger.error(f"Ошибка декодирования Unicode от {addr} (внешний перехват): {ude}. Сырые данные: {raw_data_bytes!r}")
+        response_data = {"status": "error", "message": "Неверная кодировка символов. Ожидается UTF-8."}
         
-        logger.debug(f"In UnicodeDecodeError handler for {addr}: writer.is_closing() is {writer.is_closing()}") # This log remains
+        # Этот лог остается для отладки состояния writer
+        logger.debug(f"В обработчике UnicodeDecodeError для {addr}: writer.is_closing() равно {writer.is_closing()}") 
         
-        if not writer.is_closing():
+        if not writer.is_closing(): # Если writer еще не закрывается
             try:
-                logger.debug(f"Attempting to send UnicodeDecodeError response to {addr}")
+                logger.debug(f"Попытка отправить ответ об ошибке UnicodeDecodeError клиенту {addr}")
                 writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
                 await writer.drain()
-                logger.debug(f"Successfully sent UnicodeDecodeError response to {addr}")
+                logger.debug(f"Успешно отправлен ответ об ошибке UnicodeDecodeError клиенту {addr}")
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке (UnicodeDecodeError) клиенту {addr}: {ex_send}")
-        # Explicit close block removed, rely on finally
-        return
+        # Явный блок закрытия удален, полагаемся на finally
+        return # Выход из функции
     except Exception as e:
+        # Логируем исключение с полным стектрейсом.
         logger.exception(f"Общая ошибка при обработке клиента {addr}:")
-        # FAILED_AUTHS.inc() # Считаем это неудачей, если ошибка произошла до успешной аутентификации
+        # FAILED_AUTHS.inc() # Можно засчитать как неудачу, если ошибка произошла до успешной аутентификации
         
-        if not writer.is_closing():
+        if not writer.is_closing(): # Если writer еще не закрывается
             try:
-                # Ensure even general errors try to send a JSON response
-                error_response_data = {"status": "error", "message": "Internal server error"}
+                # Гарантируем, что даже при общих ошибках пытаемся отправить JSON-ответ.
+                error_response_data = {"status": "error", "message": "Внутренняя ошибка сервера"}
                 writer.write(json.dumps(error_response_data).encode('utf-8') + b'\n')
                 await writer.drain()
                 logger.debug(f"Отправлено JSON сообщение об ошибке клиенту {addr}: {error_response_data}")
             except Exception as ex_send:
                 logger.error(f"Не удалось отправить JSON сообщение об ошибке клиенту {addr}: {ex_send}")
-        # Explicit close block removed, rely on finally
-        return # Return after handling general exception
+        # Явный блок закрытия удален, полагаемся на finally
+        return # Выход из функции после обработки общего исключения
     finally:
-        logger.debug(f"Entering finally block for {addr}, preparing to ensure writer is closed.") # Added debug log
+        # Блок finally гарантирует, что ресурсы будут освобождены.
+        logger.debug(f"Вход в блок finally для {addr}, подготовка к закрытию writer.")
         logger.info(f"Закрытие соединения с {addr}")
-        ACTIVE_CONNECTIONS_AUTH.dec()
-        if not writer.is_closing(): # Check if writer is not already closing
-            logger.debug(f"Closing writer for {addr} in finally block.") # Added debug log
-            writer.close()
+        ACTIVE_CONNECTIONS_AUTH.dec() # Уменьшаем счетчик активных соединений
+        if not writer.is_closing(): # Проверяем, не закрывается ли writer уже
+            logger.debug(f"Закрытие writer для {addr} в блоке finally.")
+            writer.close() # Закрываем writer
             try:
-                await writer.wait_closed()
+                await writer.wait_closed() # Ожидаем полного закрытия
             except Exception as e_close:
                 logger.error(f"Ошибка при ожидании закрытия writer для {addr}: {e_close}")
         logger.debug(f"Соединение с {addr} полностью закрыто.")

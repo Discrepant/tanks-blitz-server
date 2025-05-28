@@ -1,5 +1,6 @@
-# This file makes the tests directory a Python package.
-# It is often left empty.
+# Этот файл делает директорию 'tests' пакетом Python.
+# Его часто оставляют пустым.
 
-# You can add package-level imports or setup if needed for your tests,
-# but for standard unittest discovery, it's usually not necessary.
+# При необходимости здесь можно добавить импорты на уровне пакета или код настройки
+# для ваших тестов, но для стандартного обнаружения тестов с помощью unittest
+# это обычно не требуется.

@@ -1,2 +1,2 @@
-# This file makes the auth_server directory a Python package.
-# Intentionally left blank to avoid circular imports when running modules with `python -m`.
+# Этот файл делает директорию auth_server пакетом Python.
+# Намеренно оставлен пустым, чтобы избежать циклических импортов при запуске модулей с `python -m`.

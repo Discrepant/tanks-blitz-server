@@ -41,6 +41,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             
         # Декодируем байты в строку UTF-8. Используем строгую проверку.
         raw_data = raw_data_bytes.decode('utf-8') 
+        logger.debug(f"TCP Handler: Получена сырая строка от клиента {addr}: '{raw_data.strip()}'")
         
         # Удаляем пробельные символы с начала и конца строки.
         message_json_str = raw_data.strip()
@@ -58,6 +59,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             # message_json_str уже декодирована и очищена от пробелов.
             logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
             message_data = json.loads(message_json_str) # Парсим JSON-строку в Python dict
+            logger.debug(f"TCP Handler: Распарсенный JSON от клиента {addr}: {message_data}")
             action = message_data.get("action") # Получаем действие из сообщения
             username = message_data.get("username") # Получаем имя пользователя
             password = message_data.get("password") # Получаем пароль

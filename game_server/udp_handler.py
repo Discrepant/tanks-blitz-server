@@ -64,6 +64,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             # 1. Попытка декодирования (строгая)
             try:
                 decoded_payload_str = data.decode('utf-8') # Строгое декодирование UTF-8
+                logger.info(f"UDP Handler: Декодированное сообщение от {addr}: {decoded_payload_str.strip()}")
             except UnicodeDecodeError as ude:
                 logger.error(f"Ошибка декодирования Unicode от {addr}: {ude}. Сырые данные: {data!r}")
                 # Отправляем ошибку клиенту

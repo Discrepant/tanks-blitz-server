@@ -69,6 +69,17 @@ class TestRedisClient(unittest.IsolatedAsyncioTestCase):
         Проверяет, что ConnectionPool и Redis вызываются с хостом "redis-service" и портом 6379,
         когда переменные окружения не установлены.
         """
+        RedisClient._instance = None
+        original_use_mocks = os.environ.get("USE_MOCKS")
+        os.environ["USE_MOCKS"] = "false"
+
+        def cleanup_use_mocks():
+            if original_use_mocks is not None:
+                os.environ["USE_MOCKS"] = original_use_mocks
+            elif "USE_MOCKS" in os.environ:
+                del os.environ["USE_MOCKS"]
+        self.addCleanup(cleanup_use_mocks)
+        
         # Убеждаемся, что переменные окружения не установлены для этого теста
         os.environ.pop('REDIS_HOST', None)
         os.environ.pop('REDIS_PORT', None)
@@ -98,6 +109,17 @@ class TestRedisClient(unittest.IsolatedAsyncioTestCase):
         Проверяет, что ConnectionPool и Redis вызываются с хостом и портом,
         указанными в переменных окружения REDIS_HOST и REDIS_PORT.
         """
+        RedisClient._instance = None
+        original_use_mocks = os.environ.get("USE_MOCKS")
+        os.environ["USE_MOCKS"] = "false"
+
+        def cleanup_use_mocks():
+            if original_use_mocks is not None:
+                os.environ["USE_MOCKS"] = original_use_mocks
+            elif "USE_MOCKS" in os.environ:
+                del os.environ["USE_MOCKS"]
+        self.addCleanup(cleanup_use_mocks)
+        
         # Устанавливаем тестовые значения для переменных окружения
         os.environ['REDIS_HOST'] = "my-custom-redis"
         os.environ['REDIS_PORT'] = "1234"

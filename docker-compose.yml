@@ -39,7 +39,7 @@ services:
 
   redis-service:
     image: redis:alpine
-    container_name: redis_service
+    container_name: redis-service
     ports:
       - "6379:6379"
     restart: unless-stopped

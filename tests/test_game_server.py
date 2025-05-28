@@ -146,11 +146,11 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         """
         player1 = Player(self.player1_writer, "player1_logic", "token1")
         await self.game_room.add_player(player1)
-        self.assertIn("player1_logic", self.game_room.players, "Игрок должен быть в словаре игроков комнаты.")
-        self.assertEqual(self.game_room.players["player1_logic"], player1, "Объект игрока в комнате не совпадает с добавленным.")
+        self.assertIn("player1_logic", self.game_room.players, "Player should be in the room's player dictionary.")
+        self.assertEqual(self.game_room.players["player1_logic"], player1, "Player object in room does not match added object.")
         # Проверяем, что сообщение о входе было отправлено игроку
         # (GameRoom.add_player отправляет "SERVER: Добро пожаловать...")
-        self.player1_writer.write.assert_any_call(b"SERVER: Добро пожаловать в игровую комнату!\n")
+        self.player1_writer.write.assert_any_call("SERVER: Welcome to the game room!\n".encode('utf-8'))
 
     async def test_remove_player(self):
         """
@@ -231,13 +231,13 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         # Захватываем аргумент вызова write и проверяем его содержимое.
         # Это более гибко, чем точное совпадение строки, если порядок игроков
         # в списке не гарантирован или если в комнате есть другие игроки (хотя здесь только один).
-        self.assertTrue(self.player1_writer.write.called, "Метод write не был вызван для команды PLAYERS.")
+        self.assertTrue(self.player1_writer.write.called, "write method was not called for PLAYERS command.")
         # call_args[0] - это кортеж позиционных аргументов, первый из которых - отправляемые байты.
         called_with_arg_bytes = self.player1_writer.write.call_args[0][0]
         called_with_arg_str = called_with_arg_bytes.decode('utf-8') 
         
-        self.assertIn("SERVER: Игроки в комнате:", called_with_arg_str, "Ответ не содержит ожидаемый префикс.")
-        self.assertIn("p1_cmd_players", called_with_arg_str, "Имя игрока отсутствует в списке.")
+        self.assertIn("SERVER: Players in room:", called_with_arg_str, "Response does not contain expected prefix.")
+        self.assertIn("p1_cmd_players", called_with_arg_str, "Player name is missing from the list.")
 
 
     async def test_authenticate_player_success_in_gameroom(self): # Переименовано для ясности
@@ -245,13 +245,13 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         Тест успешной аутентификации игрока через GameRoom (используя мок AuthClient).
         """
         # Настраиваем мок AuthClient для возврата успешного результата аутентификации
-        self.mock_auth_client.login_user = AsyncMock(return_value=(True, "Auth success", "fake_token"))
+        self.mock_auth_client.login_user = AsyncMock(return_value=(True, "Auth success", "fake_token")) # Message already English
 
         authenticated, message, token = await self.game_room.authenticate_player("user_gs_auth", "pass_gs_auth")
 
-        self.assertTrue(authenticated, "Аутентификация в GameRoom должна быть успешной.")
-        self.assertEqual("Auth success", message, "Сообщение об успехе аутентификации неверно.")
-        self.assertEqual("fake_token", token, "Токен сессии не совпадает.")
+        self.assertTrue(authenticated, "Authentication in GameRoom should be successful.")
+        self.assertEqual("Auth success", message, "Authentication success message is incorrect.")
+        self.assertEqual("fake_token", token, "Session token does not match.")
         # Проверяем, что метод login_user у мока AuthClient был вызван с правильными аргументами
         self.mock_auth_client.login_user.assert_called_once_with("user_gs_auth", "pass_gs_auth")
 
@@ -260,13 +260,13 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         Тест неудачной аутентификации игрока через GameRoom.
         """
         # Настраиваем мок AuthClient для возврата неудачного результата аутентификации
-        self.mock_auth_client.login_user = AsyncMock(return_value=(False, "Auth failure", None))
+        self.mock_auth_client.login_user = AsyncMock(return_value=(False, "Auth failure", None)) # Message already English
 
         authenticated, message, token = await self.game_room.authenticate_player("user_gs_fail", "pass_gs_fail")
 
-        self.assertFalse(authenticated, "Аутентификация в GameRoom должна завершиться неудачей.")
-        self.assertEqual("Auth failure", message, "Сообщение о неудаче аутентификации неверно.")
-        self.assertIsNone(token, "Токен сессии должен быть None при неудачной аутентификации.")
+        self.assertFalse(authenticated, "Authentication in GameRoom should fail.")
+        self.assertEqual("Auth failure", message, "Authentication failure message is incorrect.")
+        self.assertIsNone(token, "Session token should be None on authentication failure.")
         self.mock_auth_client.login_user.assert_called_once_with("user_gs_fail", "pass_gs_fail")
 
 
@@ -307,7 +307,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.is_closing.return_value = False # Writer открыт
 
         # Настраиваем мок game_room.authenticate_player для успешного входа
-        self.game_room.authenticate_player.return_value = (True, "Успешный вход", "session_token_123")
+        self.game_room.authenticate_player.return_value = (True, "Login successful", "session_token_123") # Changed to English
 
         # Используем patch для конструктора Player, чтобы проверить его вызов и вернуть мок-экземпляр.
         with patch('game_server.tcp_handler.Player', autospec=True) as MockPlayerConstructor:
@@ -325,12 +325,12 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         # Проверки вызовов
         self.game_room.authenticate_player.assert_called_once_with("testuser", "password123")
-        MockPlayerConstructor.assert_called_once_with(writer, "testuser", "session_token_123")
+        MockPlayerConstructor.assert_called_once_with(writer=writer, name="testuser", session_token="session_token_123") # Changed to keyword args
         self.game_room.add_player.assert_called_once_with(mock_player_instance)
 
         # Проверяем, что было отправлено сообщение об успешном логине
         # (tcp_handler отправляет это сообщение).
-        writer.write.assert_any_call(b"LOGIN_SUCCESS Успешный вход Token: session_token_123\n")
+        writer.write.assert_any_call("LOGIN_SUCCESS Login successful Token: session_token_123\n".encode('utf-8')) # Changed to English
 
         # Проверяем, что remove_player был вызван при завершении работы хендлера
         # (даже если цикл команд не выполнился далее из-за reader.feed_eof()).
@@ -354,7 +354,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.is_closing.return_value = False
 
         # Настраиваем мок game_room.authenticate_player для неудачного входа
-        self.game_room.authenticate_player.return_value = (False, "Неверный пароль", None)
+        self.game_room.authenticate_player.return_value = (False, "Incorrect password", None) # Changed to English
 
         with patch('game_server.tcp_handler.Player', autospec=True) as MockPlayerConstructor:
             await handle_game_client(reader, writer, self.game_room)
@@ -364,7 +364,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         self.game_room.add_player.assert_not_called() # Игрок не должен быть добавлен в комнату
 
         # Проверяем отправку сообщения о неудаче
-        writer.write.assert_called_once_with(b"LOGIN_FAILURE Неверный пароль\n")
+        writer.write.assert_called_once_with("LOGIN_FAILURE Incorrect password\n".encode('utf-8')) # Changed to English
         self.game_room.remove_player.assert_not_called() # Игрок не был добавлен, поэтому не должен удаляться
         writer.close.assert_called_once() # Соединение все равно должно быть закрыто
         writer.wait_closed.assert_called_once()
@@ -387,7 +387,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.is_closing.side_effect = [False, False, True] 
 
         # Настраиваем успешную аутентификацию
-        self.game_room.authenticate_player.return_value = (True, "Вход выполнен", "token_xyz")
+        self.game_room.authenticate_player.return_value = (True, "Login performed", "token_xyz") # Changed to English
 
         # Создаем мок-объект игрока, который будет "создан" после логина
         mock_created_player = AsyncMock(spec=Player) # Используем AsyncMock, если Player имеет async методы
@@ -423,7 +423,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_game_client(reader, writer, self.game_room)
 
         # Проверки
-        MockPlayerConstructor.assert_called_once_with(writer, "gooduser", "token_xyz") # Проверка создания игрока
+        MockPlayerConstructor.assert_called_once_with(writer=writer, name="gooduser", session_token="token_xyz") # Changed to keyword args
         self.game_room.add_player.assert_called_once_with(mock_created_player) # Проверка добавления в комнату
         
         # Проверяем, что handle_player_command была вызвана с правильными аргументами для команды SAY

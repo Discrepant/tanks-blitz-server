@@ -18,7 +18,7 @@ from game_server.tank import Tank
 
 # Важно, чтобы RABBITMQ_QUEUE_PLAYER_COMMANDS было актуальным строковым значением,
 # если оно используется напрямую в утверждениях, или также мокировать core.message_broker_clients.
-# from core.message_broker_clients import RABBITMQ_QUEUE_PLAYER_COMMANDS # Для утверждения, если необходимо
+from core.message_broker_clients import RABBITMQ_QUEUE_PLAYER_COMMANDS # Для утверждения, если необходимо
 
 # Мокируем функцию publish_rabbitmq_message там, где она используется (в game_server.udp_handler).
 # Это позволяет нам проверять, вызывается ли она, и с какими аргументами,
@@ -111,28 +111,25 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         # то прямая обработка (широковещательная рассылка) пропускается.
         # (В текущей реализации udp_handler нет явной рассылки после shoot, так что эта проверка нестрогая)
 
-    def test_datagram_received_move_command_direct_execution_no_rabbitmq(self, mock_publish_rabbitmq: MagicMock):
+    def test_datagram_received_move_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq: MagicMock): # Новое имя
         """
-        Тест: команда 'move' обрабатывается напрямую в UDP-обработчике и НЕ публикуется в RabbitMQ.
-        Проверяет, что вызывается метод tank.move() и происходит широковещательная рассылка состояния.
+        Тест: команда 'move', полученная по UDP, корректно публикуется в RabbitMQ.
         """
-        # Этот тест проверяет, что команда "move" все еще обрабатывается напрямую (согласно текущему плану)
-        # и НЕ попадает в RabbitMQ через UDP-обработчик.
         addr = ('127.0.0.1', 1234)
         player_id = "player2"
         tank_id = "tank_B"
-        new_position = [50, 50] # Новая позиция для танка
+        new_position = [50, 50]
 
         mock_session = MagicMock(spec=GameSession)
-        mock_session.session_id = "test_udp_session_123" # Установка атрибута session_id
+        mock_session.session_id = "test_udp_session_123"
         mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
-        # Мокируем get_tanks_state, чтобы он возвращал ожидаемое состояние после перемещения
-        mock_session.get_tanks_state.return_value = [{"id": tank_id, "position": new_position, "health": 100}]
+        # mock_session.get_tanks_state не нужен для этого теста, так как broadcast удален из обработчика move
         self.protocol.session_manager.get_session_by_player_id.return_value = mock_session
-        
-        mock_tank = MagicMock(spec=Tank)
-        mock_tank.tank_id = tank_id # Устанавливаем ID мок-танка
-        self.protocol.tank_pool.get_tank.return_value = mock_tank # get_tank должен вернуть этот мок
+
+        # mock_tank теперь не нужен, так как tank.move() не вызывается напрямую
+        # mock_tank = MagicMock(spec=Tank)
+        # mock_tank.tank_id = tank_id
+        # self.protocol.tank_pool.get_tank.return_value = mock_tank
 
         message_data = {
             "action": "move",
@@ -140,13 +137,25 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
             "position": new_position
         }
         message_bytes = json.dumps(message_data).encode('utf-8')
-        
+
         self.protocol.datagram_received(message_bytes, addr)
+
+        expected_rabbitmq_message = {
+            "player_id": player_id,
+            "command": "move",
+            "details": {
+                "source": "udp_handler",
+                "tank_id": tank_id,
+                "new_position": new_position
+            }
+        }
         
-        mock_publish_rabbitmq.assert_not_called() # Убеждаемся, что 'move' не отправляется в RabbitMQ
-        mock_tank.move.assert_called_once_with(tuple(new_position)) # Проверяем вызов tank.move
-        # Проверяем, что широковещательная рассылка ДЕЙСТВИТЕЛЬНО произошла для 'move' (согласно существующей логике udp_handler)
-        self.protocol.transport.sendto.assert_called() # Проверяем, что транспорт был использован для отправки
+        mock_publish_rabbitmq.assert_called_once_with(
+            '', # exchange_name
+            RABBITMQ_QUEUE_PLAYER_COMMANDS, # routing_key
+            expected_rabbitmq_message
+        )
+        # Проверка tank.move() и broadcast_to_session удалены, так как это теперь ответственность консьюмера
 
 
     def test_datagram_received_join_game_no_rabbitmq(self, mock_publish_rabbitmq: MagicMock):

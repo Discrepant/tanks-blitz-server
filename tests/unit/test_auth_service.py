@@ -10,6 +10,7 @@ from auth_server.user_service import authenticate_user, MOCK_USERS_DB, register_
 # но если используется pytest-asyncio, достаточно просто объявить функцию как async def.
 # Предполагаем, что pytest-asyncio настроен.
 
+@pytest.mark.asyncio
 async def test_authenticate_user_success():
     """
     Тест успешной аутентификации пользователя.
@@ -23,8 +24,9 @@ async def test_authenticate_user_success():
     test_password = "password123" # Предполагаемый пароль для player1
     is_auth, message = await authenticate_user(test_username, test_password)
     assert is_auth is True, "Аутентификация должна быть успешной для корректных учетных данных."
-    assert "успешно аутентифицирован" in message, "Сообщение должно подтверждать успешную аутентификацию."
+    assert "authenticated successfully" in message, "Сообщение должно подтверждать успешную аутентификацию."
 
+@pytest.mark.asyncio
 async def test_authenticate_user_wrong_password():
     """
     Тест аутентификации пользователя с неверным паролем.
@@ -35,8 +37,9 @@ async def test_authenticate_user_wrong_password():
     wrong_password = "wrongpassword" # Неверный пароль
     is_auth, message = await authenticate_user(test_username, wrong_password)
     assert is_auth is False, "Аутентификация не должна проходить с неверным паролем."
-    assert "Неверный пароль" in message, "Сообщение должно указывать на неверный пароль."
+    assert "Incorrect password" in message, "Сообщение должно указывать на неверный пароль."
 
+@pytest.mark.asyncio
 async def test_authenticate_user_not_found():
     """
     Тест аутентификации несуществующего пользователя.
@@ -47,8 +50,9 @@ async def test_authenticate_user_not_found():
     test_password = "password123"
     is_auth, message = await authenticate_user(unknown_username, test_password)
     assert is_auth is False, "Аутентификация не должна проходить для несуществующего пользователя."
-    assert "Пользователь не найден" in message, "Сообщение должно указывать, что пользователь не найден."
+    assert "not found" in message, "Сообщение должно указывать, что пользователь не найден."
 
+@pytest.mark.asyncio
 async def test_register_user_success_mock():
     """
     Тест успешной регистрации нового пользователя (с использованием мока для MOCK_USERS_DB).
@@ -65,12 +69,13 @@ async def test_register_user_success_mock():
         new_password = "newpassword"
         is_registered, message = await register_user(new_username, new_password)
         assert is_registered is True, "Регистрация нового пользователя должна быть успешной."
-        assert "успешно зарегистрирован" in message, "Сообщение должно подтверждать успешную регистрацию."
+        assert "successfully registered" in message, "Сообщение должно подтверждать успешную регистрацию."
         # В реальном тесте, если бы `register_user` действительно добавлял пользователя,
         # мы бы проверили, что пользователь добавлен в MOCK_USERS_DB:
         # `assert new_username in MOCK_USERS_DB`
         # или что был вызван соответствующий метод сохранения в базу данных.
 
+@pytest.mark.asyncio
 async def test_register_user_already_exists_mock():
     """
     Тест попытки регистрации пользователя, который уже существует (с моком MOCK_USERS_DB).
@@ -83,4 +88,4 @@ async def test_register_user_already_exists_mock():
     with patch.dict('auth_server.user_service.MOCK_USERS_DB', {existing_username: "password123"}, clear=True):
         is_registered, message = await register_user(existing_username, "anypass")
         assert is_registered is False, "Регистрация существующего пользователя должна завершиться неудачей."
-        assert "уже существует" in message, "Сообщение должно указывать, что пользователь уже существует."
+        assert "already exists" in message, "Сообщение должно указывать, что пользователь уже существует."

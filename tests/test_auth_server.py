@@ -6,6 +6,7 @@
 # Рекомендуется проверить и, возможно, объединить их с более новыми тестами.
 
 import asyncio
+import json # Added import
 import unittest
 from unittest.mock import patch, MagicMock # Инструменты для мокирования
 
@@ -39,8 +40,8 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         Проверяет, что `authenticate_user` возвращает True и корректное сообщение.
         """
         authenticated, message = await authenticate_user("testuser_auth", "testpass_auth")
-        self.assertTrue(authenticated, "Аутентификация должна быть успешной с верными данными.")
-        self.assertIn("успешно аутентифицирован", message, "Сообщение должно подтверждать успешную аутентификацию.")
+        self.assertTrue(authenticated, "Authentication should be successful with correct credentials.")
+        self.assertIn("authenticated successfully", message, "Message should confirm successful authentication.")
 
     async def test_authenticate_user_wrong_password(self):
         """
@@ -48,8 +49,8 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         Проверяет, что `authenticate_user` возвращает False и сообщение о неверном пароле.
         """
         authenticated, message = await authenticate_user("testuser_auth_wrong", "wrong_password")
-        self.assertFalse(authenticated, "Аутентификация должна провалиться с неверным паролем.")
-        self.assertEqual("Неверный пароль.", message, "Сообщение должно указывать на неверный пароль.")
+        self.assertFalse(authenticated, "Authentication should fail with incorrect password.")
+        self.assertEqual("Incorrect password.", message, "Message should indicate incorrect password.")
 
     async def test_authenticate_user_not_found(self):
         """
@@ -57,8 +58,8 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         Проверяет, что `authenticate_user` возвращает False и сообщение о том, что пользователь не найден.
         """
         authenticated, message = await authenticate_user("nonexistentuser", "somepassword")
-        self.assertFalse(authenticated, "Аутентификация должна провалиться для несуществующего пользователя.")
-        self.assertEqual("Пользователь не найден.", message, "Сообщение должно указывать, что пользователь не найден.")
+        self.assertFalse(authenticated, "Authentication should fail for a non-existent user.")
+        self.assertEqual("User not found.", message, "Message should indicate user not found.")
 
 class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     """
@@ -112,7 +113,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Проверяем, что writer.write был вызван с правильным JSON-сообщением.
         # Ожидаем байты, так как `writer.write` принимает байты.
         # Также ожидаем символ новой строки в конце сообщения от сервера.
-        expected_response_dict = {"status": "success", "message": "fake_token_123", "session_id": "fake_token_123"}
+        expected_response_dict = {"status": "success", "message": "fake_token_123", "session_id": "fake_token_123"} # Message in mock is already English
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once() # Проверяем, что соединение было закрыто
@@ -134,11 +135,11 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock()
 
-        with patch('auth_server.tcp_handler.authenticate_user', return_value=(False, "Неверный пароль")) as mock_auth:
+        with patch('auth_server.tcp_handler.authenticate_user', return_value=(False, "Incorrect password.")) as mock_auth: # Changed to English
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_called_once_with("testuser_auth", "wrongpass")
-        expected_response_dict = {"status": "failure", "message": "Аутентификация не удалась: Неверный пароль"}
+        expected_response_dict = {"status": "failure", "message": "Authentication failed: Incorrect password."} # Changed to English
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -149,7 +150,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         Имитирует отправку строки, которая не является корректным JSON.
         """
         reader = asyncio.StreamReader()
-        reader.feed_data(b"ЭтоНеJSON\n") # Невалидная JSON-команда
+        reader.feed_data("ЭтоНеJSON\n".encode('utf-8')) # Невалидная JSON-команда
         reader.feed_eof()
 
         writer = MagicMock(spec=asyncio.StreamWriter)
@@ -165,7 +166,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться
         # Ожидаем ответ об ошибке JSON
-        expected_response_dict = {"status": "error", "message": "Невалидный формат JSON"}
+        expected_response_dict = {"status": "error", "message": "Invalid JSON format"} # Changed to English
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -190,7 +191,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться для неизвестного действия
-        expected_response_dict = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
+        expected_response_dict = {"status": "error", "message": "Unknown or missing action"} # Changed to English
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()

@@ -31,6 +31,19 @@ class TestPlayerCommandConsumer(unittest.TestCase):
     Проверяет логику обработки различных команд игрока, полученных из RabbitMQ.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        cls.mock_pika_patcher = patch('pika.BlockingConnection', autospec=True)
+        cls.mock_BlockingConnection = cls.mock_pika_patcher.start()
+
+        cls.mock_core_patcher = patch('core.message_broker_clients.get_rabbitmq_channel', autospec=True)
+        cls.mock_get_rabbitmq_channel = cls.mock_core_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.mock_pika_patcher.stop()
+        cls.mock_core_patcher.stop()
+
     def setUp(self):
         """
         Настройка перед каждым тестом.
@@ -38,18 +51,24 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         и экземпляр PlayerCommandConsumer с этими моками.
         Также мокируется канал RabbitMQ.
         """
+        # Сбрасываем состояние моков, созданных в setUpClass
+        self.mock_BlockingConnection.reset_mock()
+        self.mock_get_rabbitmq_channel.reset_mock()
+        
         self.mock_session_manager = MagicMock(spec=SessionManager)
         self.mock_tank_pool = MagicMock(spec=TankPool)
         
         # Создаем экземпляр потребителя с мок-зависимостями.
         # _connect_and_declare будет мокирован в каждом тесте, чтобы избежать реального подключения.
-        self.consumer = PlayerCommandConsumer(
-            session_manager=self.mock_session_manager,
-            tank_pool=self.mock_tank_pool
-        )
-        # Мокируем канал RabbitMQ, чтобы не выполнять реальные операции с брокером.
-        self.mock_channel = MagicMock()
-        self.consumer.rabbitmq_channel = self.mock_channel # Подменяем реальный канал моком
+        # Mocks for pika.BlockingConnection and get_rabbitmq_channel are already active via setUpClass.
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+            self.consumer = PlayerCommandConsumer(
+                session_manager=self.mock_session_manager,
+                tank_pool=self.mock_tank_pool
+            )
+        # Канал RabbitMQ теперь будет предоставлен моком mock_get_rabbitmq_channel из setUpClass
+        self.mock_channel = self.mock_get_rabbitmq_channel.return_value
+        self.consumer.rabbitmq_channel = self.mock_channel
 
     def test_callback_shoot_command_success(self):
         """
@@ -57,11 +76,11 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         Проверяет, что вызываются методы поиска сессии, танка, выстрела танка
         и подтверждение сообщения RabbitMQ.
         """
-        # Мокируем _connect_and_declare, чтобы он не выполнялся при создании экземпляра consumer
-        # и pika.BlockingConnection, чтобы избежать реальных сетевых вызовов.
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
-            
+        # _connect_and_declare мокируется для контроля над созданием экземпляра.
+        # pika.BlockingConnection и get_rabbitmq_channel мокируются на уровне класса через setUpClass.
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+            # For now, assume setUp's consumer is fine. If tests fail, we might need to re-init here.
+
             mock_tank_instance = MagicMock(spec=Tank) # Мок для объекта танка
             # Настраиваем мок-менеджер сессий, чтобы он возвращал мок-сессию
             self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
@@ -92,8 +111,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         Тест обработки неизвестной команды.
         Проверяет, что неизвестная команда корректно подтверждается (ack) и не вызывает ошибок.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
             self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
                 players={"player1": {"tank_id": "tank123"}}
             )
@@ -110,8 +128,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         Тест обработки сообщения без player_id.
         Проверяет, что сообщение подтверждается и не вызывает ошибок.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
             message_body = json.dumps({"command": "shoot", "details": {}}) # Отсутствует player_id
             mock_method = MagicMock(delivery_tag=126)
             
@@ -123,8 +140,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         """
         Тест обработки команды от игрока, который не найден в активной сессии.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
             self.mock_session_manager.get_session_by_player_id.return_value = None # Игрок не в сессии
             message_body = json.dumps({"player_id": "player1", "command": "shoot", "details": {}})
             mock_method = MagicMock(delivery_tag=127)
@@ -137,8 +153,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         """
         Тест обработки команды, когда танк игрока не найден в пуле.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
             self.mock_session_manager.get_session_by_player_id.return_value = MagicMock(
                 players={"player1": {"tank_id": "tank123"}}
             )
@@ -154,8 +169,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         """
         Тест обработки сообщения, которое не является валидным JSON.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(PlayerCommandConsumer, '_connect_and_declare', autospec=True):
             message_body = "Это не JSON строка" # Невалидный JSON
             mock_method = MagicMock(delivery_tag=129)
             
@@ -171,14 +185,31 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
     Проверяет логику обработки событий матчмейкинга.
     """
 
+    @classmethod
+    def setUpClass(cls):
+        cls.mock_pika_patcher = patch('pika.BlockingConnection', autospec=True)
+        cls.mock_BlockingConnection = cls.mock_pika_patcher.start()
+
+        cls.mock_core_patcher = patch('core.message_broker_clients.get_rabbitmq_channel', autospec=True)
+        cls.mock_get_rabbitmq_channel = cls.mock_core_patcher.start()
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.mock_pika_patcher.stop()
+        cls.mock_core_patcher.stop()
+
     def setUp(self):
         """
         Настройка перед каждым тестом.
         Создает мок-объект для SessionManager и экземпляр MatchmakingEventConsumer.
         """
+        self.mock_BlockingConnection.reset_mock()
+        self.mock_get_rabbitmq_channel.reset_mock()
+        
         self.mock_session_manager = MagicMock(spec=SessionManager)
-        self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
-        self.mock_channel = MagicMock() # Мок для канала RabbitMQ
+        with patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
+            self.consumer = MatchmakingEventConsumer(session_manager=self.mock_session_manager)
+        self.mock_channel = self.mock_get_rabbitmq_channel.return_value
         self.consumer.rabbitmq_channel = self.mock_channel
 
     def test_callback_new_match_created(self):
@@ -186,8 +217,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         Тест обработки события 'new_match_created'.
         Проверяет, что вызывается метод создания сессии и сообщение подтверждается.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
             mock_created_session = MagicMock() # Мок для созданной сессии
             mock_created_session.session_id = "new_session_1"
             self.mock_session_manager.create_session.return_value = mock_created_session # Настраиваем возврат мок-сессии
@@ -208,8 +238,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         Тест обработки события с неизвестным типом.
         Проверяет, что метод создания сессии не вызывается и сообщение подтверждается.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
             message_body = json.dumps({"event_type": "match_update", "details": {}}) # Неизвестный тип события
             mock_method = MagicMock(delivery_tag=202)
             
@@ -222,8 +251,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         """
         Тест обработки сообщения, не являющегося валидным JSON, для MatchmakingEventConsumer.
         """
-        with patch('pika.BlockingConnection'), \
-             patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
+        with patch.object(MatchmakingEventConsumer, '_connect_and_declare', autospec=True):
             message_body = "определенно не json" # Невалидный JSON
             mock_method = MagicMock(delivery_tag=203)
             

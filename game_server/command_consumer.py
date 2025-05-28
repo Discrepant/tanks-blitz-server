@@ -8,6 +8,7 @@ import time
 import os
 
 import pika # Клиент для RabbitMQ
+from pika.credentials import PlainCredentials # Импорт для учетных данных
 from pika.exceptions import AMQPConnectionError # Исключение при ошибке соединения с RabbitMQ
 
 # Импортируем необходимые компоненты из других модулей проекта
@@ -52,9 +53,13 @@ class PlayerCommandConsumer:
     def _connect_and_declare(self):
         logger.info(f"PlayerCommandConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
         try:
+            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
+                    port=5672, # Явно указываем порт
+                    virtual_host='/', # Стандартный virtual host
+                    credentials=credentials,
                     heartbeat=600,
                     blocked_connection_timeout=300
                 )
@@ -301,8 +306,16 @@ class MatchmakingEventConsumer:
     def _connect_and_declare(self):
         logger.info(f"MatchmakingEventConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
         try:
+            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
             self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.rabbitmq_host, heartbeat=600, blocked_connection_timeout=300)
+                pika.ConnectionParameters(
+                    host=self.rabbitmq_host,
+                    port=5672, # Явно указываем порт
+                    virtual_host='/', # Стандартный virtual host
+                    credentials=credentials,
+                    heartbeat=600,
+                    blocked_connection_timeout=300
+                )
             )
             self.rabbitmq_channel = self.connection.channel()
             self.rabbitmq_channel.queue_declare(queue=self.matchmaking_events_queue, durable=True)

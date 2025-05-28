@@ -60,7 +60,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             logger.debug(f"Получена строка JSON от {addr}: '{message_json_str}'")
             message_data = json.loads(message_json_str) # Парсим JSON-строку в Python dict
             logger.debug(f"TCP Handler: Распарсенный JSON от клиента {addr}: {message_data}")
-            action = message_data.get("action") # Получаем действие из сообщения
+            action = message_data.get("action") or message_data.get("command") # Получаем действие из сообщения
             username = message_data.get("username") # Получаем имя пользователя
             password = message_data.get("password") # Получаем пароль
 

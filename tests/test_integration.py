@@ -69,6 +69,45 @@ async def tcp_client_request(host: str, port: int, message: str, timeout: float 
             asyncio.open_connection(host, port),
             timeout=timeout
         )
+
+        # Read initial ACK from game server if connected to it
+        if port == GAME_PORT:
+            try:
+                ack_line_bytes = await asyncio.wait_for(reader.readuntil(b'\n'), timeout=timeout)
+                ack_line_str = ack_line_bytes.decode('utf-8').strip()
+                logger.info(f"TCP Client: Received initial ACK from game server ({host}:{port}): {ack_line_str}")
+                if ack_line_str != "SERVER_ACK_CONNECTED":
+                    logger.warning(f"TCP Client: Unexpected ACK from game server: {ack_line_str}")
+                    # This could be an early error message from the server instead of the ACK.
+                    # We might want to return this as the response or raise an error.
+                    # For now, let's assume if it's not ACK, it might be the actual response or an error response.
+                    # If we proceed, the actual command's response might be missed or this ACK might be misinterpreted.
+                    # A robust client might handle this by checking if the "ACK" is actually a JSON error.
+                    # For this fix, if it's not the ACK, we'll let the subsequent read attempt to get the real response.
+                    # However, the test expects the *command's* response, so if ACK is not there, something is wrong.
+                    # Forcing an error if ACK is not as expected for GAME_PORT might be better for test clarity.
+                    if not ack_line_str.startswith("SERVER_ACK_CONNECTED"): # Be a bit flexible if other info is on the line
+                         raise ConnectionAbortedError(f"Game server did not send expected ACK. Got: {ack_line_str}")
+
+            except asyncio.TimeoutError:
+                logger.error(f"TCP Client: Timeout waiting for initial ACK from game server {host}:{port}.")
+                writer.close()
+                await writer.wait_closed()
+                raise ConnectionAbortedError(f"Timeout waiting for initial ACK from game server {host}:{port}")
+            except asyncio.IncompleteReadError as e:
+                logger.error(f"TCP Client: IncompleteReadError waiting for initial ACK from game server {host}:{port}. Partial: {e.partial!r}")
+                writer.close()
+                await writer.wait_closed()
+                raise ConnectionAbortedError(f"IncompleteReadError waiting for initial ACK from game server: {e.partial!r}")
+            except ConnectionAbortedError: # Re-raise if we raised it above
+                raise
+            except Exception as e_ack: # Catch any other unexpected error during ACK read
+                logger.error(f"TCP Client: Exception waiting for initial ACK from game server {host}:{port}: {e_ack}", exc_info=True)
+                writer.close()
+                await writer.wait_closed()
+                raise ConnectionAbortedError(f"Exception waiting for initial ACK from game server: {e_ack}")
+
+
         # Отправляем сообщение, добавляя перевод строки, если его нет (хотя лучше, чтобы он был в message)
         # Серверы в проекте ожидают \n как разделитель.
         full_message = message if message.endswith('\n') else message + '\n'
@@ -218,7 +257,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "success", f"Ответ сервера: {response_str}")
-            self.assertIn("integ_user успешно аутентифицирован", response_json.get("message", ""), "Сообщение об успехе неверно.")
+            self.assertIn("authenticated successfully", response_json.get("message", ""), "Сообщение об успехе неверно.") # English
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON из ответа сервера аутентификации: {response_str}")
 
@@ -229,7 +268,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "failure", f"Ответ сервера: {response_str}")
-            self.assertIn("Неверный пароль", response_json.get("message", ""), "Сообщение о неверном пароле неверно.")
+            self.assertIn("Incorrect password", response_json.get("message", ""), "Сообщение о неверном пароле неверно.") # English
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
 
@@ -240,7 +279,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "failure", f"Ответ сервера: {response_str}")
-            self.assertIn("Пользователь не найден", response_json.get("message", ""), "Сообщение 'Пользователь не найден' неверно.")
+            self.assertIn("User not found", response_json.get("message", ""), "Сообщение 'Пользователь не найден' неверно.") # English
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
 
@@ -251,7 +290,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "error", f"Ответ сервера: {response_str}")
-            self.assertEqual(response_json.get("message"), "Неизвестное или отсутствующее действие", f"Сообщение об ошибке неверно: {response_str}")
+            self.assertEqual(response_json.get("message"), "Unknown or missing action", f"Сообщение об ошибке неверно: {response_str}") # English
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
             

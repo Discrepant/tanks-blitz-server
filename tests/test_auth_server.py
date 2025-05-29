@@ -149,7 +149,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         Имитирует отправку строки, которая не является корректным JSON.
         """
         reader = asyncio.StreamReader()
-        reader.feed_data("ЭтоНеJSON\n".encode('utf-8')) # Non-ASCII string encoded to bytes
+        reader.feed_data(b"ЭтоНеJSON\n") # Невалидная JSON-команда
         reader.feed_eof()
 
         writer = MagicMock(spec=asyncio.StreamWriter)

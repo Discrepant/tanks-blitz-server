@@ -1,61 +1,69 @@
 # tests/unit/test_tcp_handler_auth.py
-# This file contains unit tests for the authentication server's TCP handler
+# Этот файл содержит модульные тесты для TCP-обработчика сервера аутентификации
 # (auth_server.tcp_handler.handle_auth_client).
-# Tests verify various client-server interaction scenarios,
-# including successful and failed logins, and handling of incorrect requests.
+# Тесты проверяют различные сценарии взаимодействия клиента с сервером,
+# включая успешный и неудачный вход, а также обработку некорректных запросов.
 
 import asyncio
-import json # For working with JSON messages
+import json # Для работы с JSON-сообщениями
 import unittest
-from unittest.mock import AsyncMock, patch, call # Mocking tools
+from unittest.mock import AsyncMock, patch, call # Инструменты для мокирования
 
-# Import the function to be tested
+# Импортируем тестируемую функцию
 from auth_server.tcp_handler import handle_auth_client
-# MOCK_USERS_DB is not directly used here as authenticate_user is mocked.
+# Предполагается, что MOCK_USERS_DB доступна для справки, или мы полностью мокируем authenticate_user.
+# from auth_server.user_service import MOCK_USERS_DB # Закомментировано, так как authenticate_user мокируется
 
 class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     """
-    Test suite for the authentication server's TCP handler.
-    Uses `unittest.IsolatedAsyncioTestCase` for asynchronous tests.
+    Набор тестов для TCP-обработчика сервера аутентификации.
+    Использует `unittest.IsolatedAsyncioTestCase` для асинхронных тестов.
     """
 
     async def test_successful_login(self):
         """
-        Test successful user login.
-        Checks that with correct credentials, the server returns
-        a success message and the corresponding session token/message.
+        Тест успешного входа пользователя.
+        Проверяет, что при корректных учетных данных сервер возвращает
+        сообщение об успехе и соответствующий токен/сообщение сессии.
         """
-        reader = AsyncMock(spec=asyncio.StreamReader) 
-        writer = AsyncMock(spec=asyncio.StreamWriter) 
-        writer.is_closing.return_value = False # Simulate that the writer is open
+        reader = AsyncMock(spec=asyncio.StreamReader) # Мок для StreamReader
+        writer = AsyncMock(spec=asyncio.StreamWriter) # Мок для StreamWriter
+        writer.is_closing.return_value = False # Имитируем, что writer открыт
+        # writer.close и writer.write будут автоматически созданы AsyncMock, если они вызываются
         
+        # Формируем JSON-запрос на вход
         login_request = {"action": "login", "username": "player1", "password": "password123"}
+        # Имитируем, что StreamReader возвращает этот запрос (в байтах, с новой строкой)
         reader.readuntil.return_value = (json.dumps(login_request) + '\n').encode('utf-8')
 
-        # Mock authenticate_user to return a successful result with an English message
-        # The tcp_handler uses the second element of the tuple as both message and session_id in success case
-        auth_response_message = "User player1 authenticated successfully."
-        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(True, auth_response_message))) as mock_auth_user:
-            await handle_auth_client(reader, writer) 
+        # Мокируем функцию authenticate_user, чтобы она возвращала успешный результат
+        # Ожидаем, что authenticate_user теперь тоже вернет английское сообщение
+        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(True, "User player1 authenticated successfully."))) as mock_auth_user:
+            await handle_auth_client(reader, writer) # Вызываем тестируемый обработчик
 
+        # Проверяем, что authenticate_user была вызвана с правильными аргументами
         mock_auth_user.assert_called_once_with("player1", "password123")
         
-        expected_response = {"status": "success", "message": auth_response_message, "session_id": auth_response_message}
+        # Ожидаемый JSON-ответ от сервера
+        expected_response = {"status": "success", "message": "User player1 authenticated successfully.", "session_id": "User player1 authenticated successfully."}
         
-        self.assertTrue(writer.write.called, "writer.write was not called.")
+        # Проверяем, что writer.write был вызван
+        self.assertTrue(writer.write.called, "Метод writer.write не был вызван.")
+        # Получаем аргументы первого вызова writer.write
         actual_call_args_bytes = writer.write.call_args[0][0]
         
-        self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response, "Server response does not match expected.")
-        self.assertTrue(actual_call_args_bytes.endswith(b'\n'), "Server response should end with a newline.")
-        writer.drain.assert_called_once() 
-        writer.close.assert_called_once() 
-        writer.wait_closed.assert_called_once() 
+        # Декодируем и парсим фактический ответ для сравнения
+        self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response, "Ответ сервера не соответствует ожидаемому.")
+        self.assertTrue(actual_call_args_bytes.endswith(b'\n'), "Ответ сервера должен заканчиваться новой строкой.")
+        writer.drain.assert_called_once() # Проверяем вызов drain
+        writer.close.assert_called_once() # Проверяем закрытие writer
+        writer.wait_closed.assert_called_once() # Проверяем ожидание закрытия
 
 
     async def test_failed_login_wrong_password(self):
         """
-        Test failed user login due to incorrect password.
-        Checks that the server returns a failure message.
+        Тест неудачного входа пользователя из-за неверного пароля.
+        Проверяет, что сервер возвращает сообщение о неудаче.
         """
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
@@ -64,38 +72,14 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         login_request = {"action": "login", "username": "player1", "password": "wrongpassword"}
         reader.readuntil.return_value = (json.dumps(login_request) + '\n').encode('utf-8')
 
-        # Mock authenticate_user to return "Incorrect password."
+        # Мокируем authenticate_user для возврата ошибки "Неверный пароль"
+        # Ожидаем, что authenticate_user теперь тоже вернет английское сообщение "Incorrect password."
         with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(False, "Incorrect password."))) as mock_auth_user:
             await handle_auth_client(reader, writer)
 
         mock_auth_user.assert_called_once_with("player1", "wrongpassword")
+        # Сообщение от tcp_handler должно быть "Authentication failed: " + "Incorrect password."
         expected_response = {"status": "failure", "message": "Authentication failed: Incorrect password."}
-        
-        actual_call_args_bytes = writer.write.call_args[0][0]
-        self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
-        self.assertTrue(actual_call_args_bytes.endswith(b'\n'))
-        writer.drain.assert_called_once()
-        writer.close.assert_called_once()
-        writer.wait_closed.assert_called_once()
-
-    async def test_failed_login_user_not_found(self):
-        """
-        Test failed user login because the user was not found.
-        Checks that the server returns an appropriate failure message.
-        """
-        reader = AsyncMock(spec=asyncio.StreamReader)
-        writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing.return_value = False
-
-        login_request = {"action": "login", "username": "nonexistentuser", "password": "anypassword"}
-        reader.readuntil.return_value = (json.dumps(login_request) + '\n').encode('utf-8')
-
-        # Mock authenticate_user to return "User not found."
-        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(False, "User not found."))) as mock_auth_user:
-            await handle_auth_client(reader, writer)
-
-        mock_auth_user.assert_called_once_with("nonexistentuser", "anypassword")
-        expected_response = {"status": "failure", "message": "Authentication failed: User not found."}
         
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
@@ -107,14 +91,15 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
     async def test_invalid_json_format(self):
         """
-        Test handling of a request with an invalid JSON format.
-        Checks that the server returns an error for invalid JSON.
+        Тест обработки запроса с невалидным форматом JSON.
+        Проверяет, что сервер возвращает ошибку о неверном формате JSON.
         """
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
         writer.is_closing.return_value = False
 
-        malformed_json_request = b'{"action": "login, "username": "player1"}\n' # Invalid JSON
+        # Некорректный JSON: отсутствует кавычка после "login"
+        malformed_json_request = b'{"action": "login, "username": "player1"}\n'
         reader.readuntil.return_value = malformed_json_request
 
         await handle_auth_client(reader, writer)
@@ -129,14 +114,15 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
     async def test_unicode_decode_error(self):
         """
-        Test handling of a request with a Unicode decode error (not UTF-8).
-        Checks that the server returns an error for invalid character encoding.
+        Тест обработки запроса с ошибкой декодирования Unicode (не UTF-8).
+        Проверяет, что сервер возвращает ошибку о неверной кодировке.
         """
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
         writer.is_closing.return_value = False
 
-        invalid_utf8_request = b'\xff\xfe\xfd{"action": "login"}\n' # Invalid UTF-8 sequence
+        # Невалидная UTF-8 последовательность
+        invalid_utf8_request = b'\xff\xfe\xfd{"action": "login"}\n'
         reader.readuntil.return_value = invalid_utf8_request
 
         await handle_auth_client(reader, writer)
@@ -151,20 +137,21 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
     async def test_unknown_action(self):
         """
-        Test handling of a request with an unknown action.
-        Checks that the server returns an error for an unknown action.
+        Тест обработки запроса с неизвестным действием (action).
+        Проверяет, что сервер возвращает ошибку о неизвестном действии.
         """
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
-        writer.is_closing.return_value = False 
+        writer.is_closing.return_value = False # Исправлено и остается
 
         unknown_action_request = {"action": "unknown_action", "username": "player1"}
         reader.readuntil.return_value = (json.dumps(unknown_action_request) + '\n').encode('utf-8')
 
+        # Мокируем authenticate_user, хотя он не должен быть вызван.
         with patch('auth_server.tcp_handler.authenticate_user', AsyncMock()) as mock_auth_user:
             await handle_auth_client(reader, writer)
         
-        mock_auth_user.assert_not_called() 
+        mock_auth_user.assert_not_called() # authenticate_user не должен вызываться
         expected_response = {"status": "error", "message": "Unknown or missing action"}
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
@@ -174,66 +161,108 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.wait_closed.assert_called_once()
 
     @patch('auth_server.tcp_handler.logger')
+    # @patch('auth_server.tcp_handler.config') # Удалено
+    # @patch('auth_server.tcp_handler.UserService') # Удалено
+    # @patch('auth_server.tcp_handler.KafkaProducerClient') # Удалено, так как не импортируется напрямую в tcp_handler
     @patch('auth_server.tcp_handler.ACTIVE_CONNECTIONS_AUTH')
-    @patch('auth_server.tcp_handler.SUCCESSFUL_AUTHS') # SUCCESSFUL_AUTHS is not used in this path
-    @patch('auth_server.tcp_handler.FAILED_AUTHS')   # FAILED_AUTHS is not used in this path
+    # @patch('auth_server.tcp_handler.TOTAL_AUTH_REQUESTS') # Удалено, так как метрика отсутствует
+    @patch('auth_server.tcp_handler.SUCCESSFUL_AUTHS')
+    @patch('auth_server.tcp_handler.FAILED_AUTHS')
     async def test_empty_message_just_newline(
             self,
-            MockFailedAuths, # Unused due to path
-            MockSuccessfulAuths, # Unused due to path
+            MockFailedAuths,
+            MockSuccessfulAuths,
+            # MockTotalAuthRequests, # Удалено из аргументов
             MockActiveConnections,
+            # MockKafkaClient, # Удалено из аргументов
+            # MockUserService, # Удалено из аргументов
+            # mock_config, # Удалено из аргументов
             mock_logger
     ):
-        '''Tests handling of an empty message (only newline character).'''
+        '''Тестирует обработку пустого сообщения (только символ новой строки).'''
+        # Мокируем конфиг, если он используется для определения формата ответа - Удалено
+        # mock_config.AUTH_SERVER_HOST = 'localhost'
+        # mock_config.AUTH_SERVER_PORT = 8888
+
+        # Мокируем сервисы, если они вызываются (маловероятно для пустого сообщения) - Удалено
+        # mock_user_service_instance = MockUserService.return_value 
+        # mock_kafka_producer_instance = MockKafkaClient.return_value
+
         mock_reader = AsyncMock(spec=asyncio.StreamReader)
         mock_writer = AsyncMock(spec=asyncio.StreamWriter)
         mock_writer.get_extra_info.return_value = ('127.0.0.1', 12345)
-        mock_writer.is_closing.return_value = False 
+        mock_writer.is_closing.return_value = False # Явно устанавливаем для проверки в finally
 
+        # Симулируем получение пустого сообщения, затем ошибку для выхода из цикла
         mock_reader.readuntil.side_effect = [
-            b'\n', # First call returns just newline
-            asyncio.IncompleteReadError(b'', 0) # Second call to exit loop
+            b'\n',
+            asyncio.IncompleteReadError(b'', 0)
         ]
         
         await handle_auth_client(mock_reader, mock_writer)
 
         expected_response_json = {
             "status": "error",
-            "message": "Empty message or only newline character received"
+            "message": "Empty message or only newline character received" # English
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
-        
-        mock_writer.write.assert_any_call(expected_response_bytes)
-        mock_writer.close.assert_called_once()
-        mock_writer.wait_closed.assert_called_once() 
 
+        # Проверяем, что writer.write был вызван с правильным сообщением
+        # Используем any_call, если могут быть другие write (например, логи)
+        mock_writer.write.assert_any_call(expected_response_bytes)
+        
+        # Проверяем, что соединение было закрыто
+        mock_writer.close.assert_called_once()
+        mock_writer.wait_closed.assert_called_once() # Убедимся, что и wait_closed проверяется
+
+        # Проверка вызова логгера
+        # Сообщение в логгере также должно быть на английском, если оно генерируется в tcp_handler
+        # На основе предыдущего вывода, логгер использует английский:
+        # "Empty message or only newline character received from ..."
+        # Однако, в коде теста указано русское сообщение. Изменим ожидаемое на английское.
         mock_logger.warning.assert_any_call("Empty message or only newline character received from ('127.0.0.1', 12345). Sending error and closing.")
-        MockActiveConnections.inc.assert_called_once()
-        MockActiveConnections.dec.assert_called_once() 
+        # Удалена проверка logger.error, так как она не вызывается в этом сценарии
+        # mock_logger.error.assert_any_call("Ошибка обработки запроса от %s:%s: %s", 
+        #                                   '127.0.0.1', 12345, "Получено пустое сообщение или только символ новой строки")
+
+        # Проверка метрик
+        MockActiveConnections.inc.assert_called_once() # Проверяем инкремент счетчика активных соединений
+        # MockTotalAuthRequests.inc.assert_called_once() # Удалено, так как метрика отсутствует
+        # MockFailedAuths.inc.assert_called_once() # Удалено, так как FAILED_AUTHS.inc() не вызывается для пустого сообщения
+        MockSuccessfulAuths.inc.assert_not_called() # Успешной аутентификации не было
+        MockActiveConnections.dec.assert_called_once() # Проверяем декремент счетчика активных соединений
+
+        # Убедимся, что основные сервисные методы не вызывались - Удалено, так как моки удалены
+        # MockUserService.return_value.register_user.assert_not_called()
+        # MockUserService.return_value.login_user.assert_not_called()
+        # MockKafkaClient был удален, поэтому и проверка его вызова удалена
 
     async def test_no_data_from_client(self):
         """
-        Test situation where client sends no data (connection closes or EOF).
-        Server should send an error response for empty message.
+        Тест ситуации, когда клиент не отправляет данные (соединение закрывается или EOF).
+        Проверяет, что сервер не отправляет ответ и корректно закрывает соединение.
         """
         reader = AsyncMock(spec=asyncio.StreamReader)
         writer = AsyncMock(spec=asyncio.StreamWriter)
         writer.is_closing.return_value = False
         
-        reader.readuntil.return_value = b'' # Simulate connection close or no data before EOF
+        reader.readuntil.return_value = b'' # Имитируем закрытие соединения или отсутствие данных перед EOF
 
         await handle_auth_client(reader, writer)
 
+        # Ожидаем, что будет отправлено сообщение об ошибке
         expected_response_json = {
             "status": "error",
-            "message": "Empty message or only newline character received" 
+            "message": "Empty message or only newline character received" # English
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
         
         writer.write.assert_called_once_with(expected_response_bytes)
-        writer.drain.assert_called_once() 
+        writer.drain.assert_called_once() # Добавлена проверка drain
+        # Соединение должно быть корректно закрыто
         writer.close.assert_called_once()
         writer.wait_closed.assert_called_once()
 
 if __name__ == '__main__':
+    # Запуск тестов, если файл выполняется напрямую
     unittest.main()

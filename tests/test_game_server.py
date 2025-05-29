@@ -150,7 +150,7 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.game_room.players["player1_logic"], player1, "Объект игрока в комнате не совпадает с добавленным.")
         # Проверяем, что сообщение о входе было отправлено игроку
         # (GameRoom.add_player отправляет "SERVER: Добро пожаловать...")
-        self.player1_writer.write.assert_any_call("SERVER: Добро пожаловать в игровую комнату!\n".encode('utf-8'))
+        self.player1_writer.write.assert_any_call(b"SERVER: Добро пожаловать в игровую комнату!\n")
 
     async def test_remove_player(self):
         """

@@ -45,7 +45,17 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         
         # Ожидаемый JSON-ответ от сервера
         # В текущей реализации tcp_handler, сообщение об успехе используется и как message, и как session_id
-        expected_response = {"status": "success", "message": "Пользователь player1 успешно аутентифицирован.", "session_id": "Пользователь player1 успешно аутентифицирован."}
+        # Предполагаем, что сообщение от authenticate_user также будет на английском, если оно используется напрямую.
+        # Для данного теста, мы мокируем authenticate_user, поэтому его возвращаемое значение контролируется.
+        # Если authenticate_user возвращает "User player1 authenticated successfully.", то:
+        expected_auth_message = "User player1 authenticated successfully." # Пример английского сообщения
+        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(True, expected_auth_message))) as mock_auth_user:
+            await handle_auth_client(reader, writer) # Вызываем тестируемый обработчик
+
+        # Проверяем, что authenticate_user была вызвана с правильными аргументами
+        mock_auth_user.assert_called_once_with("player1", "password123")
+        
+        expected_response = {"status": "success", "message": expected_auth_message, "session_id": expected_auth_message}
         
         # Проверяем, что writer.write был вызван
         self.assertTrue(writer.write.called, "Метод writer.write не был вызван.")
@@ -73,11 +83,12 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         reader.readuntil.return_value = (json.dumps(login_request) + '\n').encode('utf-8')
 
         # Мокируем authenticate_user для возврата ошибки "Неверный пароль"
-        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(False, "Неверный пароль."))) as mock_auth_user:
+        # Предполагаем, что "Неверный пароль." от authenticate_user будет "Incorrect password."
+        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(False, "Incorrect password."))) as mock_auth_user:
             await handle_auth_client(reader, writer)
 
         mock_auth_user.assert_called_once_with("player1", "wrongpassword")
-        expected_response = {"status": "failure", "message": "Аутентификация не удалась: Неверный пароль."}
+        expected_response = {"status": "failure", "message": "Authentication failed: Incorrect password."}
         
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
@@ -102,7 +113,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         await handle_auth_client(reader, writer)
 
-        expected_response = {"status": "error", "message": "Невалидный формат JSON"}
+        expected_response = {"status": "error", "message": "Invalid JSON format"}
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args_bytes.endswith(b'\n'))
@@ -125,7 +136,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         await handle_auth_client(reader, writer)
 
-        expected_response = {"status": "error", "message": "Неверная кодировка символов. Ожидается UTF-8."}
+        expected_response = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args_bytes.endswith(b'\n'))
@@ -150,7 +161,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_auth_client(reader, writer)
         
         mock_auth_user.assert_not_called() # authenticate_user не должен вызываться
-        expected_response = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
+        expected_response = {"status": "error", "message": "Unknown or missing action"}
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
         self.assertTrue(actual_call_args_bytes.endswith(b'\n'))
@@ -201,7 +212,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         expected_response_json = {
             "status": "error",
-            "message": "Получено пустое сообщение или только символ новой строки"
+            "message": "Empty message or only newline character received"
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
 
@@ -248,7 +259,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Ожидаем, что будет отправлено сообщение об ошибке
         expected_response_json = {
             "status": "error",
-            "message": "Получено пустое сообщение или только символ новой строки"
+            "message": "Empty message or only newline character received"
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
         

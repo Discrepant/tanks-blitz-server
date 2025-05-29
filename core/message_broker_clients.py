@@ -45,9 +45,9 @@ def delivery_report(err, msg):
     чтобы указать результат доставки. Активируется вызовами poll() или flush().
     """
     if err is not None:
-        logger.error(f"Message delivery failed to topic {msg.topic()} partition {msg.partition()}: {err}")
+        logger.error(f"Ошибка доставки сообщения в топик {msg.topic()} раздел {msg.partition()}: {err}")
     else:
-        logger.debug(f"Message delivered to topic {msg.topic()} partition {msg.partition()} offset {msg.offset()}")
+        logger.debug(f"Сообщение доставлено в топик {msg.topic()} раздел {msg.partition()} смещение {msg.offset()}")
 
 def get_kafka_producer():
     """
@@ -59,17 +59,16 @@ def get_kafka_producer():
     global _kafka_producer
     if os.getenv("USE_MOCKS") == "true":
         # Если используется режим моков
-        if not (isinstance(_kafka_producer, MagicMock) and \
-                  getattr(_kafka_producer, '_is_custom_kafka_mock', False) is True and \
-                  _kafka_producer._spec_class == Producer): # Check spec class as well
-            # If _kafka_producer is not our custom spec'd mock, create it.
+        if not (isinstance(_kafka_producer, MagicMock) and hasattr(_kafka_producer, '_is_custom_kafka_mock') and _kafka_producer._spec_class == Producer):
+            # Если _kafka_producer еще не является нашим кастомным моком со правильным spec, создаем его.
+            # Используем spec=Producer, чтобы мок имел тот же интерфейс, что и реальный Producer.
+            # Producer здесь это 'from confluent_kafka import Producer'.
             _kafka_producer = MagicMock(spec=Producer, name="GlobalMockKafkaProducer")
-            # Mock specific methods that are used
-            _kafka_producer.produce = MagicMock(name="MockKafkaProducer.produce")
-            # confluent_kafka.Producer.flush() returns an int (number of messages still in queue)
-            _kafka_producer.flush = MagicMock(name="MockKafkaProducer.flush", return_value=0) 
-            _kafka_producer._is_custom_kafka_mock = True # Mark it as our custom mock
-            logger.info("Global _kafka_producer (MagicMock spec'd as confluent_kafka.Producer) initialized in MOCK mode.")
+            # .produce и .flush будут автоматически созданы MagicMock из spec, если они есть в Producer.
+            # Настроим .flush отдельно, если нужно специфичное поведение, например, return_value.
+            _kafka_producer.flush.return_value = 0 # flush возвращает количество сообщений в очереди
+            _kafka_producer._is_custom_kafka_mock = True # Убеждаемся, что эта строка находится здесь и применяется только к этому моку.
+            logger.info("Глобальный _kafka_producer инициализирован в режиме MOCK (из get_kafka_producer).") # Added clarity
         return _kafka_producer
 
     if _kafka_producer is None:
@@ -80,13 +79,13 @@ def get_kafka_producer():
                 'acks': 'all', # Ждать подтверждения от всех реплик в ISR (in-sync replicas)
                 'retries': 3,   # Количество попыток повторной отправки перед тем, как считать сообщение недоставленным
                 'linger.ms': 10 # Ожидание до 10 мс для группировки сообщений в батчи
-                # 'message.timeout.ms': 30000 # Optional: producer request timeout
+                # 'message.timeout.ms': 30000 # Опционально: таймаут для запроса продюсера
             }
             _kafka_producer = Producer(conf)
-            logger.info(f"Confluent Kafka producer initialized with configuration: {conf}")
-        except KafkaException as e: # Catch common KafkaException from confluent-kafka
-            logger.error(f"Failed to initialize Confluent Kafka producer: {e}")
-            _kafka_producer = None # In case of error, producer remains None
+            logger.info(f"Продюсер Confluent Kafka инициализирован с конфигурацией: {conf}")
+        except KafkaException as e: # Перехватываем общую ошибку KafkaException от confluent-kafka
+            logger.error(f"Не удалось инициализировать продюсер Confluent Kafka: {e}")
+            _kafka_producer = None # В случае ошибки продюсер остается None
     return _kafka_producer
 
 def send_kafka_message(topic, message_dict):
@@ -114,22 +113,22 @@ def send_kafka_message(topic, message_dict):
             # Небольшой неблокирующий poll часто достаточен после каждого produce.
             # Для приложений с высокой пропускной способностью может потребоваться выделенный поток для poll().
             producer.poll(0) 
-            # logger.debug(f"Message handed over for sending to Kafka topic {topic}: {message_dict}") # Log before delivery report
-            return True # Indicates message was handed over for sending (delivery is asynchronous)
-        except KafkaException as e: # Kafka specific errors
-            logger.error(f"Failed to produce message to Kafka topic {topic}: {e}")
+            # logger.debug(f"Сообщение передано на отправку в топик Kafka {topic}: {message_dict}") # Лог перед отчетом о доставке
+            return True # Указывает, что сообщение было передано на отправку (доставка асинхронна)
+        except KafkaException as e: # Ошибки, специфичные для Kafka
+            logger.error(f"Не удалось передать сообщение на отправку в топик Kafka {topic}: {e}")
             return False
-        except BufferError as e: # confluent_kafka.Producer.produce can raise BufferError if producer queue is full
-            logger.error(f"Kafka producer queue is full. Message to topic {topic} not sent: {message_dict}. Error: {e}")
-            # Optionally, could call poll() here to try to free up space, then retry,
-            # or handle as a failure.
-            # producer.poll(1) # Poll for a short time to clear queue
+        except BufferError as e: # confluent_kafka.Producer.produce может вызвать BufferError, если очередь продюсера заполнена
+            logger.error(f"Очередь продюсера Kafka заполнена. Сообщение в топик {topic} не отправлено: {message_dict}. Ошибка: {e}")
+            # Опционально, можно вызвать poll() здесь, чтобы попытаться освободить место, а затем повторить,
+            # или обработать как сбой.
+            # producer.poll(1) # Опросить в течение короткого времени, чтобы очистить очередь
             return False
-        except Exception as e: # Catch any other unexpected errors
-            logger.error(f"An unexpected error occurred while sending Kafka message to topic {topic}: {e}", exc_info=True)
+        except Exception as e: # Перехват любых других неожиданных ошибок
+            logger.error(f"Произошла неожиданная ошибка при отправке сообщения Kafka в топик {topic}: {e}", exc_info=True)
             return False
     else:
-        logger.warning(f"Kafka producer is unavailable. Message to topic {topic} not sent: {message_dict}")
+        logger.warning(f"Продюсер Kafka недоступен. Сообщение в топик {topic} не отправлено: {message_dict}")
         return False
 
 def get_rabbitmq_channel():
@@ -161,32 +160,32 @@ def get_rabbitmq_channel():
 
             # Теперь, когда мок _rabbitmq_channel существует, устанавливаем его как возвращаемое значение для connection.channel()
             _rabbitmq_connection.channel.return_value = _rabbitmq_channel
-            logger.info("Global _rabbitmq_channel and _rabbitmq_connection initialized in MOCK mode.")
+            logger.info("Глобальные _rabbitmq_channel и _rabbitmq_connection инициализированы в режиме MOCK.")
         return _rabbitmq_channel
 
     try:
-        # If connection is not established or is closed
+        # Если соединение не установлено или закрыто
         if _rabbitmq_connection is None or _rabbitmq_connection.is_closed:
             _rabbitmq_connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=RABBITMQ_HOST) # Connection parameters
+                pika.ConnectionParameters(host=RABBITMQ_HOST) # Параметры соединения
             )
-            _rabbitmq_channel = _rabbitmq_connection.channel() # Open channel
-            logger.info(f"Connection to RabbitMQ established ({RABBITMQ_HOST}), channel opened.")
-            # Declare queues as durable (survive broker restart)
+            _rabbitmq_channel = _rabbitmq_connection.channel() # Открываем канал
+            logger.info(f"Соединение с RabbitMQ установлено ({RABBITMQ_HOST}), канал открыт.")
+            # Объявляем очереди как durable (устойчивые к перезапуску брокера)
             _rabbitmq_channel.queue_declare(queue=RABBITMQ_QUEUE_PLAYER_COMMANDS, durable=True)
             _rabbitmq_channel.queue_declare(queue=RABBITMQ_QUEUE_MATCHMAKING_EVENTS, durable=True)
-            logger.info(f"RabbitMQ queues '{RABBITMQ_QUEUE_PLAYER_COMMANDS}' and '{RABBITMQ_QUEUE_MATCHMAKING_EVENTS}' declared.")
+            logger.info(f"Очереди RabbitMQ '{RABBITMQ_QUEUE_PLAYER_COMMANDS}' и '{RABBITMQ_QUEUE_MATCHMAKING_EVENTS}' объявлены.")
 
-        # If channel is not open or is closed (can happen if connection remained but channel closed)
+        # Если канал не открыт или закрыт (может произойти, если соединение осталось, а канал закрылся)
         if _rabbitmq_channel is None or _rabbitmq_channel.is_closed:
             _rabbitmq_channel = _rabbitmq_connection.channel()
-            logger.info("RabbitMQ channel was reopened.")
-            # Re-declare queues in case they weren't declared before or channel is new
+            logger.info("Канал RabbitMQ был переоткрыт.")
+            # Повторно объявляем очереди на случай, если они не были объявлены ранее или канал новый
             _rabbitmq_channel.queue_declare(queue=RABBITMQ_QUEUE_PLAYER_COMMANDS, durable=True)
             _rabbitmq_channel.queue_declare(queue=RABBITMQ_QUEUE_MATCHMAKING_EVENTS, durable=True)
 
-    except pika.exceptions.AMQPConnectionError as e: # RabbitMQ connection error
-        logger.error(f"Failed to connect to RabbitMQ or declare queue: {e}")
+    except pika.exceptions.AMQPConnectionError as e: # Ошибка соединения с RabbitMQ
+        logger.error(f"Не удалось подключиться к RabbitMQ или объявить очередь: {e}")
         _rabbitmq_connection = None
         _rabbitmq_channel = None
     return _rabbitmq_channel
@@ -211,35 +210,35 @@ def publish_rabbitmq_message(exchange_name, routing_key, body):
                 routing_key=routing_key, # Ключ маршрутизации (имя очереди)
                 body=json.dumps(body).encode('utf-8'), # Тело сообщения (JSON -> bytes)
                 properties=pika.BasicProperties(
-                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE # Make message persistent (survives broker restart)
+                    delivery_mode=pika.spec.PERSISTENT_DELIVERY_MODE # Делаем сообщение устойчивым (сохраняется при перезапуске брокера)
                 )
             )
-            logger.debug(f"Message published to RabbitMQ, exchange '{exchange_name}', routing_key '{routing_key}': {body}")
+            logger.debug(f"Сообщение опубликовано в RabbitMQ, exchange '{exchange_name}', routing_key '{routing_key}': {body}")
             return True
-        except Exception as e: # Any error during publication
-            logger.error(f"Failed to publish message to RabbitMQ: {e}")
-            global _rabbitmq_channel # Mark channel as invalid so it's recreated on next call
+        except Exception as e: # Любая ошибка при публикации
+            logger.error(f"Не удалось опубликовать сообщение в RabbitMQ: {e}")
+            global _rabbitmq_channel # Помечаем канал как недействительный, чтобы он был пересоздан при следующем вызове
             _rabbitmq_channel = None 
             return False
     else:
-        logger.warning(f"RabbitMQ channel is unavailable. Message for exchange '{exchange_name}', routing_key '{routing_key}' not sent: {body}")
+        logger.warning(f"Канал RabbitMQ недоступен. Сообщение для exchange '{exchange_name}', routing_key '{routing_key}' не отправлено: {body}")
         return False
 
 def close_rabbitmq_connection():
-    """ Closes RabbitMQ channel and connection if they are open. """
+    """ Закрывает канал и соединение RabbitMQ, если они открыты. """
     global _rabbitmq_connection, _rabbitmq_channel
     if _rabbitmq_channel is not None and _rabbitmq_channel.is_open:
         try:
             _rabbitmq_channel.close()
-            logger.info("RabbitMQ channel closed.")
+            logger.info("Канал RabbitMQ закрыт.")
         except Exception as e:
-            logger.error(f"Error while closing RabbitMQ channel: {e}")
+            logger.error(f"Ошибка при закрытии канала RabbitMQ: {e}")
     if _rabbitmq_connection is not None and _rabbitmq_connection.is_open:
         try:
             _rabbitmq_connection.close()
-            logger.info("Connection to RabbitMQ closed.")
+            logger.info("Соединение с RabbitMQ закрыто.")
         except Exception as e:
-            logger.error(f"Error while closing RabbitMQ connection: {e}")
+            logger.error(f"Ошибка при закрытии соединения с RabbitMQ: {e}")
     _rabbitmq_channel = None
     _rabbitmq_connection = None
 
@@ -252,71 +251,76 @@ def close_kafka_producer():
     global _kafka_producer
     if _kafka_producer is not None:
         # Проверяем, является ли _kafka_producer специальным моком, который не должен вызывать flush.
-        # No longer skipping flush for custom mocks. If it's a mock, it should have a flush method.
-        # If it's a real producer, it also has a flush method.
-        # The confluent_kafka.Producer does not have a close() method.
-        try:
-            logger.info(f"Attempting to call flush() for producer: {_kafka_producer}")
-            # confluent_kafka.Producer.flush() returns an int (number of messages still in queue)
-            # It can raise KafkaException for delivery failures if proper error handling is not in callbacks.
-            # Or it can timeout.
-            if hasattr(_kafka_producer, 'flush') and callable(_kafka_producer.flush):
-                remaining_messages = _kafka_producer.flush(timeout=10) # timeout in seconds
-                if remaining_messages > 0:
-                    logger.warning(f"{remaining_messages} Kafka messages still in queue after flush timeout for producer {_kafka_producer}.")
-                else:
-                    logger.info(f"All Kafka messages successfully flushed for producer {_kafka_producer}.")
-            else:
-                logger.warning(f"Producer {_kafka_producer} does not have a callable 'flush' method. Skipping flush.")
+        # Это моки, созданные get_kafka_producer() при USE_MOCKS="true",
+        # или те, что явно установлены в тестах как простые MagicMock без намерения тестировать flush.
+        is_simple_placeholder_mock = isinstance(_kafka_producer, MagicMock) and \
+                                     getattr(_kafka_producer, '_is_custom_kafka_mock', False) is True # Check for explicit True
 
-        except KafkaException as e: # Specific to confluent_kafka.Producer.flush()
-            logger.error(f"Error flushing Confluent Kafka producer {_kafka_producer}: {e}")
-        except Exception as e: # Other potential errors (e.g., if _kafka_producer is a mock that raises differently)
-            logger.error(f"An unexpected error occurred while flushing Kafka producer {_kafka_producer}: {e}", exc_info=True)
+        if is_simple_placeholder_mock:
+            logger.info(f"Мок-продюсер Kafka '{_kafka_producer._extract_mock_name()}' (помечен как _is_custom_kafka_mock) обнулен без вызова flush.")
+            _kafka_producer = None
+            return
+
+        # Для всех остальных случаев (реальный продюсер или мок реального продюсера от @patch)
+        # пытаемся вызвать flush.
+        try:
+            # Ожидание отправки всех сообщений из очереди продюсера.
+            # Таймаут - это максимальное время ожидания отправки ВСЕХ сообщений,
+            # а не для каждого сообщения в отдельности.
+            logger.info(f"Попытка вызова flush() для продюсера: {_kafka_producer}") # Added for clarity
+            remaining_messages = _kafka_producer.flush(timeout=10) # таймаут в секундах
+            if remaining_messages > 0:
+                logger.warning(f"{remaining_messages} сообщений Kafka все еще в очереди после таймаута flush.")
+            else:
+                logger.info("Все сообщения Kafka успешно сброшены (flushed).")
+        except KafkaException as e: # Общая ошибка Kafka при flush
+            logger.error(f"Ошибка при сбросе (flush) продюсера Confluent Kafka: {e}")
+        except Exception as e: # Любая другая неожиданная ошибка во время flush
+            logger.error(f"Произошла неожиданная ошибка во время сброса (flush) продюсера Kafka: {e}", exc_info=True)
         
         _kafka_producer = None 
-        logger.info("Kafka producer instance has been set to None after flush attempt or error.")
+        logger.info("Ресурсы продюсера Kafka освобождены (установлен в None) после попытки flush или ошибки.")
 
 
 def cleanup_message_brokers():
-    """ Performs cleanup of all message broker connections. """
-    logger.info("Cleaning up message broker connections...")
+    """ Выполняет очистку всех соединений с брокерами сообщений. """
+    logger.info("Очистка соединений с брокерами сообщений...")
     close_kafka_producer()
     close_rabbitmq_connection()
 
-# Example usage and test if module is run directly.
+# Пример использования и тест, если модуль запускается напрямую.
 if __name__ == '__main__':
-    # Basic logging setup for test run.
+    # Настройка базового логирования для тестового запуска.
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
 
-    logger.info("--- Confluent Kafka Producer Test ---")
+    logger.info("--- Тест продюсера Confluent Kafka ---")
     kafka_prod_instance = get_kafka_producer()
     if kafka_prod_instance:
-        test_message = {"event_type": "test_event", "detail": "Confluent Kafka is working!"}
+        test_message = {"event_type": "test_event", "detail": "Confluent Kafka работает!"}
         if send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, test_message):
-            logger.info(f"Test message sent to {KAFKA_DEFAULT_TOPIC_GAME_EVENTS}: {test_message}")
+            logger.info(f"Тестовое сообщение отправлено в {KAFKA_DEFAULT_TOPIC_GAME_EVENTS}: {test_message}")
         else:
-            logger.error(f"Failed to send test message to {KAFKA_DEFAULT_TOPIC_GAME_EVENTS}.")
-        # In a real application, flush might be called less frequently or only on shutdown.
-        # For this test, we call it to ensure delivery attempts for the test message.
-        # kafka_prod_instance.flush(timeout=5) # Flushed in close_kafka_producer
+            logger.error(f"Не удалось отправить тестовое сообщение в {KAFKA_DEFAULT_TOPIC_GAME_EVENTS}.")
+        # В реальном приложении flush может вызываться реже или только при завершении работы.
+        # Для этого теста мы вызываем его, чтобы обеспечить попытки доставки тестового сообщения.
+        # kafka_prod_instance.flush(timeout=5) # Сбрасывается в close_kafka_producer
     else:
-        logger.error("Confluent Kafka producer could not be initialized for test.")
+        logger.error("Продюсер Confluent Kafka не может быть инициализирован для теста.")
 
-    logger.info("--- RabbitMQ Channel Test ---")
+    logger.info("--- Тест канала RabbitMQ ---")
     rmq_chan_instance = get_rabbitmq_channel()
     if rmq_chan_instance:
-        logger.info(f"RabbitMQ channel obtained: {rmq_chan_instance}")
+        logger.info(f"Канал RabbitMQ получен: {rmq_chan_instance}")
         if publish_rabbitmq_message(
-            exchange_name='', # Empty string for default exchange (direct to queue)
-            routing_key=RABBITMQ_QUEUE_PLAYER_COMMANDS, # Queue name as routing key
-            body={"command": "test_command", "payload": "RabbitMQ is working!"}
+            exchange_name='', # Пустая строка для default exchange (отправка напрямую в очередь)
+            routing_key=RABBITMQ_QUEUE_PLAYER_COMMANDS, # Имя очереди как ключ маршрутизации
+            body={"command": "test_command", "payload": "RabbitMQ работает!"}
         ):
-            logger.info("Test message published to RabbitMQ.")
+            logger.info("Тестовое сообщение опубликовано в RabbitMQ.")
         else:
-            logger.error("Failed to publish test message to RabbitMQ.")
+            logger.error("Не удалось опубликовать тестовое сообщение в RabbitMQ.")
     else:
-        logger.error("RabbitMQ channel could not be obtained for test.")
+        logger.error("Канал RabbitMQ не может быть получен для теста.")
         
-    cleanup_message_brokers() # Cleanup connections after tests
-    logger.info("Test script finished.")
+    cleanup_message_brokers() # Очистка соединений после тестов
+    logger.info("Тестовый скрипт завершен.")

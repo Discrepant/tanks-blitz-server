@@ -46,6 +46,8 @@ class PlayerCommandConsumer:
         # Убеждаемся, что переменные окружения извлекаются с значениями по умолчанию при необходимости
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost') # Хост RabbitMQ
         self.player_commands_queue = RABBITMQ_QUEUE_PLAYER_COMMANDS # Имя очереди команд
+        self.rabbitmq_user = os.environ.get('RABBITMQ_USER', 'user')
+        self.rabbitmq_password = os.environ.get('RABBITMQ_PASSWORD', 'password')
 
         self._connect_and_declare() # Подключаемся и объявляем очередь
 
@@ -56,9 +58,11 @@ class PlayerCommandConsumer:
         """
         logger.info(f"PlayerCommandConsumer: Попытка подключения к RabbitMQ по адресу {self.rabbitmq_host}...")
         try:
+            credentials = pika.PlainCredentials(username=self.rabbitmq_user, password=self.rabbitmq_password)
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
+                    credentials=credentials,
                     heartbeat=600, # Поддерживать соединение активным
                     blocked_connection_timeout=300 # Таймаут для заблокированного соединения
                 )
@@ -301,6 +305,8 @@ class MatchmakingEventConsumer:
         self.connection = None
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost')
         self.matchmaking_events_queue = RABBITMQ_QUEUE_MATCHMAKING_EVENTS
+        self.rabbitmq_user = os.environ.get('RABBITMQ_USER', 'user')
+        self.rabbitmq_password = os.environ.get('RABBITMQ_PASSWORD', 'password')
 
         self._connect_and_declare()
 
@@ -310,8 +316,14 @@ class MatchmakingEventConsumer:
         """
         logger.info(f"MatchmakingEventConsumer: Попытка подключения к RabbitMQ по адресу {self.rabbitmq_host}...")
         try:
+            credentials = pika.PlainCredentials(username=self.rabbitmq_user, password=self.rabbitmq_password)
             self.connection = pika.BlockingConnection(
-                pika.ConnectionParameters(host=self.rabbitmq_host, heartbeat=600, blocked_connection_timeout=300)
+                pika.ConnectionParameters(
+                    host=self.rabbitmq_host,
+                    credentials=credentials,
+                    heartbeat=600, 
+                    blocked_connection_timeout=300
+                )
             )
             self.rabbitmq_channel = self.connection.channel()
             self.rabbitmq_channel.queue_declare(queue=self.matchmaking_events_queue, durable=True)

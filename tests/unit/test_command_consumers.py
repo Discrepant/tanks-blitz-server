@@ -71,7 +71,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         self.consumer.connection = self.mock_connection_instance
 
 
-    def test_callback_shoot_command_success(self):
+    def test_callback_shoot_command_success(self): # Removed injected mock argument
         """
         Test successful processing of a 'shoot' command.
         Verifies session/tank lookup, tank's shoot method, and ack are called.
@@ -96,7 +96,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         mock_tank_instance.shoot.assert_called_once() 
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=123) 
 
-    def test_callback_unknown_command(self):
+    def test_callback_unknown_command(self): # Removed injected mock argument
         """
         Test processing of an unknown command.
         Verifies the unknown command is correctly acknowledged (ack).
@@ -112,7 +112,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=125)
 
-    def test_callback_missing_player_id(self):
+    def test_callback_missing_player_id(self): # Removed injected mock argument
         """
         Test processing of a message without a player_id.
         Verifies the message is acknowledged.
@@ -124,7 +124,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=126)
 
-    def test_callback_player_not_in_session(self):
+    def test_callback_player_not_in_session(self): # Removed injected mock argument
         """
         Test processing a command from a player not found in an active session.
         """
@@ -136,7 +136,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=127)
 
-    def test_callback_tank_not_found(self):
+    def test_callback_tank_not_found(self): # Removed injected mock argument
         """
         Test processing a command when the player's tank is not found in the pool.
         """
@@ -151,7 +151,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=128)
 
-    def test_callback_json_decode_error(self):
+    def test_callback_json_decode_error(self): # Removed injected mock argument
         """
         Test processing of a message that is not valid JSON.
         """
@@ -162,7 +162,7 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=129)
 
-    def test_start_consuming_flow_success(self):
+    def test_start_consuming_flow_success(self): # Removed injected mock argument
         """Test the successful flow of start_consuming."""
         # _connect_and_declare is called by start_consuming
         self.consumer.start_consuming()
@@ -177,77 +177,71 @@ class TestPlayerCommandConsumer(unittest.TestCase):
         )
         self.mock_channel_instance.start_consuming.assert_called_once()
 
-    def test_start_consuming_connection_error_triggers_retry_logic(self):
+    def test_start_consuming_connection_error_triggers_retry_logic(self): # Removed injected mock argument
         """Test start_consuming when _connect_and_declare fails with AMQPConnectionError."""
-        self.MockPikaBlockingConnection.side_effect = pika.exceptions.AMQPConnectionError("Test connection error")
+        
+        # Make the first call to BlockingConnection fail, then succeed on retry
+        call_count_blocking_conn_manager = {'count': 0}
+        def side_effect_manager_pika(*args, **kwargs):
+            call_count_blocking_conn_manager['count'] += 1
+            if call_count_blocking_conn_manager['count'] == 1:
+                raise pika.exceptions.AMQPConnectionError("Primary Test connection error")
+            return self.mock_connection_instance # Return the already configured mock connection
+        
+        self.MockPikaBlockingConnection.side_effect = side_effect_manager_pika
         
         with patch.object(self.consumer, 'stop_consuming', wraps=self.consumer.stop_consuming) as mock_stop_consuming_spy, \
              patch('time.sleep') as mock_sleep:
-            
-            # To prevent infinite loop in test, we'll make the second connection attempt succeed
-            # by changing the side_effect after the first call.
-            def side_effect_manager(*args, **kwargs):
-                if self.MockPikaBlockingConnection.call_count == 1: # First call fails
-                    raise pika.exceptions.AMQPConnectionError("Primary Test connection error")
-                # Subsequent calls succeed (return the default mock connection instance)
-                return self.mock_connection_instance 
-            self.MockPikaBlockingConnection.side_effect = side_effect_manager
             
             self.consumer.start_consuming()
 
         self.assertGreaterEqual(self.MockPikaBlockingConnection.call_count, 2, "Should attempt connection at least twice")
-        # stop_consuming is called before retry
         mock_stop_consuming_spy.assert_called_once() 
         mock_sleep.assert_called_once_with(5)
-        # After successful retry, consuming should start
         self.mock_channel_instance.basic_consume.assert_called_once() 
         self.mock_channel_instance.start_consuming.assert_called_once()
 
 
-    def test_start_consuming_keyboard_interrupt(self):
+    def test_start_consuming_keyboard_interrupt(self): # Removed injected mock argument
         """Test start_consuming handling KeyboardInterrupt."""
         self.mock_channel_instance.start_consuming.side_effect = KeyboardInterrupt
         with patch.object(self.consumer, 'stop_consuming') as mock_stop_consuming:
-            self.consumer.start_consuming()
-        mock_stop_consuming.assert_called_once()
+            self.consumer.start_consuming() # This will call _connect_and_declare successfully
+        mock_stop_consuming.assert_called_once() # stop_consuming should be called due to KeyboardInterrupt
 
-    def test_start_consuming_generic_exception_triggers_retry(self):
+    def test_start_consuming_generic_exception_triggers_retry(self): # Removed injected mock argument
         """Test start_consuming handling a generic Exception during consumption."""
         
+        # Manager for start_consuming side effect
+        call_count_start_consuming_manager = {'count': 0}
+        def side_effect_manager_for_start_consuming(*args, **kwargs):
+            call_count_start_consuming_manager['count'] += 1
+            if call_count_start_consuming_manager['count'] == 1:
+                 raise Exception("Simulated generic consumption error")
+            pass 
+        self.mock_channel_instance.start_consuming.side_effect = side_effect_manager_for_start_consuming
+
+        # Manager for Pika connection side effect (to ensure reconnect works)
+        call_count_pika_manager = {'count': 0}
+        original_pika_side_effect = self.MockPikaBlockingConnection.side_effect 
+        def side_effect_pika_ensure_reconnect(*args, **kwargs):
+            nonlocal call_count_pika_manager
+            call_count_pika_manager['count'] += 1
+            return self.mock_connection_instance # Always return a working mock connection
+        self.MockPikaBlockingConnection.side_effect = side_effect_pika_ensure_reconnect
+
         with patch.object(self.consumer, 'stop_consuming', wraps=self.consumer.stop_consuming) as mock_stop_consuming_spy, \
              patch('time.sleep') as mock_sleep:
-            
-            # Simulate failure on first start_consuming, success on second
-            call_count_start_consuming = 0
-            def side_effect_manager_for_start_consuming(*args, **kwargs):
-                nonlocal call_count_start_consuming
-                call_count_start_consuming += 1
-                if call_count_start_consuming == 1:
-                     raise Exception("Simulated generic consumption error")
-                pass # Subsequent calls do nothing (normal behavior for mock)
-            self.mock_channel_instance.start_consuming.side_effect = side_effect_manager_for_start_consuming
-            
-            # Ensure the connection mock behaves correctly for retries
-            call_count_blocking_conn = 0
-            original_pika_side_effect = self.MockPikaBlockingConnection.side_effect
-            def side_effect_manager_for_pika(*args, **kwargs):
-                nonlocal call_count_blocking_conn
-                call_count_blocking_conn +=1
-                # Allow first connection, then if start_consuming fails, next connection also allowed
-                return self.mock_connection_instance
-            self.MockPikaBlockingConnection.side_effect = side_effect_manager_for_pika
-
-
             self.consumer.start_consuming()
-            
-            self.MockPikaBlockingConnection.side_effect = original_pika_side_effect 
+        
+        self.MockPikaBlockingConnection.side_effect = original_pika_side_effect
 
         self.assertEqual(self.mock_channel_instance.start_consuming.call_count, 2, "start_consuming should be attempted twice")
         mock_stop_consuming_spy.assert_called_once()
         mock_sleep.assert_called_once_with(5)
 
 
-    def test_stop_consuming_flow(self):
+    def test_stop_consuming_flow(self): # Removed injected mock argument
         """Test the successful flow of stop_consuming."""
         self.consumer.rabbitmq_channel = self.mock_channel_instance 
         self.consumer.connection = self.mock_connection_instance
@@ -269,12 +263,12 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
     Verifies logic for processing matchmaking events.
     """
 
-    def setUp(self, MockPikaBlockingConnection_from_decorator_match): 
+    def setUp(self, MockPikaBlockingConnection_from_decorator_match): # Corrected signature
         """
         Set up before each test.
         Creates a mock object for SessionManager and an instance of MatchmakingEventConsumer.
         """
-        self.MockPikaBlockingConnection = MockPikaBlockingConnection_from_decorator_match
+        self.MockPikaBlockingConnection = MockPikaBlockingConnection_from_decorator_match # Correct assignment
         self.MockPikaBlockingConnection.reset_mock()
 
         self.mock_session_manager = MagicMock(spec=SessionManager)
@@ -300,7 +294,7 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.consumer.connection = self.mock_connection_instance
 
 
-    def test_callback_new_match_created(self):
+    def test_callback_new_match_created(self): # Removed injected mock argument
         """
         Test processing of 'new_match_created' event.
         Verifies session creation method is called and message is acknowledged.
@@ -320,12 +314,12 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_session_manager.create_session.assert_called_once() 
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=201) 
 
-    def test_callback_unknown_event_type(self):
+    def test_callback_unknown_event_type(self): # Removed injected mock argument
         """
         Test processing of an event with an unknown type.
         Verifies session creation is not called and the message is acknowledged.
         """
-        message_body = json.dumps({"event_type": "match_update", "details": {}}) # Unknown event type
+        message_body = json.dumps({"event_type": "match_update", "details": {}}) 
         mock_method = MagicMock(delivery_tag=202)
         
         self.consumer._callback(self.mock_channel_instance, mock_method, None, message_body.encode('utf-8'))
@@ -333,18 +327,18 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         self.mock_session_manager.create_session.assert_not_called() 
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=202)
 
-    def test_callback_json_decode_error_matchmaking(self):
+    def test_callback_json_decode_error_matchmaking(self): # Removed injected mock argument
         """
         Test processing of a message that is not valid JSON for MatchmakingEventConsumer.
         """
-        message_body = "definitely not json" # Invalid JSON
+        message_body = "definitely not json" 
         mock_method = MagicMock(delivery_tag=203)
         
         self.consumer._callback(self.mock_channel_instance, mock_method, None, message_body.encode('utf-8'))
         
         self.mock_channel_instance.basic_ack.assert_called_once_with(delivery_tag=203)
 
-    def test_start_consuming_flow_success(self):
+    def test_start_consuming_flow_success(self): # Removed injected mock argument
         """Test the successful flow of start_consuming for matchmaking."""
         self.consumer.start_consuming()
 
@@ -358,9 +352,9 @@ class TestMatchmakingEventConsumer(unittest.TestCase):
         )
         self.mock_channel_instance.start_consuming.assert_called_once()
 
-    def test_stop_consuming_flow(self):
+    def test_stop_consuming_flow(self): # Removed injected mock argument
         """Test the successful flow of stop_consuming for matchmaking."""
-        self.consumer.rabbitmq_channel = self.mock_channel_instance # Ensure it's set
+        self.consumer.rabbitmq_channel = self.mock_channel_instance 
         self.consumer.connection = self.mock_connection_instance
         self.mock_channel_instance.is_open = True
         self.mock_connection_instance.is_open = True

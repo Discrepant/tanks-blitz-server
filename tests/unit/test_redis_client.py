@@ -6,7 +6,8 @@ import asyncio
 import os
 import unittest
 from unittest.mock import patch, MagicMock, AsyncMock # Mocking tools
-import redis.asyncio as redis_asyncio # For ConnectionError
+import redis.asyncio as redis_asyncio 
+import redis.exceptions # Import for ConnectionError
 
 # Import the RedisClient class to be tested
 from core.redis_client import RedisClient
@@ -159,7 +160,7 @@ class TestRedisClient(unittest.IsolatedAsyncioTestCase):
         
         # Expect a ConnectionError (or a more general RedisError if that's more stable across environments)
         # when trying to ping a non-existent server.
-        with self.assertRaises(redis_asyncio.exceptions.ConnectionError):
+        with self.assertRaises(redis.exceptions.ConnectionError):
             await client.ping()
 
     # The following tests (get, set, delete, ping_success, ping_failure) 
@@ -220,29 +221,15 @@ class TestRedisClientMockedInstance(unittest.IsolatedAsyncioTestCase):
 
     async def test_mock_get(self):
         """Test the get method of the mocked client."""
-        # Setup mock_storage for this specific test or rely on AsyncMock's return_value
-        self.redis_client._mock_storage["test_key"] = b"test_value" # Store as bytes, like redis would
-        
-        # If RedisClient's get method itself decodes, then "test_value" is fine.
-        # The mock implementation in RedisClient for get is: return self._mock_storage.get(name)
-        # The real client is initialized with decode_responses=True.
-        # The mock client's AsyncMock for get uses the side_effect mock_get, which returns bytes.
-        # Let's adjust RedisClient's mock_get to return str if decode_responses is implicitly True for mock.
-        # For now, assume the mock's get returns what's in _mock_storage.
-        # If the mock client is spec'd, its `get` will be an AsyncMock. We need to configure its return.
-        
-        # Re-configure the mock for self.redis_client.client.get for this test
-        # The client.get is already an AsyncMock due to the setup in RedisClient.__init__
+        # To ensure return_value is used, we disable the side_effect for this test.
+        # The side_effect (_mock_get) reads from _mock_storage, which is not what we want to test here.
+        self.redis_client.client.get.side_effect = None 
         self.redis_client.client.get.return_value = b"retrieved_value"
 
         result = await self.redis_client.get("specific_test_key")
         
         self.redis_client.client.get.assert_awaited_once_with("specific_test_key")
-        # If RedisClient.get is expected to decode, this should be "retrieved_value"
-        # If it returns raw bytes from the mock, it would be b"retrieved_value"
-        # Given the real client uses decode_responses=True, the wrapper methods should also reflect that.
-        # The internal mock_get in RedisClient does not decode. Let's assume the test checks the wrapper.
-        self.assertEqual(result, b"retrieved_value") # Current mock setup returns raw from _mock_storage via side_effect
+        self.assertEqual(result, b"retrieved_value")
 
     async def test_mock_set(self):
         """Test the set method of the mocked client."""

@@ -7,8 +7,10 @@ import json
 import logging
 import os
 import pika # Библиотека для работы с RabbitMQ
-from confluent_kafka import Producer, KafkaException # KafkaError as ConfluentKafkaError (ConfluentKafkaError не используется напрямую, KafkaException шире)
+# Use an alias for the actual confluent_kafka.Producer to avoid confusion
+from confluent_kafka import Producer as ConfluentKafkaProducer_actual, KafkaException 
 from unittest.mock import MagicMock # Используется для мокирования в тестах
+from typing import Optional # For type hinting
 
 logger = logging.getLogger(__name__)
 
@@ -35,7 +37,7 @@ RABBITMQ_QUEUE_MATCHMAKING_EVENTS = 'matchmaking_events'
 
 # Глобальные переменные для хранения инстансов продюсера Kafka и соединения/канала RabbitMQ.
 # Это позволяет переиспользовать соединения и избежать их частого создания.
-_kafka_producer = None
+_kafka_producer: Optional[ConfluentKafkaProducer_actual] = None # Added type hint
 _rabbitmq_connection = None
 _rabbitmq_channel = None
 
@@ -61,15 +63,16 @@ def get_kafka_producer():
         # Если используется режим моков
         if not (isinstance(_kafka_producer, MagicMock) and \
                   getattr(_kafka_producer, '_is_custom_kafka_mock', False) is True and \
-                  _kafka_producer._spec_class == Producer): # Check spec class as well
+                  _kafka_producer._spec_class == ConfluentKafkaProducer_actual): # Use the actual class for spec check
             # If _kafka_producer is not our custom spec'd mock, create it.
-            _kafka_producer = MagicMock(spec=Producer, name="GlobalMockKafkaProducer")
+            # Use the actual confluent_kafka.Producer for the spec
+            _kafka_producer = MagicMock(spec=ConfluentKafkaProducer_actual, name="GlobalMockKafkaProducer_spec_actual")
             # Mock specific methods that are used
             _kafka_producer.produce = MagicMock(name="MockKafkaProducer.produce")
             # confluent_kafka.Producer.flush() returns an int (number of messages still in queue)
             _kafka_producer.flush = MagicMock(name="MockKafkaProducer.flush", return_value=0) 
             _kafka_producer._is_custom_kafka_mock = True # Mark it as our custom mock
-            logger.info("Global _kafka_producer (MagicMock spec'd as confluent_kafka.Producer) initialized in MOCK mode.")
+            logger.info("Global _kafka_producer (MagicMock spec'd as ConfluentKafkaProducer_actual) initialized in MOCK mode.")
         return _kafka_producer
 
     if _kafka_producer is None:
@@ -82,7 +85,7 @@ def get_kafka_producer():
                 'linger.ms': 10 # Ожидание до 10 мс для группировки сообщений в батчи
                 # 'message.timeout.ms': 30000 # Optional: producer request timeout
             }
-            _kafka_producer = Producer(conf)
+            _kafka_producer = ConfluentKafkaProducer_actual(conf) # Use the actual class for instantiation
             logger.info(f"Confluent Kafka producer initialized with configuration: {conf}")
         except KafkaException as e: # Catch common KafkaException from confluent-kafka
             logger.error(f"Failed to initialize Confluent Kafka producer: {e}")

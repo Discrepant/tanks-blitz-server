@@ -82,8 +82,10 @@ services:
       RABBITMQ_HOST: rabbitmq
       # Add other necessary environment variables for game_server
     depends_on:
-      kafka: {}
-      redis-service: {}
+      kafka:
+        condition: service_started
+      redis-service: # Убедитесь, что имя 'redis-service' здесь совпадает с именем вашего сервиса Redis
+        condition: service_started
       rabbitmq:
         condition: service_healthy
     # volumes:

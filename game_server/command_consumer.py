@@ -48,32 +48,38 @@ class PlayerCommandConsumer:
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost') # Хост RabbitMQ
         self.player_commands_queue = RABBITMQ_QUEUE_PLAYER_COMMANDS # Имя очереди команд
 
-        # self._connect_and_declare() # Удалено из __init__
+        # self._connect_and_declare() # Removed from __init__
 
     def _connect_and_declare(self):
-        logger.info(f"PlayerCommandConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
+        user = 'user' # Default user, consider making this configurable if needed
+        logger.info(f"PlayerCommandConsumer: Attempting to connect to RabbitMQ: host={self.rabbitmq_host}, port=5672, user='{user}'...")
         try:
-            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
+            credentials = PlainCredentials(username=user, password='password') # Using values from docker-compose.yml
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
-                    port=5672, # Явно указываем порт
-                    virtual_host='/', # Стандартный virtual host
+                    port=5672, # Explicitly specify port
+                    virtual_host='/', # Standard virtual host
                     credentials=credentials,
                     heartbeat=600,
                     blocked_connection_timeout=300
                 )
             )
+            logger.info(f"PlayerCommandConsumer: Successfully established connection to RabbitMQ at {self.rabbitmq_host}:5672.")
             self.rabbitmq_channel = self.connection.channel()
+            logger.info(f"PlayerCommandConsumer: RabbitMQ channel opened successfully.")
             self.rabbitmq_channel.queue_declare(queue=self.player_commands_queue, durable=True)
+            logger.info(f"PlayerCommandConsumer: Queue '{self.player_commands_queue}' declared successfully (durable=True).")
             self.rabbitmq_channel.basic_qos(prefetch_count=1)
-            logger.info(f"PlayerCommandConsumer: Successfully connected to RabbitMQ and declared queue '{self.player_commands_queue}'.")
+            logger.info(f"PlayerCommandConsumer: QoS prefetch_count=1 set for channel.")
+            logger.info(f"PlayerCommandConsumer: RabbitMQ setup completed for queue '{self.player_commands_queue}'.")
         except AMQPConnectionError as e:
-            logger.error(f"PlayerCommandConsumer: Failed to connect to RabbitMQ in _connect_and_declare: {e}")
-            self.connection = None # Убедимся, что они None при ошибке
+            # AMQPConnectionError already includes details like host/port in its string representation
+            logger.error(f"PlayerCommandConsumer: Failed to connect to RabbitMQ at {self.rabbitmq_host}:5672. Details: {e}. Check RabbitMQ server status and connection parameters.")
+            self.connection = None # Ensure these are None on error
             self.rabbitmq_channel = None
         except Exception as e:
-            logger.error(f"PlayerCommandConsumer: An unexpected error occurred during RabbitMQ setup: {e}", exc_info=True)
+            logger.error(f"PlayerCommandConsumer: An unexpected error occurred during RabbitMQ setup for host {self.rabbitmq_host}. Error: {e}", exc_info=True)
             self.connection = None
             self.rabbitmq_channel = None
 
@@ -178,50 +184,66 @@ class PlayerCommandConsumer:
         self._connect_and_declare() # Добавлен вызов в начало метода
 
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
-            logger.error("PlayerCommandConsumer: Failed to establish connection with RabbitMQ. Consumer cannot start.")
+            logger.error(f"PlayerCommandConsumer: Cannot start consuming. RabbitMQ channel not available or closed for host {self.rabbitmq_host}.")
+            # Potentially add a retry mechanism for _connect_and_declare here if desired, before returning.
             return
 
-        logger.info(f"PlayerCommandConsumer: Starting consumption of messages from '{self.player_commands_queue}'...")
+        logger.info(f"PlayerCommandConsumer: Preparing to start consuming messages from queue '{self.player_commands_queue}' on host {self.rabbitmq_host}.")
         self.rabbitmq_channel.basic_consume(
             queue=self.player_commands_queue,
             on_message_callback=self._callback
-            # auto_ack=False # Уже по умолчанию, обеспечивает ручное подтверждение
+            # auto_ack=False # Already default, ensures manual acknowledgement
         )
         try:
+            logger.info(f"PlayerCommandConsumer: Now starting blocking consumption loop for queue '{self.player_commands_queue}'.")
             self.rabbitmq_channel.start_consuming()
         except KeyboardInterrupt:
-            logger.info("PlayerCommandConsumer: Consumer stopped via KeyboardInterrupt.")
-            self.stop_consuming()
+            logger.info("PlayerCommandConsumer: Consumption stopped via KeyboardInterrupt.")
+            self.stop_consuming() # Ensure cleanup
         except Exception as e:
-            logger.error(f"PlayerCommandConsumer: Consumer error: {e}. Attempting to restart consumption...", exc_info=True)
-            # Потенциально можно добавить задержку и механизм повторных попыток здесь
-            self.stop_consuming() # Очищаем текущее состояние
-            time.sleep(5) # Ожидание перед повторной попыткой
-            self.start_consuming() # Повторная попытка
+            # This specific error log for "Consumer error" is already quite clear.
+            # Adding more context about the restart attempt.
+            logger.error(f"PlayerCommandConsumer: An error occurred during message consumption from '{self.player_commands_queue}'. Error: {e}. Attempting to stop and restart consumption...", exc_info=True)
+            self.stop_consuming() # Clean up current state
+            logger.info(f"PlayerCommandConsumer: Waiting for 5 seconds before attempting to restart consumption for '{self.player_commands_queue}'.")
+            time.sleep(5) # Wait before retrying
+            logger.info(f"PlayerCommandConsumer: Attempting to restart consumption for '{self.player_commands_queue}'.")
+            self.start_consuming() # Retry consumption
 
     def stop_consuming(self):
         """
-        Останавливает потребление сообщений и закрывает соединение с RabbitMQ.
+        Stops message consumption and closes the RabbitMQ connection.
         """
         if self.rabbitmq_channel and self.rabbitmq_channel.is_open:
-            logger.info("PlayerCommandConsumer: Stopping RabbitMQ consumer...")
+            logger.info(f"PlayerCommandConsumer: Attempting to stop consuming from queue '{self.player_commands_queue}' on channel {self.rabbitmq_channel}.")
             try:
-                self.rabbitmq_channel.stop_consuming() # Останавливаем потребление
+                self.rabbitmq_channel.stop_consuming() # Stop consumption
+                logger.info(f"PlayerCommandConsumer: Successfully stopped consuming from queue '{self.player_commands_queue}'.")
             except Exception as e:
-                logger.error(f"PlayerCommandConsumer: Error while stopping consumption: {e}", exc_info=True)
-            # Закрытие канала здесь может быть преждевременным, если соединение используется совместно.
-            # Однако, если этот консьюмер управляет своим каналом эксклюзивно, то можно закрыть.
+                logger.error(f"PlayerCommandConsumer: Error while stopping consumption from queue '{self.player_commands_queue}': {e}", exc_info=True)
+            # Closing the channel here might be premature if the connection is shared.
+            # However, if this consumer exclusively manages its channel, it can be closed.
             # self.rabbitmq_channel.close() 
-            logger.info("PlayerCommandConsumer: RabbitMQ consumer stopped.")
+            # logger.info("PlayerCommandConsumer: RabbitMQ channel closed after stopping consumption.") # If channel is closed here
+        else:
+            logger.info(f"PlayerCommandConsumer: No active consumption to stop or channel already closed for queue '{self.player_commands_queue}'.")
+
         if self.connection and self.connection.is_open:
-            logger.info("PlayerCommandConsumer: Closing connection to RabbitMQ...")
+            logger.info(f"PlayerCommandConsumer: Attempting to close connection to RabbitMQ host {self.rabbitmq_host}.")
             try:
                 self.connection.close()
+                logger.info(f"PlayerCommandConsumer: Successfully closed connection to RabbitMQ host {self.rabbitmq_host}.")
             except Exception as e:
-                logger.error(f"PlayerCommandConsumer: Error while closing connection: {e}", exc_info=True)
-            logger.info("PlayerCommandConsumer: Connection to RabbitMQ closed.")
+                logger.error(f"PlayerCommandConsumer: Error while closing RabbitMQ connection to host {self.rabbitmq_host}: {e}", exc_info=True)
+        else:
+            logger.info(f"PlayerCommandConsumer: No active RabbitMQ connection to close for host {self.rabbitmq_host} or connection already closed.")
+        
+        # Ensure these are reset after stopping
+        self.rabbitmq_channel = None
+        self.connection = None
 
-# Пример того, как это может быть запущено (например, в отдельном потоке или процессе)
+
+# Example of how this might be run (e.g., in a separate thread or process)
 if __name__ == '__main__':
     logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
     
@@ -301,32 +323,37 @@ class MatchmakingEventConsumer:
         self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost')
         self.matchmaking_events_queue = RABBITMQ_QUEUE_MATCHMAKING_EVENTS
 
-        # self._connect_and_declare() # Удалено из __init__
+        # self._connect_and_declare() # Removed from __init__
 
     def _connect_and_declare(self):
-        logger.info(f"MatchmakingEventConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
+        user = 'user' # Default user
+        logger.info(f"MatchmakingEventConsumer: Attempting to connect to RabbitMQ: host={self.rabbitmq_host}, port=5672, user='{user}'...")
         try:
-            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
+            credentials = PlainCredentials(username=user, password='password') # Using values from docker-compose.yml
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
-                    port=5672, # Явно указываем порт
-                    virtual_host='/', # Стандартный virtual host
+                    port=5672, # Explicitly specify port
+                    virtual_host='/', # Standard virtual host
                     credentials=credentials,
                     heartbeat=600,
                     blocked_connection_timeout=300
                 )
             )
+            logger.info(f"MatchmakingEventConsumer: Successfully established connection to RabbitMQ at {self.rabbitmq_host}:5672.")
             self.rabbitmq_channel = self.connection.channel()
+            logger.info(f"MatchmakingEventConsumer: RabbitMQ channel opened successfully.")
             self.rabbitmq_channel.queue_declare(queue=self.matchmaking_events_queue, durable=True)
+            logger.info(f"MatchmakingEventConsumer: Queue '{self.matchmaking_events_queue}' declared successfully (durable=True).")
             self.rabbitmq_channel.basic_qos(prefetch_count=1)
-            logger.info(f"MatchmakingEventConsumer: Successfully connected and declared queue '{self.matchmaking_events_queue}'.")
+            logger.info(f"MatchmakingEventConsumer: QoS prefetch_count=1 set for channel.")
+            logger.info(f"MatchmakingEventConsumer: RabbitMQ setup completed for queue '{self.matchmaking_events_queue}'.")
         except AMQPConnectionError as e:
-            logger.error(f"MatchmakingEventConsumer: Failed to connect to RabbitMQ in _connect_and_declare: {e}")
+            logger.error(f"MatchmakingEventConsumer: Failed to connect to RabbitMQ at {self.rabbitmq_host}:5672. Details: {e}. Check RabbitMQ server status and connection parameters.")
             self.connection = None
             self.rabbitmq_channel = None
         except Exception as e:
-            logger.error(f"MatchmakingEventConsumer: An unexpected error occurred during RabbitMQ setup: {e}", exc_info=True)
+            logger.error(f"MatchmakingEventConsumer: An unexpected error occurred during RabbitMQ setup for host {self.rabbitmq_host}. Error: {e}", exc_info=True)
             self.connection = None
             self.rabbitmq_channel = None
 
@@ -367,40 +394,53 @@ class MatchmakingEventConsumer:
         self._connect_and_declare() # Добавлен вызов в начало метода
 
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
-            logger.error("MatchmakingEventConsumer: Failed to establish connection with RabbitMQ. Consumer cannot start.")
+            logger.error(f"MatchmakingEventConsumer: Cannot start consuming. RabbitMQ channel not available or closed for host {self.rabbitmq_host}.")
             return
 
-        logger.info(f"MatchmakingEventConsumer: Starting consumption of messages from '{self.matchmaking_events_queue}'...")
+        logger.info(f"MatchmakingEventConsumer: Preparing to start consuming messages from queue '{self.matchmaking_events_queue}' on host {self.rabbitmq_host}.")
         self.rabbitmq_channel.basic_consume(
             queue=self.matchmaking_events_queue,
             on_message_callback=self._callback
         )
         try:
+            logger.info(f"MatchmakingEventConsumer: Now starting blocking consumption loop for queue '{self.matchmaking_events_queue}'.")
             self.rabbitmq_channel.start_consuming()
         except KeyboardInterrupt:
-            logger.info("MatchmakingEventConsumer: Consumer stopped via KeyboardInterrupt.")
-            self.stop_consuming()
+            logger.info("MatchmakingEventConsumer: Consumption stopped via KeyboardInterrupt.")
+            self.stop_consuming() # Ensure cleanup
         except Exception as e:
-            logger.error(f"MatchmakingEventConsumer: Consumer error: {e}. Attempting to restart consumption...", exc_info=True)
-            self.stop_consuming()
-            time.sleep(5)
-            self.start_consuming()
+            logger.error(f"MatchmakingEventConsumer: An error occurred during message consumption from '{self.matchmaking_events_queue}'. Error: {e}. Attempting to stop and restart consumption...", exc_info=True)
+            self.stop_consuming() # Clean up current state
+            logger.info(f"MatchmakingEventConsumer: Waiting for 5 seconds before attempting to restart consumption for '{self.matchmaking_events_queue}'.")
+            time.sleep(5) # Wait before retrying
+            logger.info(f"MatchmakingEventConsumer: Attempting to restart consumption for '{self.matchmaking_events_queue}'.")
+            self.start_consuming() # Retry consumption
 
     def stop_consuming(self):
         """
-        Останавливает потребление событий и закрывает соединение.
+        Stops event consumption and closes the connection.
         """
         if self.rabbitmq_channel and self.rabbitmq_channel.is_open:
-            logger.info("MatchmakingEventConsumer: Stopping RabbitMQ consumer...")
+            logger.info(f"MatchmakingEventConsumer: Attempting to stop consuming from queue '{self.matchmaking_events_queue}' on channel {self.rabbitmq_channel}.")
             try:
                 self.rabbitmq_channel.stop_consuming()
+                logger.info(f"MatchmakingEventConsumer: Successfully stopped consuming from queue '{self.matchmaking_events_queue}'.")
             except Exception as e:
-                 logger.error(f"MatchmakingEventConsumer: Error while stopping consumption: {e}", exc_info=True)
-            logger.info("MatchmakingEventConsumer: RabbitMQ consumer stopped.")
+                 logger.error(f"MatchmakingEventConsumer: Error while stopping consumption from queue '{self.matchmaking_events_queue}': {e}", exc_info=True)
+            logger.info("MatchmakingEventConsumer: RabbitMQ consumer stopped.") # This log seems redundant if the one above is successful. Keeping for now.
+        else:
+            logger.info(f"MatchmakingEventConsumer: No active consumption to stop or channel already closed for queue '{self.matchmaking_events_queue}'.")
+
         if self.connection and self.connection.is_open:
-            logger.info("MatchmakingEventConsumer: Closing connection to RabbitMQ...")
+            logger.info(f"MatchmakingEventConsumer: Attempting to close connection to RabbitMQ host {self.rabbitmq_host}.")
             try:
                 self.connection.close()
+                logger.info(f"MatchmakingEventConsumer: Successfully closed connection to RabbitMQ host {self.rabbitmq_host}.")
             except Exception as e:
-                logger.error(f"MatchmakingEventConsumer: Error while closing connection: {e}", exc_info=True)
-            logger.info("MatchmakingEventConsumer: Connection to RabbitMQ closed.")
+                logger.error(f"MatchmakingEventConsumer: Error while closing RabbitMQ connection to host {self.rabbitmq_host}: {e}", exc_info=True)
+        else:
+            logger.info(f"MatchmakingEventConsumer: No active RabbitMQ connection to close for host {self.rabbitmq_host} or connection already closed.")
+            
+        # Ensure these are reset after stopping
+        self.rabbitmq_channel = None
+        self.connection = None

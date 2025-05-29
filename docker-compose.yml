@@ -73,8 +73,12 @@ services:
     container_name: game_server
     command: game
     ports:
-      - "8001:8001" # Example port
+      - "8001:8001" # Prometheus metrics port
+      - "9999:9999/udp" # Game server UDP port
+      - "8889:8889" # Game server TCP port
     environment:
+      GAME_SERVER_UDP_PORT: 9999
+      GAME_SERVER_TCP_PORT: 8889
       KAFKA_BOOTSTRAP_SERVERS: kafka:9092
       RABBITMQ_HOST: rabbitmq
       REDIS_HOST: redis-service

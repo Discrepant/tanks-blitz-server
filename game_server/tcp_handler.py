@@ -47,9 +47,9 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             # Обработка команды LOGIN
             if cmd == 'LOGIN' and len(parts) == 3:
                 username, password = parts[1], parts[2]
-                # Вызываем метод аутентификации из игровой комнаты
+                # Call authentication method from the game room
                 authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
-                logger.debug(f"GameTCPHandler: authenticate_player вернул: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
+                logger.debug(f"GameTCPHandler: authenticate_player returned: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
                 
                 if authenticated:
                     # Создаем экземпляр Player

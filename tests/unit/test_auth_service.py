@@ -1,86 +1,85 @@
 # tests/unit/test_auth_service.py
-# Этот файл содержит модульные тесты для сервиса аутентификации пользователей
-# (`auth_server.user_service.py`) с использованием pytest.
-import pytest # Импортируем pytest для написания и запуска тестов
-from unittest.mock import patch # Импортируем patch из unittest.mock для мокирования объектов
-# Импортируем тестируемые функции и MOCK_USERS_DB из модуля user_service
+# This file contains unit tests for the user authentication service
+# (`auth_server.user_service.py`) using pytest.
+import pytest # Import pytest for writing and running tests
+from unittest.mock import patch # Import patch from unittest.mock for mocking objects
+# Import the functions to be tested and MOCK_USERS_DB from the user_service module
 from auth_server.user_service import authenticate_user, MOCK_USERS_DB, register_user
 
-# pytest помечает асинхронные тестовые функции с помощью @pytest.mark.asyncio,
-# но если используется pytest-asyncio, достаточно просто объявить функцию как async def.
-# Предполагаем, что pytest-asyncio настроен.
+# pytest marks asynchronous test functions with @pytest.mark.asyncio,
+# but if pytest-asyncio is used, it's enough to just declare the function as async def.
+# Assuming pytest-asyncio is configured.
 
 async def test_authenticate_user_success():
     """
-    Тест успешной аутентификации пользователя.
-    Проверяет, что функция `authenticate_user` корректно аутентифицирует
-    существующего пользователя с правильным паролем.
+    Test successful user authentication.
+    Checks that the `authenticate_user` function correctly authenticates
+    an existing user with the correct password.
     """
-    # Используем тестовых пользователей, которые должны быть в MOCK_USERS_DB.
-    # Если MOCK_USERS_DB инициализируется при импорте, эти пользователи уже там.
-    # В противном случае, их нужно добавить в MOCK_USERS_DB перед тестом или использовать мок.
+    # Using test users that should be in MOCK_USERS_DB.
+    # If MOCK_USERS_DB is initialized on import, these users are already there.
+    # Otherwise, they need to be added to MOCK_USERS_DB before the test or a mock should be used.
     test_username = "player1"
-    test_password = "password123" # Предполагаемый пароль для player1
+    test_password = "password123" # Assumed password for player1
     is_auth, message = await authenticate_user(test_username, test_password)
-    assert is_auth is True, "Аутентификация должна быть успешной для корректных учетных данных."
-    assert "успешно аутентифицирован" in message, "Сообщение должно подтверждать успешную аутентификацию."
+    assert is_auth is True, "Authentication should be successful for correct credentials."
+    # The message from authenticate_user is already in English based on previous subtasks.
+    assert "authenticated successfully" in message, "Message should confirm successful authentication."
 
 async def test_authenticate_user_wrong_password():
     """
-    Тест аутентификации пользователя с неверным паролем.
-    Проверяет, что `authenticate_user` не аутентифицирует пользователя,
-    если предоставлен неверный пароль.
+    Test user authentication with an incorrect password.
+    Checks that `authenticate_user` does not authenticate a user
+    if an incorrect password is provided.
     """
-    test_username = "player1" # Существующий пользователь
-    wrong_password = "wrongpassword" # Неверный пароль
+    test_username = "player1" # Existing user
+    wrong_password = "wrongpassword" # Incorrect password
     is_auth, message = await authenticate_user(test_username, wrong_password)
-    assert is_auth is False, "Аутентификация не должна проходить с неверным паролем."
-    assert "Неверный пароль" in message, "Сообщение должно указывать на неверный пароль."
+    assert is_auth is False, "Authentication should not succeed with an incorrect password."
+    assert "Incorrect password" in message, "Message should indicate incorrect password."
 
 async def test_authenticate_user_not_found():
     """
-    Тест аутентификации несуществующего пользователя.
-    Проверяет, что `authenticate_user` не аутентифицирует пользователя,
-    которого нет в базе данных (MOCK_USERS_DB).
+    Test authentication of a non-existent user.
+    Checks that `authenticate_user` does not authenticate a user
+    that is not in the database (MOCK_USERS_DB).
     """
-    unknown_username = "unknownuser" # Несуществующий пользователь
+    unknown_username = "unknownuser" # Non-existent user
     test_password = "password123"
     is_auth, message = await authenticate_user(unknown_username, test_password)
-    assert is_auth is False, "Аутентификация не должна проходить для несуществующего пользователя."
-    assert "Пользователь не найден" in message, "Сообщение должно указывать, что пользователь не найден."
+    assert is_auth is False, "Authentication should not succeed for a non-existent user."
+    assert "User not found" in message, "Message should indicate user not found."
 
 async def test_register_user_success_mock():
     """
-    Тест успешной регистрации нового пользователя (с использованием мока для MOCK_USERS_DB).
-    Проверяет, что функция `register_user` (в ее текущей mock-реализации)
-    возвращает успешный результат для нового пользователя.
+    Test successful registration of a new user.
+    The `register_user` function (as per recent updates) now returns a dictionary.
+    This test verifies the success case.
     """
-    # Мокаем MOCK_USERS_DB для этого конкретного теста, чтобы изолировать его
-    # и не влиять на другие тесты, которые могут полагаться на исходное состояние MOCK_USERS_DB.
-    # `clear=True` очищает словарь перед применением патча.
-    # Хотя `register_user` в текущей реализации ничего не меняет в MOCK_USERS_DB (строка закомментирована),
-    # этот подход демонстрирует, как можно было бы тестировать, если бы изменение происходило.
+    # Mock MOCK_USERS_DB for this specific test to isolate it
+    # and not affect other tests that might rely on the initial state of MOCK_USERS_DB.
+    # `clear=True` clears the dictionary before applying the patch.
     with patch.dict('auth_server.user_service.MOCK_USERS_DB', {}, clear=True):
         new_username = "newbie"
         new_password = "newpassword"
-        is_registered, message = await register_user(new_username, new_password)
-        assert is_registered is True, "Регистрация нового пользователя должна быть успешной."
-        assert "успешно зарегистрирован" in message, "Сообщение должно подтверждать успешную регистрацию."
-        # В реальном тесте, если бы `register_user` действительно добавлял пользователя,
-        # мы бы проверили, что пользователь добавлен в MOCK_USERS_DB:
-        # `assert new_username in MOCK_USERS_DB`
-        # или что был вызван соответствующий метод сохранения в базу данных.
+        # register_user now returns a dict like {"status": "success", "message": "..."}
+        response = await register_user(new_username, new_password)
+        assert response.get("status") == "success", "New user registration should be successful."
+        assert "User registered successfully" in response.get("message", ""), "Message should confirm successful registration."
+        # Verify that the user was actually added to the (mocked) DB
+        assert new_username in MOCK_USERS_DB
+        assert MOCK_USERS_DB[new_username] == new_password
 
 async def test_register_user_already_exists_mock():
     """
-    Тест попытки регистрации пользователя, который уже существует (с моком MOCK_USERS_DB).
-    Проверяет, что `register_user` возвращает ошибку, если пользователь с таким именем
-    уже присутствует в системе.
+    Test attempt to register a user that already exists.
+    Checks that `register_user` returns an error if the username
+    is already present in the system.
     """
-    existing_username = "player1_for_register_test" # Используем уникальное имя для этого теста
-    # Убедимся, что пользователь существует в MOCK_USERS_DB на время этого теста.
-    # Используем patch.dict для временного изменения MOCK_USERS_DB.
+    existing_username = "player1_for_register_test" # Use a unique name for this test
+    # Ensure the user exists in MOCK_USERS_DB for this test.
+    # Use patch.dict to temporarily modify MOCK_USERS_DB.
     with patch.dict('auth_server.user_service.MOCK_USERS_DB', {existing_username: "password123"}, clear=True):
-        is_registered, message = await register_user(existing_username, "anypass")
-        assert is_registered is False, "Регистрация существующего пользователя должна завершиться неудачей."
-        assert "уже существует" in message, "Сообщение должно указывать, что пользователь уже существует."
+        response = await register_user(existing_username, "anypass")
+        assert response.get("status") == "error", "Registration of an existing user should fail."
+        assert "Username already exists" in response.get("message", ""), "Message should indicate that the user already exists."

@@ -1,19 +1,19 @@
 # auth_server/user_service.py
-# Этот модуль предоставляет функции для управления пользователями,
-# такие как аутентификация и регистрация.
-# В текущей реализации используется mock-база данных.
+# This module provides functions for user management,
+# such as authentication and registration.
+# It currently uses an in-memory dictionary as a mock database.
 import asyncio
-import logging # Добавлен импорт для логирования
+import logging # Added import for logging
 
-logger = logging.getLogger(__name__) # Инициализация логгера для этого модуля
+logger = logging.getLogger(__name__) # Initialize logger for this module
 
-# MOCK_USERS_DB: Заглушка для базы данных пользователей.
-# Ключ - имя пользователя (строка), значение - пароль (строка).
-# Эта структура данных используется для имитации хранения учетных записей.
-# В реальном приложении здесь было бы взаимодействие с настоящей базой данных (например, PostgreSQL).
+# MOCK_USERS_DB: In-memory storage for user data.
+# Key - username (string), Value - password (string).
+# This data structure is used to simulate user account storage.
+# In a real application, this would involve interaction with a proper database (e.g., PostgreSQL).
 MOCK_USERS_DB = {
-    "player1": "password123",          # Существующий пользователь
-    "testuser": "testpass",           # Существующий пользователь
+    "player1": "password123",          # Existing user
+    "testuser": "testpass",           # Existing user
     "integ_user": "integ_pass",       # Пользователь для интеграционного теста test_01
     "integ_user_fail": "correct_pass",# Пользователь для интеграционного теста test_02 (неудачная аутентификация)
     "integ_user2": "integ_pass2"      # Пользователь для интеграционного теста test_08 (чат)
@@ -60,34 +60,29 @@ async def authenticate_user(username, password):
 
 async def register_user(username, password):
     """
-    Асинхронная функция для регистрации нового пользователя.
+    Asynchronously registers a new user.
 
-    В текущей реализации это заглушка, которая проверяет, существует ли уже
-    пользователь с таким именем, но фактически не сохраняет нового пользователя
-    в MOCK_USERS_DB на постоянной основе (изменение MOCK_USERS_DB в этой функции
-    закомментировано, чтобы не влиять на другие тесты, ожидающие исходное состояние).
-    В реальном приложении здесь бы происходило сохранение нового пользователя в базу данных,
-    включая хеширование пароля.
+    Checks if the username already exists in MOCK_USERS_DB. If not,
+    adds the new user. Passwords are stored in plain text as per current MOCK_USERS_DB structure.
 
     Args:
-        username (str): Имя нового пользователя.
-        password (str): Пароль нового пользователя.
+        username (str): The new username.
+        password (str): The new user's password.
 
     Returns:
-        tuple[bool, str]: Кортеж, где первый элемент - булево значение
-                          (True при успехе регистрации, False при неудаче),
-                          а второй - сообщение о результате.
+        dict: A dictionary containing the status of the registration
+              (e.g., {"status": "success", "message": "User registered successfully"} or
+               {"status": "error", "message": "Username already exists"}).
     """
     logger.debug(f"Attempting to register new user '{username}'.")
-    await asyncio.sleep(0.01) # Имитация задержки обращения к БД.
+    await asyncio.sleep(0.01) # Simulate a small delay, like a DB call.
 
     if username in MOCK_USERS_DB:
-        logger.warning(f"Attempt to register existing user '{username}'.")
-        return False, "User with this name already exists."
+        logger.warning(f"Attempt to register existing username '{username}'.")
+        return {"status": "error", "message": "Username already exists"}
     
-    # Строка ниже закомментирована, чтобы MOCK_USERS_DB оставалась неизменной во время тестов.
-    # В реальном приложении здесь было бы сохранение в БД:
+    # Add the new user to the mock database.
     MOCK_USERS_DB[username] = password
-    # Также необходимо было бы хешировать пароль перед сохранением.
-    logger.info(f"User '{username}' successfully registered and added to MOCK_USERS_DB.")
-    return True, f"User {username} successfully registered."
+    # In a real application, password hashing would be necessary here.
+    logger.info(f"User '{username}' registered successfully.")
+    return {"status": "success", "message": "User registered successfully"}

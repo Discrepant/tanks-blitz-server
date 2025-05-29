@@ -47,9 +47,9 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             # Обработка команды LOGIN
             if cmd == 'LOGIN' and len(parts) == 3:
                 username, password = parts[1], parts[2]
-                # Вызываем метод аутентификации из игровой комнаты
+                # Call authentication method from the game room
                 authenticated, auth_message, session_token = await game_room.authenticate_player(username, password)
-                logger.debug(f"GameTCPHandler: authenticate_player вернул: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
+                logger.debug(f"GameTCPHandler: authenticate_player returned: auth={authenticated}, msg='{auth_message}', token='{session_token}'")
                 
                 if authenticated:
                     # Создаем экземпляр Player
@@ -106,8 +106,10 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                         # Публикуем команду в RabbitMQ
                         await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
                         logger.info(f"MOVE command from {player.name} ({x},{y}) published to RabbitMQ.")
-                        # ADD THIS: Send confirmation to client
-                        writer.write(f"COMMAND_RECEIVED MOVE\n".encode('utf-8')) # Already in English
+                        # Send optimistic confirmation to client
+                        confirmation_payload = {"status": "received", "command": "MOVE"}
+                        writer.write(json.dumps(confirmation_payload).encode('utf-8') + b'\n')
+                        logger.info(f"Sent command reception confirmation for 'MOVE' to {player.name if player else addr}")
                         await writer.drain()
                     except ValueError:
                         writer.write("MOVE_ERROR Invalid coordinates\n".encode('utf-8')) # Already in English
@@ -124,8 +126,10 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     # Публикуем команду в RabbitMQ
                     await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
                     logger.info(f"SHOOT command from {player.name} published to RabbitMQ.")
-                    # ADD THIS: Send confirmation to client
-                    writer.write(f"COMMAND_RECEIVED SHOOT\n".encode('utf-8')) # Already in English
+                    # Send optimistic confirmation to client
+                    confirmation_payload = {"status": "received", "command": "SHOOT"}
+                    writer.write(json.dumps(confirmation_payload).encode('utf-8') + b'\n')
+                    logger.info(f"Sent command reception confirmation for 'SHOOT' to {player.name if player else addr}")
                     await writer.drain()
             
             # Обработка других команд (например, из GameRoom.handle_player_command)
@@ -147,7 +151,9 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 #     writer.write("UNKNOWN_COMMAND\n".encode('utf-8'))
                 #     await writer.drain()
                 # ALWAYS SEND UNKNOWN_COMMAND for simplicity in tests, or adjust tests
-                writer.write("UNKNOWN_COMMAND\n".encode('utf-8')) # Already in English
+                # Standardize to JSON response
+                response_json = {"status": "error", "message": "UNKNOWN_COMMAND"}
+                writer.write(json.dumps(response_json).encode('utf-8') + b'\n') # Send JSON response
                 await writer.drain()
 
             # Подтверждение получения команды (если команда не QUIT и не вызвала ошибку ранее)

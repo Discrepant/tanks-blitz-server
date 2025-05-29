@@ -72,15 +72,14 @@ class TestKafkaClientConfluent(unittest.TestCase):
             # Если текущая реализация get_kafka_producer (которую я читал) не использует spec, этот assert упадет.
             # Это поможет понять, отличается ли выполняемый код от прочитанного.
             self.assertIsNotNone(producer._spec_class, "Мок продюсера должен иметь _spec_class, если он использует spec.")
-            # В core.message_broker_clients Producer импортируется как `from confluent_kafka import Producer`
-            # Таким образом, core.message_broker_clients.Producer ДОЛЖЕН быть реальным классом, т.к. мы убрали внешний @patch
-            self.assertIs(producer._spec_class, core.message_broker_clients.Producer, 
-                          f"Ожидалось, что _spec_class будет {core.message_broker_clients.Producer}, но он {producer._spec_class}")
+            # В core.message_broker_clients используется алиас ConfluentKafkaProducer_actual
+            self.assertIs(producer._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual, 
+                          f"Ожидалось, что _spec_class будет {core.message_broker_clients.ConfluentKafkaProducer_actual}, но он {producer._spec_class}")
 
         else: # USE_MOCKS не "true"
-            # Для этого пути нам нужно мокировать 'core.message_broker_clients.Producer',
+            # Для этого пути нам нужно мокировать 'core.message_broker_clients.ConfluentKafkaProducer_actual',
             # чтобы не создавать реального продюсера. Используем локальный контекстный менеджер.
-            with patch('core.message_broker_clients.Producer') as MockProducerLocal:
+            with patch('core.message_broker_clients.ConfluentKafkaProducer_actual') as MockProducerLocal:
                 mock_producer_instance = MockProducerLocal.return_value # Мок экземпляра продюсера
                 # Явно задаем поведение атрибута _is_custom_kafka_mock для мока реального продюсера.
                 # Это предотвратит авто-создание MagicMock для этого атрибута, который является truthy.
@@ -129,7 +128,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
             # Это требует, чтобы первый get_kafka_producer() был сделан ВНУТРИ этого блока patch.
             # Переструктурируем немного:
             core.message_broker_clients._kafka_producer = None # Сброс перед тестом этого пути
-            with patch('core.message_broker_clients.Producer') as MockProducerLocalContext:
+            with patch('core.message_broker_clients.ConfluentKafkaProducer_actual') as MockProducerLocalContext:
                 # Явно задаем поведение атрибута _is_custom_kafka_mock для мока реального продюсера.
                 MockProducerLocalContext.return_value._is_custom_kafka_mock = False
 
@@ -145,87 +144,67 @@ class TestKafkaClientConfluent(unittest.TestCase):
                 MockProducerLocalContext.assert_called_once() # Конструктор Producer должен быть вызван только один раз
 
 
-    # Используем вложенные декораторы @patch. Внешний (первый) мок передается последним аргументом.
-    @patch('core.message_broker_clients.Producer')          # Внешний декоратор, mock_Producer будет mock_producer_class_arg
-    @patch('core.message_broker_clients.delivery_report')   # Внутренний декоратор, mock_delivery_report будет mock_delivery_report_func_arg
-    def test_send_kafka_message_success(self, mock_delivery_report_func_arg, mock_producer_class_arg):
+    # Декораторы удалены. Тест теперь проверяет USE_MOCKS="true" путь.
+    def test_send_kafka_message_success(self):
         """
-        Тест успешной отправки сообщения Kafka.
-        Проверяет, что `producer.produce` и `producer.poll` вызываются корректно.
+        Тест успешной отправки сообщения Kafka (когда USE_MOCKS="true").
+        Проверяет, что get_kafka_producer возвращает мок, и его методы produce/poll вызываются.
         """
-        # mock_delivery_report_func_arg - это мок для функции delivery_report из модуля.
-        # mock_producer_class_arg - это мок для класса Producer.
-        
-        mock_producer_instance = mock_producer_class_arg.return_value # Получаем мок экземпляра продюсера
-        # Вручную устанавливаем глобальный продюсер в наш мок-экземпляр для этого теста,
-        # так как get_kafka_producer внутри send_kafka_message будет его использовать.
-        core.message_broker_clients._kafka_producer = mock_producer_instance
-        
-        topic = "test_topic"
-        message_dict = {"key": "value", "num": 123}
-        expected_value_bytes = json.dumps(message_dict).encode('utf-8') # Ожидаемые байты сообщения
-        
-        result = send_kafka_message(topic, message_dict) # Вызываем тестируемую функцию
-        self.assertTrue(result, "send_kafka_message должна возвращать True при успешном начале отправки.")
-        
-        # Проверяем, что метод produce у продюсера был вызван с правильными аргументами
-        mock_producer_instance.produce.assert_called_once_with(
-            topic,
-            value=expected_value_bytes,
-            callback=core.message_broker_clients.delivery_report # Убеждаемся, что используется реальная callback-функция из модуля
-        )
-        mock_producer_instance.poll.assert_called_once_with(0) # Проверяем вызов poll
-
-    @patch('core.message_broker_clients.Producer')
-    def test_send_kafka_message_no_producer_after_init_failure(self, MockProducer):
-        """
-        Тест: send_kafka_message корректно обрабатывает ситуацию, когда продюсер не может быть создан.
-        Проверяет, что возвращается False и глобальный продюсер остается None.
-        """
-        if os.environ.get("USE_MOCKS") == "true":
-            # Когда USE_MOCKS=true, get_kafka_producer() всегда возвращает мок и не вызывает Producer(),
-            # поэтому KafkaException не будет возбуждена таким образом.
-            # Этот сценарий теста применим только когда USE_MOCKS не установлен в "true".
-            # Можно либо пропустить тест, либо проверить, что send_kafka_message возвращает True,
-            # так как мок-продюсер успешно используется.
-            # Для сохранения цели теста (проверка обработки сбоя инициализации), мы его здесь не выполняем.
-            # Вместо этого убедимся, что send_kafka_message работает с моком.
-            core.message_broker_clients._kafka_producer = None # Reset to ensure get_kafka_producer is called
-            producer = get_kafka_producer() # Should return the custom mock
-            self.assertTrue(getattr(producer, '_is_custom_kafka_mock', False))
+        with patch.dict(os.environ, {"USE_MOCKS": "true"}, clear=True):
+            core.message_broker_clients._kafka_producer = None # Сброс перед тестом
             
-            # Попытка имитировать сбой внутри send_kafka_message, если get_kafka_producer вернул None (что не должно случиться при USE_MOCKS="true")
-            # Этот участок кода проверяет, что если get_kafka_producer() вернул бы None, то send_kafka_message вернул бы False.
-            # Но при USE_MOCKS="true", get_kafka_producer() не вернет None.
-            with patch('core.message_broker_clients.get_kafka_producer', return_value=None) as mock_get_producer_None:
-                 result_if_producer_is_none = send_kafka_message("test_topic_mock_fail", {"key": "value"})
-                 self.assertFalse(result_if_producer_is_none, "send_kafka_message должна вернуть False, если get_kafka_producer вернул None.")
-                 mock_get_producer_None.assert_called_once()
-            return
+            # Получаем кастомный мок-продюсер из get_kafka_producer
+            # Он должен иметь spec=ConfluentKafkaProducer_actual, 
+            # поэтому .produce и .poll будут MagicMock атрибутами.
+            producer_mock = get_kafka_producer()
+            self.assertTrue(getattr(producer_mock, '_is_custom_kafka_mock', False))
+            self.assertIs(producer_mock._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual)
 
-        # Следующая логика выполняется только если USE_MOCKS не "true"
-        # Имитируем сбой при создании продюсера, когда вызывается get_kafka_producer
-        MockProducer.side_effect = core.message_broker_clients.KafkaException("Ошибка создания продюсера")
-        
-        # Убеждаемся, что _kafka_producer равен None, чтобы get_kafka_producer (вызываемый внутри send_kafka_message)
-        # попытался его создать.
-        core.message_broker_clients._kafka_producer = None 
-        
-        # Вызываем send_kafka_message. Это внутренне вызовет get_kafka_producer,
-        # который попытается создать Producer (и потерпит неудачу).
-        result = send_kafka_message("test_topic_fail", {"key": "value"})
-        
-        # Проверяем, что send_kafka_message корректно обработал сбой
-        self.assertFalse(result, "send_kafka_message должна вернуть False, если продюсер не удалось создать.")
-        
-        # Проверяем, что была попытка создать Producer ровно один раз
-        MockProducer.assert_called_once() 
-        
-        # Проверяем, что глобальный продюсер остается None после сбоя
-        self.assertIsNone(core.message_broker_clients._kafka_producer, "Глобальный продюсер должен оставаться None после ошибки инициализации.")
+            # producer_mock.produce и producer_mock.poll уже являются MagicMock благодаря spec
+            # Можно сбросить их состояние перед вызовом send_kafka_message, если это нужно
+            producer_mock.produce.reset_mock()
+            producer_mock.poll.reset_mock() # Если poll используется
 
-    @patch('core.message_broker_clients.Producer')
-    def test_close_kafka_producer_flushes_or_skips_for_mock(self, MockProducer): # Renamed for clarity
+            topic = "test_topic"
+            message_dict = {"key": "value", "num": 123}
+            expected_value_bytes = json.dumps(message_dict).encode('utf-8')
+
+            # Мокируем delivery_report, так как send_kafka_message передает его как callback
+            with patch('core.message_broker_clients.delivery_report') as mock_delivery_cb:
+                result = send_kafka_message(topic, message_dict)
+                self.assertTrue(result, "send_kafka_message должна возвращать True при успешном начале отправки.")
+
+                producer_mock.produce.assert_called_once_with(
+                    topic,
+                    value=expected_value_bytes,
+                    callback=mock_delivery_cb 
+                )
+                # Проверяем вызов poll (или flush, в зависимости от логики send_kafka_message)
+                producer_mock.poll.assert_called_once_with(0) 
+
+    # Декоратор удален. Тест теперь проверяет USE_MOCKS="false" путь.
+    def test_send_kafka_message_no_producer_after_init_failure(self):
+        """
+        Тест: send_kafka_message (когда USE_MOCKS="false") корректно обрабатывает ошибку создания продюсера.
+        Проверяет, что возвращается False, и была попытка создать реальный продюсер.
+        """
+        # Этот тест должен выполняться с USE_MOCKS="false"
+        with patch.dict(os.environ, {"USE_MOCKS": "false"}, clear=True):
+            core.message_broker_clients._kafka_producer = None # Сброс глобального продюсера
+
+            # Патчим ConfluentKafkaProducer_actual (реальный класс) так, чтобы его конструктор вызывал ошибку
+            with patch('core.message_broker_clients.ConfluentKafkaProducer_actual', 
+                       side_effect=core.message_broker_clients.KafkaException("Test KProducer Init Error")) as mock_real_producer_class:
+                
+                result = send_kafka_message("any_topic_init_fail", {"key": "value"})
+                
+                self.assertFalse(result, "send_kafka_message должна вернуть False, если продюсер не удалось создать.")
+                mock_real_producer_class.assert_called_once() # Проверяем, что была попытка создать реальный продюсер
+                self.assertIsNone(core.message_broker_clients._kafka_producer, "Глобальный продюсер должен оставаться None после ошибки инициализации.")
+                # Можно также проверить лог предупреждения/ошибки, если это важно.
+
+    @patch('core.message_broker_clients.ConfluentKafkaProducer_actual') # Патчим реальный класс для этого теста
+    def test_close_kafka_producer_flushes_or_skips_for_mock(self, MockProducer): # MockProducer здесь это ConfluentKafkaProducer_actual
         """
         Тест: close_kafka_producer вызывает flush у реального продюсера,
         но пропускает flush для MagicMock (помеченного как _is_custom_kafka_mock) и просто обнуляет.

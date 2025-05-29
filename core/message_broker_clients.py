@@ -7,7 +7,8 @@ import json
 import logging
 import os
 import pika # Библиотека для работы с RabbitMQ
-from confluent_kafka import Producer, KafkaException # KafkaError as ConfluentKafkaError (ConfluentKafkaError не используется напрямую, KafkaException шире)
+# Use the alias as requested by the subtask
+from confluent_kafka import Producer as ConfluentKafkaProducer_actual, KafkaException 
 from unittest.mock import MagicMock # Используется для мокирования в тестах
 
 logger = logging.getLogger(__name__)
@@ -59,11 +60,10 @@ def get_kafka_producer():
     global _kafka_producer
     if os.getenv("USE_MOCKS") == "true":
         # Если используется режим моков
-        if not (isinstance(_kafka_producer, MagicMock) and hasattr(_kafka_producer, '_is_custom_kafka_mock') and _kafka_producer._spec_class == Producer):
+        if not (isinstance(_kafka_producer, MagicMock) and hasattr(_kafka_producer, '_is_custom_kafka_mock') and _kafka_producer._spec_class == ConfluentKafkaProducer_actual):
             # Если _kafka_producer еще не является нашим кастомным моком со правильным spec, создаем его.
-            # Используем spec=Producer, чтобы мок имел тот же интерфейс, что и реальный Producer.
-            # Producer здесь это 'from confluent_kafka import Producer'.
-            _kafka_producer = MagicMock(spec=Producer, name="GlobalMockKafkaProducer")
+            # Используем spec=ConfluentKafkaProducer_actual, чтобы мок имел тот же интерфейс, что и реальный Producer.
+            _kafka_producer = MagicMock(spec=ConfluentKafkaProducer_actual, name="GlobalMockKafkaProducer")
             # .produce и .flush будут автоматически созданы MagicMock из spec, если они есть в Producer.
             # Настроим .flush отдельно, если нужно специфичное поведение, например, return_value.
             _kafka_producer.flush.return_value = 0 # flush возвращает количество сообщений в очереди
@@ -81,7 +81,7 @@ def get_kafka_producer():
                 'linger.ms': 10 # Ожидание до 10 мс для группировки сообщений в батчи
                 # 'message.timeout.ms': 30000 # Опционально: таймаут для запроса продюсера
             }
-            _kafka_producer = Producer(conf)
+            _kafka_producer = ConfluentKafkaProducer_actual(conf) # Use the alias here too
             logger.info(f"Продюсер Confluent Kafka инициализирован с конфигурацией: {conf}")
         except KafkaException as e: # Перехватываем общую ошибку KafkaException от confluent-kafka
             logger.error(f"Не удалось инициализировать продюсер Confluent Kafka: {e}")

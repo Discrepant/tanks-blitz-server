@@ -218,7 +218,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "success", f"Ответ сервера: {response_str}")
-            self.assertIn("integ_user успешно аутентифицирован", response_json.get("message", ""), "Сообщение об успехе неверно.")
+            self.assertIn("User integ_user authenticated successfully.", response_json.get("message", ""), "Сообщение об успехе неверно.")
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON из ответа сервера аутентификации: {response_str}")
 
@@ -229,7 +229,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "failure", f"Ответ сервера: {response_str}")
-            self.assertIn("Неверный пароль", response_json.get("message", ""), "Сообщение о неверном пароле неверно.")
+            self.assertIn("Authentication failed: Incorrect password.", response_json.get("message", ""), "Сообщение о неверном пароле неверно.")
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
 
@@ -240,7 +240,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "failure", f"Ответ сервера: {response_str}")
-            self.assertIn("Пользователь не найден", response_json.get("message", ""), "Сообщение 'Пользователь не найден' неверно.")
+            self.assertIn("Authentication failed: User not found.", response_json.get("message", ""), "Сообщение 'Пользователь не найден' неверно.")
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
 
@@ -251,7 +251,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         try:
             response_json = json.loads(response_str)
             self.assertEqual(response_json.get("status"), "error", f"Ответ сервера: {response_str}")
-            self.assertEqual(response_json.get("message"), "Неизвестное или отсутствующее действие", f"Сообщение об ошибке неверно: {response_str}")
+            self.assertEqual(response_json.get("message"), "Unknown or missing action", f"Сообщение об ошибке неверно: {response_str}")
         except json.JSONDecodeError:
             self.fail(f"Не удалось декодировать JSON: {response_str}")
             
@@ -274,13 +274,13 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         response = await tcp_client_request(HOST, GAME_PORT, "LOGIN integ_user wrong_pass_for_game")
         self.assertTrue(response.startswith("LOGIN_FAILURE"), f"Ответ от игрового сервера: {response}")
         # Сообщение об ошибке приходит от сервера аутентификации через AuthClient.
-        self.assertIn("Неверный пароль", response, "Сообщение должно указывать на неверный пароль от сервера аутентификации.")
+        self.assertIn("Authentication failed: Incorrect password.", response, "Сообщение должно указывать на неверный пароль от сервера аутентификации.")
 
     async def test_07_game_server_login_user_not_found_via_auth_client(self): # Переименовано
         """Тест неудачного логина на игровом сервере (пользователь не найден в AuthClient)."""
         response = await tcp_client_request(HOST, GAME_PORT, "LOGIN nosuchuser_integ gamepass")
         self.assertTrue(response.startswith("LOGIN_FAILURE"), f"Ответ от игрового сервера: {response}")
-        self.assertIn("Пользователь не найден", response, "Сообщение должно указывать, что пользователь не найден (от сервера аутентификации).")
+        self.assertIn("Authentication failed: User not found.", response, "Сообщение должно указывать, что пользователь не найден (от сервера аутентификации).")
 
     async def test_08_game_server_chat_after_login(self):
         """
@@ -318,10 +318,10 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         await reader2.readuntil(b"\n") # "SERVER: Добро пожаловать..."
         # Клиент 2 получит сообщение о том, что Клиент 1 уже в комнате
         join_msg_c1_for_c2 = await reader2.readuntil(b"\n") 
-        self.assertIn(f"SERVER: Игрок {login_cmd1.split()[1]} присоединился".encode('utf-8'), join_msg_c1_for_c2, "Клиент 2 не получил сообщение о присоединении Клиента 1")
+        self.assertIn(f"SERVER: Player {login_cmd1.split()[1]} joined".encode('utf-8'), join_msg_c1_for_c2, "Клиент 2 не получил сообщение о присоединении Клиента 1")
         # Клиент 1 получит сообщение о том, что Клиент 2 присоединился
         join_msg_c2_for_c1 = await reader1.readuntil(b"\n")
-        self.assertIn(f"SERVER: Игрок {login_cmd2.split()[1]} присоединился".encode('utf-8'), join_msg_c2_for_c1, "Клиент 1 не получил сообщение о присоединении Клиента 2")
+        self.assertIn(f"SERVER: Player {login_cmd2.split()[1]} joined".encode('utf-8'), join_msg_c2_for_c1, "Клиент 1 не получил сообщение о присоединении Клиента 2")
 
 
         # Клиент 1 отправляет сообщение в чат
@@ -393,7 +393,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         # Сервер должен отправить подтверждение QUIT и затем закрыть соединение.
         try:
             response_quit_bytes = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=1.0)
-            self.assertIn("SERVER: Вы выходите из комнаты...".encode('utf-8'), response_quit_bytes, "Не получено подтверждение выхода.")
+            self.assertIn("SERVER: You are leaving the room...".encode('utf-8'), response_quit_bytes, "Не получено подтверждение выхода.")
 
             # После подтверждения QUIT, сервер должен закрыть соединение.
             # Попытка чтения из закрытого сокета должна вернуть EOF (пустые байты) или вызвать ошибку.

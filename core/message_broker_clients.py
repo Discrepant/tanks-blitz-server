@@ -247,10 +247,13 @@ def close_kafka_producer():
     """
     global _kafka_producer
     if _kafka_producer is not None:
-        if isinstance(_kafka_producer, MagicMock): # Если это мок, просто обнуляем
+        # Проверяем, является ли это нашим специальным моком из get_kafka_producer (когда USE_MOCKS="true")
+        if hasattr(_kafka_producer, '_is_custom_kafka_mock') and _kafka_producer._is_custom_kafka_mock is True:
             _kafka_producer = None
-            logger.info("Мок-продюсер Kafka обнулен.")
+            logger.info("Пользовательский мок-продюсер Kafka (_is_custom_kafka_mock) обнулен без вызова flush.")
             return
+        # Если это не наш специальный мок (например, это мок, созданный @patch в тесте для "реального" продюсера,
+        # или реальный продюсер), тогда пытаемся вызвать flush.
         try:
             # Ожидание отправки всех сообщений из очереди продюсера.
             # Таймаут - это максимальное время ожидания отправки ВСЕХ сообщений,

@@ -330,7 +330,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         # Проверяем, что было отправлено сообщение об успешном логине
         # (tcp_handler отправляет это сообщение).
-        writer.write.assert_any_call(b"LOGIN_SUCCESS Успешный вход Token: session_token_123\n")
+        writer.write.assert_any_call("LOGIN_SUCCESS Успешный вход Token: session_token_123\n".encode('utf-8'))
 
         # Проверяем, что remove_player был вызван при завершении работы хендлера
         # (даже если цикл команд не выполнился далее из-за reader.feed_eof()).
@@ -364,7 +364,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         self.game_room.add_player.assert_not_called() # Игрок не должен быть добавлен в комнату
 
         # Проверяем отправку сообщения о неудаче
-        writer.write.assert_called_once_with(b"LOGIN_FAILURE Неверный пароль\n")
+        writer.write.assert_called_once_with("LOGIN_FAILURE Неверный пароль\n".encode('utf-8'))
         self.game_room.remove_player.assert_not_called() # Игрок не был добавлен, поэтому не должен удаляться
         writer.close.assert_called_once() # Соединение все равно должно быть закрыто
         writer.wait_closed.assert_called_once()
@@ -423,7 +423,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_game_client(reader, writer, self.game_room)
 
         # Проверки
-        MockPlayerConstructor.assert_called_once_with(writer, "gooduser", "token_xyz") # Проверка создания игрока
+        MockPlayerConstructor.assert_called_once_with(writer=writer, name="gooduser", session_token="token_xyz") # Проверка создания игрока
         self.game_room.add_player.assert_called_once_with(mock_created_player) # Проверка добавления в комнату
         
         # Проверяем, что handle_player_command была вызвана с правильными аргументами для команды SAY

@@ -8,6 +8,7 @@
 import asyncio
 import unittest
 from unittest.mock import patch, MagicMock # Инструменты для мокирования
+import json # <--- Добавлен импорт json
 
 # Добавляем путь к корневой директории проекта, чтобы можно было импортировать auth_server.
 # Это стандартная практика для запуска тестов, находящихся в поддиректориях.
@@ -40,7 +41,7 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("testuser_auth", "testpass_auth")
         self.assertTrue(authenticated, "Аутентификация должна быть успешной с верными данными.")
-        self.assertIn("успешно аутентифицирован", message, "Сообщение должно подтверждать успешную аутентификацию.")
+        self.assertIn("authenticated successfully", message.lower(), "Сообщение должно подтверждать успешную аутентификацию.")
 
     async def test_authenticate_user_wrong_password(self):
         """
@@ -49,7 +50,7 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("testuser_auth_wrong", "wrong_password")
         self.assertFalse(authenticated, "Аутентификация должна провалиться с неверным паролем.")
-        self.assertEqual("Неверный пароль.", message, "Сообщение должно указывать на неверный пароль.")
+        self.assertEqual("Incorrect password.", message, "Сообщение должно указывать на неверный пароль.")
 
     async def test_authenticate_user_not_found(self):
         """
@@ -58,7 +59,7 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("nonexistentuser", "somepassword")
         self.assertFalse(authenticated, "Аутентификация должна провалиться для несуществующего пользователя.")
-        self.assertEqual("Пользователь не найден.", message, "Сообщение должно указывать, что пользователь не найден.")
+        self.assertEqual("User not found.", message, "Сообщение должно указывать, что пользователь не найден.")
 
 class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     """
@@ -81,6 +82,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         writer = MagicMock(spec=asyncio.StreamWriter) # Мок для StreamWriter
         writer.get_extra_info.return_value = ('127.0.0.1', 12345) # Имитируем адрес клиента
+        writer.is_closing.return_value = False # Добавленная строка
         # Мокируем асинхронные методы drain и close, чтобы они возвращали завершенный Future.
         writer.drain = MagicMock(return_value=asyncio.Future())
         writer.drain.return_value.set_result(None)
@@ -129,16 +131,17 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         writer = MagicMock(spec=asyncio.StreamWriter)
         writer.get_extra_info.return_value = ('127.0.0.1', 12345)
+        writer.is_closing.return_value = False
         writer.drain = MagicMock(return_value=asyncio.Future()); writer.drain.return_value.set_result(None)
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock()
 
-        with patch('auth_server.tcp_handler.authenticate_user', return_value=(False, "Неверный пароль")) as mock_auth:
+        with patch('auth_server.tcp_handler.authenticate_user', return_value=(False, "Incorrect password.")) as mock_auth:
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_called_once_with("testuser_auth", "wrongpass")
-        expected_response_dict = {"status": "failure", "message": "Аутентификация не удалась: Неверный пароль"}
+        expected_response_dict = {"status": "failure", "message": "Authentication failed: Incorrect password."}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -154,6 +157,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         writer = MagicMock(spec=asyncio.StreamWriter)
         writer.get_extra_info.return_value = ('127.0.0.1', 12345)
+        writer.is_closing.return_value = False # Corrected: ensure only one line
         writer.drain = MagicMock(return_value=asyncio.Future()); writer.drain.return_value.set_result(None)
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
@@ -165,7 +169,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться
         # Ожидаем ответ об ошибке JSON
-        expected_response_dict = {"status": "error", "message": "Невалидный формат JSON"}
+        expected_response_dict = {"status": "error", "message": "Invalid JSON format"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -181,6 +185,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         writer = MagicMock(spec=asyncio.StreamWriter)
         writer.get_extra_info.return_value = ('127.0.0.1', 12345)
+        writer.is_closing.return_value = False
         writer.drain = MagicMock(return_value=asyncio.Future()); writer.drain.return_value.set_result(None)
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
@@ -190,7 +195,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться для неизвестного действия
-        expected_response_dict = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
+        expected_response_dict = {"status": "error", "message": "Unknown or missing action"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()

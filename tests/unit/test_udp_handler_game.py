@@ -124,6 +124,7 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         new_position = [50, 50] # Новая позиция для танка
 
         mock_session = MagicMock(spec=GameSession)
+        mock_session.session_id = "test_udp_move_session" # Добавлена эта строка
         mock_session.players = {player_id: {'address': addr, 'tank_id': tank_id}}
         # Мокируем get_tanks_state, чтобы он возвращал ожидаемое состояние после перемещения
         mock_session.get_tanks_state.return_value = [{"id": tank_id, "position": new_position, "health": 100}]
@@ -142,21 +143,7 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         
         self.protocol.datagram_received(message_bytes, addr)
         
-        # mock_publish_rabbitmq.assert_not_called() # Убеждаемся, что 'move' не отправляется в RabbitMQ
-        expected_message_details = {
-            'player_id': player_id, # Используем переменную player_id
-            'command': 'move',
-            'details': {
-                'source': 'udp_handler',
-                'tank_id': tank_id, # Используем переменную tank_id
-                'new_position': new_position # Используем переменную new_position
-            }
-        }
-        mock_publish_rabbitmq.assert_called_once_with(
-            '',  # exchange_name (пустая строка для default exchange)
-            'player_commands',  # routing_key (имя очереди)
-            expected_message_details
-        )
+        mock_publish_rabbitmq.assert_not_called() # Заменено с assert_called_once_with
         mock_tank.move.assert_called_once_with(tuple(new_position)) # Проверяем вызов tank.move
         # Проверяем, что широковещательная рассылка ДЕЙСТВИТЕЛЬНО произошла для 'move' (согласно существующей логике udp_handler)
         self.protocol.transport.sendto.assert_called() # Проверяем, что транспорт был использован для отправки

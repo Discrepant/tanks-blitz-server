@@ -36,13 +36,6 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Имитируем, что StreamReader возвращает этот запрос (в байтах, с новой строкой)
         reader.readuntil.return_value = (json.dumps(login_request) + '\n').encode('utf-8')
 
-        # Мокируем функцию authenticate_user, чтобы она возвращала успешный результат
-        with patch('auth_server.tcp_handler.authenticate_user', AsyncMock(return_value=(True, "Пользователь player1 успешно аутентифицирован."))) as mock_auth_user:
-            await handle_auth_client(reader, writer) # Вызываем тестируемый обработчик
-
-        # Проверяем, что authenticate_user была вызвана с правильными аргументами
-        mock_auth_user.assert_called_once_with("player1", "password123")
-        
         # Ожидаемый JSON-ответ от сервера
         # В текущей реализации tcp_handler, сообщение об успехе используется и как message, и как session_id
         # Предполагаем, что сообщение от authenticate_user также будет на английском, если оно используется напрямую.

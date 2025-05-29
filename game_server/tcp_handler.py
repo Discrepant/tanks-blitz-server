@@ -106,8 +106,10 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                         # Публикуем команду в RabbitMQ
                         await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
                         logger.info(f"Команда MOVE от {player.name} ({x},{y}) опубликована в RabbitMQ.")
+                        writer.write("COMMAND_RECEIVED MOVE\n".encode('utf-8')) # Отправляем подтверждение
+                        await writer.drain()
                     except ValueError:
-                        writer.write("MOVE_ERROR Неверные координаты\n".encode('utf-8'))
+                        writer.write("MOVE_ERROR Invalid coordinates\n".encode('utf-8')) # Локализация сообщения об ошибке
                         await writer.drain()
                         logger.error(f"Неверные координаты для команды MOVE от {player.name}: {parts[1:]}")
                         continue
@@ -121,6 +123,8 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     # Публикуем команду в RabbitMQ
                     await publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_data)
                     logger.info(f"Команда SHOOT от {player.name} опубликована в RabbitMQ.")
+                    writer.write("COMMAND_RECEIVED SHOOT\n".encode('utf-8')) # Отправляем подтверждение
+                    await writer.drain()
             
             # Обработка других команд (например, из GameRoom.handle_player_command)
             elif player and cmd in ["SAY", "HELP", "PLAYERS", "QUIT"]:
@@ -134,47 +138,43 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             
             else: # Неизвестная команда
                 logger.warning(f"Неизвестная команда '{cmd}' от {player.name if player else addr}. Полное сообщение: '{message_str}'")
-                if player: # Если игрок есть, но команда неизвестна для этого обработчика
-                    await player.send_message(f"SERVER: Неизвестная команда '{cmd}'. Введите HELP для списка команд.")
-                else: # Если игрок еще не залогинен и команда не LOGIN/REGISTER
-                    writer.write("UNKNOWN_COMMAND\n".encode('utf-8'))
-                    await writer.drain()
+                # Независимо от того, залогинен ли игрок, если команда не распознана этим основным блоком if/elif,
+                # отправляем стандартизированный UNKNOWN_COMMAND.
+                # Логика SAY, HELP, PLAYERS, QUIT обрабатывается выше и имеет свои ответы.
+                writer.write("UNKNOWN_COMMAND\n".encode('utf-8'))
+                await writer.drain()
 
             # Подтверждение получения команды (если команда не QUIT и не вызвала ошибку ранее)
             # Этот ответ может быть избыточен, если game_room.handle_player_command уже отправил ответ.
             # Для MOVE/SHOOT ответ не обязателен, так как они асинхронны.
-            if cmd not in ["QUIT", "LOGIN", "REGISTER"] and (cmd in ["MOVE", "SHOOT"] or player): # Только если это не команды, завершающие соединение или уже обработанные
-                # logger.info(f"DEBUG: Игрок {player.name if player else addr} пытается отправить ответ: {cmd.strip()}")
-                # writer.write(f"COMMAND_RECEIVED {cmd}\n".encode('utf-8'))
-                # await writer.drain()
-                # logger.info(f"DEBUG: Игрок {player.name if player else addr} ответ отправлен и сброшен.")
-                pass # Решено убрать общий COMMAND_RECEIVED, так как ответы специфичны для команд
+            # if cmd not in ["QUIT", "LOGIN", "REGISTER"] and (cmd in ["MOVE", "SHOOT"] or player): # Только если это не команды, завершающие соединение или уже обработанные
+            #     pass # Убрали общий COMMAND_RECEIVED, так как ответы теперь специфичны для команд MOVE/SHOOT или обрабатываются в GameRoom
 
     except ConnectionResetError:
-        logger.info(f"Соединение сброшено клиентом {player.name if player else addr} ({addr}).")
+        logger.info(f"Connection reset by client {player.name if player else addr} ({addr}).")
     except asyncio.IncompleteReadError:
-        logger.info(f"Клиент {player.name if player else addr} ({addr}) закрыл соединение (IncompleteReadError).")
+        logger.info(f"Client {player.name if player else addr} ({addr}) closed connection (IncompleteReadError).")
     except Exception as e:
-        logger.critical(f"Критическая ошибка в handle_game_client для {addr}: {e}", exc_info=True)
+        logger.critical(f"Critical error in handle_game_client for {addr}: {e}", exc_info=True)
         if writer and not writer.is_closing(): # Если writer все еще открыт
             try:
                 # Пытаемся уведомить клиента о критической ошибке
                 writer.write(f"CRITICAL_SERVER_ERROR {type(e).__name__}\n".encode('utf-8'))
                 await writer.drain()
             except Exception as we:
-                logger.error(f"Не удалось отправить сообщение о критической ошибке клиенту {addr}: {we}")
+                logger.error(f"Could not send critical error message to client {addr}: {we}")
     finally:
-        logger.info(f"Завершение обработки для {addr}. Игрок: {player.name if player else 'N/A'}.")
+        logger.info(f"Finalizing processing for {addr}. Player: {player.name if player else 'N/A'}.")
         if player: # Если объект игрока был создан
-            logger.info(f"Удаление игрока {player.name} из игровой комнаты {game_room}.")
+            logger.info(f"Removing player {player.name} from game room {game_room}.")
             await game_room.remove_player(player) # Удаляем игрока из игровой комнаты
         
         # Закрываем writer, если он еще не закрыт
         if writer and not writer.is_closing():
-            logger.debug(f"Закрытие writer для {addr} в блоке finally.")
+            logger.debug(f"Closing writer for {addr} in finally block.")
             writer.close()
             try:
                 await writer.wait_closed() # Ожидаем полного закрытия
             except Exception as e_close:
-                logger.error(f"Ошибка при ожидании закрытия writer для {addr}: {e_close}", exc_info=True)
-        logger.info(f"Соединение с {addr} (игрок: {player.name if player else 'N/A'}) полностью закрыто.")
+                logger.error(f"Error during writer.wait_closed() for {addr}: {e_close}", exc_info=True)
+        logger.info(f"Connection with {addr} (player: {player.name if player else 'N/A'}) fully closed.")

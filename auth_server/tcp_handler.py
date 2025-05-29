@@ -33,7 +33,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         # Проверка на пустые данные или только символ новой строки перед декодированием
         if not raw_data_bytes.strip(): # MODIFIED - проверяем после strip(), чтобы учесть \n
             logger.warning(f"От {addr} получено пустое сообщение или только символ новой строки. Отправка ошибки и закрытие.")
-            response_data = {"status": "error", "message": "Получено пустое сообщение или только символ новой строки"} # Error message updated
+            response_data = {"status": "error", "message": "Empty message or only newline character received"} # Error message updated
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
             # Явный блок закрытия удален, полагаемся на finally
@@ -48,7 +48,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         # Проверка, не является ли строка пустой ПОСЛЕ удаления пробельных символов.
         if not message_json_str: 
             logger.warning(f"От {addr} получено пустое сообщение после strip. Отправка ошибки и закрытие.")
-            response_data = {"status": "error", "message": "Получено пустое сообщение"} # This specific error message
+            response_data = {"status": "error", "message": "Empty message received after strip"} # This specific error message, translated
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
             # Явный блок закрытия удален, полагаемся на finally
@@ -70,26 +70,26 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     SUCCESSFUL_AUTHS.inc() # Увеличиваем счетчик успешных аутентификаций
                     # Временно используем response_message (который является токеном или ID сессии) как session_id
                     response_data = {"status": "success", "message": response_message, "session_id": response_message} 
-                    logger.info(f"Пользователь '{username}' успешно аутентифицирован. Ответ: {response_data}")
+                    logger.info(f"User '{username}' authenticated successfully. Response: {response_data}")
                 else:
                     FAILED_AUTHS.inc() # Увеличиваем счетчик неудачных аутентификаций
-                    response_data = {"status": "failure", "message": f"Аутентификация не удалась: {response_message}"}
-                    logger.warning(f"Неудачная попытка аутентификации для пользователя '{username}'. Причина: {response_message}. Ответ: {response_data}")
+                    response_data = {"status": "failure", "message": f"Authentication failed: {response_message}"}
+                    logger.warning(f"Failed authentication attempt for user '{username}'. Reason: {response_message}. Response: {response_data}")
             
             elif action == "register": # Если действие - "register"
                 # Это mock-ответ для регистрации. В реальной системе здесь была бы логика регистрации.
-                response_data = {"status": "success", "message": "Действие регистрации получено (mock-ответ)"}
-                logger.info(f"Получен mock-запрос на регистрацию для пользователя '{username}'. Ответ: {response_data}")
+                response_data = {"status": "success", "message": "Registration action received (mock response)"}
+                logger.info(f"Received mock registration request for user '{username}'. Response: {response_data}")
             
             else: # Если действие неизвестно
-                response_data = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
-                logger.warning(f"Неизвестное или отсутствующее действие '{action}' от {addr}. Ответ: {response_data}")
+                response_data = {"status": "error", "message": "Unknown or missing action"}
+                logger.warning(f"Unknown or missing action '{action}' from {addr}. Response: {response_data}")
 
         # Обработка ошибки декодирования JSON.
         except json.JSONDecodeError as je:
             # message_json_str доступна здесь и содержит строку, вызвавшую ошибку.
             logger.error(f"От {addr} получен невалидный JSON: '{message_json_str}' | Ошибка: {je}. Сырые байты: {raw_data_bytes!r}")
-            response_data = {"status": "error", "message": "Невалидный формат JSON"}
+            response_data = {"status": "error", "message": "Invalid JSON format"}
             # FAILED_AUTHS.inc() # Можно рассмотреть, считать ли это неудачной аутентификацией
             writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
             await writer.drain()
@@ -115,7 +115,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     # если ошибка декодирования произойдет вне внутреннего try-except.
     except UnicodeDecodeError as ude: 
         logger.error(f"Ошибка декодирования Unicode от {addr} (внешний перехват): {ude}. Сырые данные: {raw_data_bytes!r}")
-        response_data = {"status": "error", "message": "Неверная кодировка символов. Ожидается UTF-8."}
+        response_data = {"status": "error", "message": "Invalid character encoding. UTF-8 expected."}
         
         # Этот лог остается для отладки состояния writer
         logger.debug(f"В обработчике UnicodeDecodeError для {addr}: writer.is_closing() равно {writer.is_closing()}") 
@@ -138,7 +138,7 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         if not writer.is_closing(): # Если writer еще не закрывается
             try:
                 # Гарантируем, что даже при общих ошибках пытаемся отправить JSON-ответ.
-                error_response_data = {"status": "error", "message": "Внутренняя ошибка сервера"}
+                error_response_data = {"status": "error", "message": "Internal server error"}
                 writer.write(json.dumps(error_response_data).encode('utf-8') + b'\n')
                 await writer.drain()
                 logger.debug(f"Отправлено JSON сообщение об ошибке клиенту {addr}: {error_response_data}")

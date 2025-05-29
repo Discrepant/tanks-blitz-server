@@ -158,6 +158,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         mock_producer_magic_mock_instance = MagicMock(spec=core.message_broker_clients.Producer)
         # Убедимся, что у мока есть метод flush, чтобы не было AttributeError при проверке isinstance
         mock_producer_magic_mock_instance.flush = MagicMock(return_value=0)
+        mock_producer_magic_mock_instance._is_custom_kafka_mock = True # Добавлена эта строка
         
         core.message_broker_clients._kafka_producer = mock_producer_magic_mock_instance
         close_kafka_producer()

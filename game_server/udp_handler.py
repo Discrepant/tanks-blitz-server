@@ -147,14 +147,31 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                 if session:
                     player_data = session.players.get(player_id)
                     if player_data:
-                        tank = self.tank_pool.get_tank(player_data['tank_id'])
-                        if tank:
-                            new_position = message.get("position")
-                            tank.move(tuple(new_position)) # Убеждаемся, что позиция - кортеж
-                            logger.debug(f"Танк {tank.tank_id} игрока {player_id} перемещен в {new_position}")
-                            # Готовим обновление состояния игры для рассылки
-                            current_game_state = {"action": "game_update", "tanks": session.get_tanks_state()}
-                            self.broadcast_to_session(session, current_game_state, f"обновление_игры для игрока {player_id}")
+                        tank_id = player_data.get('tank_id')
+                        new_position = message.get("position") # Ожидаем, что position передается в виде списка или кортежа
+
+                        if tank_id and new_position is not None:
+                            command_message = {
+                                "player_id": player_id,
+                                "command": "move",
+                                "details": {
+                                    "source": "udp_handler",
+                                    "tank_id": tank_id,
+                                    "new_position": new_position # new_position уже должен быть списком/кортежем
+                                }
+                            }
+                            try:
+                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
+                                logger.info(f"Опубликована команда 'move' для игрока {player_id} (танк: {tank_id}, позиция: {new_position}) в очередь RabbitMQ '{RABBITMQ_QUEUE_PLAYER_COMMANDS}'.")
+                                # Опционально: отправить клиенту подтверждение о ПРИЕМЕ команды, если это требуется по протоколу UDP.
+                                # Например: self.transport.sendto(json.dumps({"status":"move_command_received"}).encode('utf-8'), addr)
+                                # Сейчас такой ответ не отправляется, чтобы соответствовать поведению команды 'shoot'.
+                            except Exception as e:
+                                logger.error(f"Не удалось опубликовать команду 'move' для игрока {player_id} (танк: {tank_id}) в RabbitMQ: {e}", exc_info=True)
+                        elif not tank_id:
+                            logger.warning(f"Не найден tank_id для игрока {player_id} в сессии, не может выполнить 'move'.")
+                        elif new_position is None:
+                            logger.warning(f"Отсутствует 'position' в команде 'move' от игрока {player_id}.")
                 else:
                     logger.warning(f"Игрок {player_id} не в сессии, не может выполнить 'move'.")
 

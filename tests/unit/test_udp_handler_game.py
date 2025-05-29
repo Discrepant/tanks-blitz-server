@@ -143,10 +143,35 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         
         self.protocol.datagram_received(message_bytes, addr)
         
-        mock_publish_rabbitmq.assert_not_called() # Заменено с assert_called_once_with
-        mock_tank.move.assert_called_once_with(tuple(new_position)) # Проверяем вызов tank.move
-        # Проверяем, что широковещательная рассылка ДЕЙСТВИТЕЛЬНО произошла для 'move' (согласно существующей логике udp_handler)
-        self.protocol.transport.sendto.assert_called() # Проверяем, что транспорт был использован для отправки
+        # Ожидаемое тело сообщения для RabbitMQ
+        expected_mq_message = {
+            "player_id": player_id, # Используются переменные из теста: player_id, tank_id, new_position
+            "command": "move",
+            "details": {
+                "source": "udp_handler",
+                "tank_id": tank_id,
+                "new_position": new_position 
+            }
+        }
+        
+        # Проверяем, что publish_rabbitmq_message была вызвана корректно
+        mock_publish_rabbitmq.assert_called_once_with(
+            '',  # exchange_name (обменник по умолчанию)
+            'player_commands',  # routing_key (имя очереди)
+            expected_mq_message
+        )
+        
+        # Проверяем, что tank.move() НЕ вызывается напрямую в UDP-обработчике
+        mock_tank.move.assert_not_called()
+        
+        # Проверяем, что широковещательная рассылка (обновление состояния всем) НЕ произошла из UDP-обработчика.
+        # Если UDP-обработчик отправляет только простое подтверждение отправителю,
+        # то эта проверка должна быть более специфичной или может быть удалена,
+        # но текущая логика не предполагает ответа для move.
+        # Если transport.sendto используется только для broadcast_to_session, то assert_not_called() подходит.
+        # Если же могут быть другие sendto (например, ответ-подтверждение самому клиенту), 
+        # нужно будет уточнить. Пока предполагаем, что для move ответа нет, как и для shoot.
+        self.protocol.transport.sendto.assert_not_called()
 
 
     def test_datagram_received_join_game_no_rabbitmq(self, mock_publish_rabbitmq: MagicMock):

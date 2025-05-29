@@ -36,42 +36,47 @@ class RedisClient:
         В противном случае, создается реальный асинхронный клиент Redis
         с использованием пула соединений.
         """
-        if not hasattr(self, 'initialized'): # Гарантирует однократную инициализацию
+        if not hasattr(self, 'initialized'): # Ensures one-time initialization
             if os.getenv("USE_MOCKS") == "true":
-                self.client = MagicMock(name="MockRedisClientInternal") # Создаем мок с спецификацией реального клиента
-                self._mock_storage = {} # Внутреннее хранилище для мока
+                # Create a mock with the spec of the actual redis.Redis client
+                self.client = MagicMock(spec=redis.Redis, name="MockRedisClient") 
+                self._mock_storage = {} # Internal storage for the mock
 
-                # Мокируем основные команды Redis асинхронными моками
-                self.client.ping = AsyncMock(return_value=True) # ping всегда успешен
+                # Mock core Redis commands with AsyncMock
+                self.client.ping = AsyncMock(return_value=True) # ping always successful
             
                 async def mock_get(name):
-                    # Имитация команды GET
+                    # Simulate GET command
                     return self._mock_storage.get(name)
                 self.client.get = AsyncMock(side_effect=mock_get)
 
                 async def mock_set(name, value, ex=None):
-                    # Имитация команды SET, включая опциональное время жизни (ex)
+                    # Simulate SET command, including optional expiration (ex)
                     self._mock_storage[name] = value
-                    return True # Имитация успешного выполнения SET в Redis
+                    # Simulate successful SET in Redis (usually returns True or raises an error)
+                    # For simplicity, always return True for the mock. Actual client might return None on success for SET.
+                    # However, tests might rely on True. If strict redis.Redis spec is needed,
+                    # this might need adjustment based on library version or specific test expectations.
+                    return True 
                 self.client.set = AsyncMock(side_effect=mock_set)
 
                 async def mock_delete(*names):
-                    # Имитация команды DELETE для одного или нескольких ключей
+                    # Simulate DELETE command for one or more keys
                     count = 0
                     for name in names:
                         if name in self._mock_storage:
                             del self._mock_storage[name]
                             count += 1
-                    return count # Redis DELETE возвращает количество удаленных ключей
+                    return count # Redis DELETE returns the number of keys deleted
                 self.client.delete = AsyncMock(side_effect=mock_delete)
                 
                 self.initialized = True
-                logger.info("Клиент Redis инициализирован в режиме MOCK.")
+                logger.info("Redis client initialized in MOCK mode.")
             else:
-                # Конфигурация для реального клиента Redis
-                self.redis_host = os.getenv("REDIS_HOST", "redis-service") # Хост Redis, по умолчанию "redis-service" (для K8s)
-                self.redis_port = int(os.getenv("REDIS_PORT", 6379)) # Порт Redis
-                # self.redis_password = os.getenv("REDIS_PASSWORD", None) # Пароль, если используется
+                # Configuration for the real Redis client
+                self.redis_host = os.getenv("REDIS_HOST", "redis-service") # Redis host, default "redis-service" (for K8s)
+                self.redis_port = int(os.getenv("REDIS_PORT", 6379)) # Redis port
+                # self.redis_password = os.getenv("REDIS_PASSWORD", None) # Password, if used
                 
                 # Создание пула соединений для эффективного управления подключениями
                 self.pool = redis.ConnectionPool(
@@ -83,7 +88,7 @@ class RedisClient:
                 # Создание асинхронного клиента Redis с использованием пула соединений
                 self.client = redis.Redis(connection_pool=self.pool)
                 self.initialized = True
-                logger.info(f"Клиент Redis инициализирован для {self.redis_host}:{self.redis_port}")
+                logger.info(f"Redis client initialized for {self.redis_host}:{self.redis_port}")
 
     async def get(self, name):
         """
@@ -133,21 +138,21 @@ class RedisClient:
         try:
             return await self.client.ping()
         except Exception as e:
-            logger.error(f"Ошибка при проверке соединения с Redis (ping): {e}")
+            logger.error(f"Error pinging Redis: {e}")
             return False
 
 # Пример использования (требует асинхронного контекста для запуска)
 # async def example_usage():
 #     redis_cli = RedisClient() # Получаем экземпляр Singleton
 #     if await redis_cli.ping():
-#         logger.info("Успешное подключение к Redis.")
+#         logger.info("Successfully connected to Redis.")
 #         await redis_cli.set("mykey", "myvalue", ex=60) # Устанавливаем ключ на 60 секунд
 #         value = await redis_cli.get("mykey")
-#         logger.info(f"Получено значение из Redis: {value}")
+#         logger.info(f"Retrieved value from Redis: {value}")
 #         await redis_cli.delete("mykey")
-#         logger.info(f"Ключ 'mykey' удален.")
+#         logger.info(f"Key 'mykey' deleted.")
 #     else:
-#         logger.error("Не удалось подключиться к Redis.")
+#         logger.error("Failed to connect to Redis.")
 
 if __name__ == '__main__':
     # Для запуска этого примера нужен запущенный цикл событий asyncio.

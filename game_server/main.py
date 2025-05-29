@@ -7,6 +7,7 @@
 # - Менеджер игровых сессий и пул объектов танков.
 # - Потребители сообщений из RabbitMQ для команд игроков и событий матчмейкинга.
 # - Сервер метрик Prometheus.
+import sys # Added for file=sys.stderr
 import logging # Добавляем импорт для логирования
 # # Устанавливаем уровень DEBUG для всего пакета 'game_server' и добавляем обработчик.
 # # Это позволяет детально логировать события внутри этого пакета.
@@ -37,6 +38,27 @@ logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %
 # до инициализации других логгеров.
 # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 logger = logging.getLogger(__name__) # Создаем логгер для текущего модуля
+
+# Define a file path for integration test logging
+INTEGRATION_TEST_LOG_FILE = "/tmp/game_server_integration_test.log"
+
+# Function to set up file logging
+def setup_file_logging():
+    try:
+        # Clear previous log file
+        if os.path.exists(INTEGRATION_TEST_LOG_FILE):
+            os.remove(INTEGRATION_TEST_LOG_FILE)
+        
+        file_handler = logging.FileHandler(INTEGRATION_TEST_LOG_FILE)
+        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s')
+        file_handler.setFormatter(formatter)
+        logging.getLogger().addHandler(file_handler) # Add to root logger to capture all logs
+        logging.getLogger().setLevel(logging.DEBUG) # Ensure root logger level is low enough
+        logger.info(f"File logging set up to {INTEGRATION_TEST_LOG_FILE}")
+        print(f"[GameServerMain] File logging configured to {INTEGRATION_TEST_LOG_FILE}", flush=True, file=sys.stderr)
+    except Exception as e:
+        print(f"[GameServerMain] ERROR setting up file logging: {e}", flush=True, file=sys.stderr)
+
 
 def update_metrics():
     """
@@ -109,33 +131,44 @@ async def start_game_server():
     logger.info(f"Game UDP server started and listening on {transport.get_extra_info('sockname')}")
 
     # Запуск TCP-сервера
-    game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0') # Хост TCP-сервера из переменной окружения
-    game_tcp_port = int(os.getenv('GAME_SERVER_TCP_PORT', 8889)) # Порт TCP-сервера из переменной окружения
-    auth_server_host = os.getenv('AUTH_SERVER_HOST', 'localhost') # Хост сервера аутентификации
-    auth_server_port = int(os.getenv('AUTH_SERVER_PORT', 8888))   # Порт сервера аутентификации
-
-    # Инициализация клиента аутентификации и игровой комнаты
-    auth_client = AuthClient(auth_server_host=auth_server_host, auth_server_port=auth_server_port)
-    game_room = GameRoom(auth_client=auth_client) # GameRoom использует auth_client для аутентификации игроков
-
-    # Создаем обработчик для TCP-сервера с частично примененными аргументами
-    tcp_server_handler = functools.partial(handle_game_client, game_room=game_room)
-    tcp_server = await loop.create_server(
-        tcp_server_handler, # Обработчик новых TCP-соединений
-        game_tcp_host,
-        game_tcp_port
-    )
-    logger.info(f"Game TCP server started and listening on {game_tcp_host}:{game_tcp_port}")
-    # Пример логирования фактического адреса, на котором слушает сервер:
-    # logger.info(f"TCP-сервер фактически слушает на {tcp_server.sockets[0].getsockname()}")
-
+    game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
+    game_tcp_port = int(os.getenv('GAME_SERVER_TCP_PORT', 8889))
+    auth_server_host = os.getenv('AUTH_SERVER_HOST', 'localhost')
+    auth_server_port = int(os.getenv('AUTH_SERVER_PORT', 8888))
+    logger.info(f"AuthClient will connect to {auth_server_host}:{auth_server_port}")
+    print(f"[GameServerMain_start_game_server] AuthClient target: {auth_server_host}:{auth_server_port}", flush=True, file=sys.stderr)
 
     try:
-        # Бесконечное ожидание события. Сервер будет работать, пока это событие не будет установлено.
-        # Это стандартный способ поддерживать работу asyncio-сервера в основном потоке.
+        auth_client = AuthClient(auth_server_host=auth_server_host, auth_server_port=auth_server_port)
+        logger.info("AuthClient initialized successfully.")
+        print("[GameServerMain_start_game_server] AuthClient initialized.", flush=True, file=sys.stderr)
+        
+        game_room = GameRoom(auth_client=auth_client)
+        logger.info("GameRoom initialized successfully.")
+        print("[GameServerMain_start_game_server] GameRoom initialized.", flush=True, file=sys.stderr)
+        
+        tcp_server_handler = functools.partial(handle_game_client, game_room=game_room)
+        logger.info("TCP server handler (partial) created.")
+        print("[GameServerMain_start_game_server] TCP handler partial created.", flush=True, file=sys.stderr)
+        
+        tcp_server = await loop.create_server(
+            tcp_server_handler,
+            game_tcp_host,
+            game_tcp_port
+        )
+        logger.info(f"Game TCP server created and listening on {game_tcp_host}:{game_tcp_port}")
+        print(f"[GameServerMain_start_game_server] Game TCP server created, listening on {game_tcp_host}:{game_tcp_port}.", flush=True, file=sys.stderr)
+
+    except Exception as e_setup:
+        logger.critical(f"CRITICAL ERROR during server setup: {e_setup}", exc_info=True)
+        print(f"[GameServerMain_start_game_server] CRITICAL ERROR during server setup: {e_setup}", flush=True, file=sys.stderr)
+        return # Stop if setup fails
+
+    try:
         await asyncio.Event().wait() 
     finally:
         logger.info("Stopping game servers...")
+        print("[GameServerMain_start_game_server] Stopping game servers in finally block.", flush=True, file=sys.stderr)
         # Остановка TCP-сервера
         if 'tcp_server' in locals() and tcp_server:
             tcp_server.close() # Закрываем сервер
@@ -149,8 +182,9 @@ async def start_game_server():
 
 if __name__ == '__main__':
     # Настраиваем логирование здесь, чтобы оно было установлено как можно раньше.
-    # logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s') # Removed as per instruction
+    setup_file_logging() # Setup file logging
     logger.info("Starting game server application...")
+    print("[GameServerMain] Starting game server application.", flush=True, file=sys.stderr)
 
     # Инициализация общих экземпляров SessionManager и TankPool.
     # Вероятно, они спроектированы как синглтоны или управляют глобальным состоянием.

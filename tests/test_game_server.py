@@ -150,7 +150,7 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(self.game_room.players["player1_logic"], player1, "Объект игрока в комнате не совпадает с добавленным.")
         # Проверяем, что сообщение о входе было отправлено игроку
         # (GameRoom.add_player отправляет "SERVER: Добро пожаловать...")
-        self.player1_writer.write.assert_any_call(b"SERVER: Добро пожаловать в игровую комнату!\n")
+        self.player1_writer.write.assert_any_call("SERVER: Welcome to the game room!\n".encode('utf-8')) # English
 
     async def test_remove_player(self):
         """
@@ -236,7 +236,7 @@ class TestGameLogic(unittest.IsolatedAsyncioTestCase):
         called_with_arg_bytes = self.player1_writer.write.call_args[0][0]
         called_with_arg_str = called_with_arg_bytes.decode('utf-8') 
         
-        self.assertIn("SERVER: Игроки в комнате:", called_with_arg_str, "Ответ не содержит ожидаемый префикс.")
+        self.assertIn("SERVER: Players in room:", called_with_arg_str, "Ответ не содержит ожидаемый префикс.") # English
         self.assertIn("p1_cmd_players", called_with_arg_str, "Имя игрока отсутствует в списке.")
 
 
@@ -307,7 +307,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.is_closing.return_value = False # Writer открыт
 
         # Настраиваем мок game_room.authenticate_player для успешного входа
-        self.game_room.authenticate_player.return_value = (True, "Успешный вход", "session_token_123")
+        self.game_room.authenticate_player.return_value = (True, "Login successful", "session_token_123") # English message
 
         # Используем patch для конструктора Player, чтобы проверить его вызов и вернуть мок-экземпляр.
         with patch('game_server.tcp_handler.Player', autospec=True) as MockPlayerConstructor:
@@ -330,7 +330,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         # Проверяем, что было отправлено сообщение об успешном логине
         # (tcp_handler отправляет это сообщение).
-        writer.write.assert_any_call(b"LOGIN_SUCCESS Успешный вход Token: session_token_123\n")
+        writer.write.assert_any_call("LOGIN_SUCCESS Login successful Token: session_token_123\n".encode('utf-8')) # English
 
         # Проверяем, что remove_player был вызван при завершении работы хендлера
         # (даже если цикл команд не выполнился далее из-за reader.feed_eof()).
@@ -354,7 +354,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.is_closing.return_value = False
 
         # Настраиваем мок game_room.authenticate_player для неудачного входа
-        self.game_room.authenticate_player.return_value = (False, "Неверный пароль", None)
+        self.game_room.authenticate_player.return_value = (False, "Incorrect password", None) # English message
 
         with patch('game_server.tcp_handler.Player', autospec=True) as MockPlayerConstructor:
             await handle_game_client(reader, writer, self.game_room)
@@ -364,7 +364,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         self.game_room.add_player.assert_not_called() # Игрок не должен быть добавлен в комнату
 
         # Проверяем отправку сообщения о неудаче
-        writer.write.assert_called_once_with(b"LOGIN_FAILURE Неверный пароль\n")
+        writer.write.assert_called_once_with("LOGIN_FAILURE Incorrect password\n".encode('utf-8')) # English
         self.game_room.remove_player.assert_not_called() # Игрок не был добавлен, поэтому не должен удаляться
         writer.close.assert_called_once() # Соединение все равно должно быть закрыто
         writer.wait_closed.assert_called_once()
@@ -423,7 +423,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_game_client(reader, writer, self.game_room)
 
         # Проверки
-        MockPlayerConstructor.assert_called_once_with(writer, "gooduser", "token_xyz") # Проверка создания игрока
+        MockPlayerConstructor.assert_called_once_with(writer=writer, name="gooduser", session_token="token_xyz") # Keyword args
         self.game_room.add_player.assert_called_once_with(mock_created_player) # Проверка добавления в комнату
         
         # Проверяем, что handle_player_command была вызвана с правильными аргументами для команды SAY

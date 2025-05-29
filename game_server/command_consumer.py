@@ -44,21 +44,24 @@ class PlayerCommandConsumer:
         self.tank_pool = tank_pool
         self.rabbitmq_channel = None # Канал RabbitMQ
         self.connection = None # Соединение с RabbitMQ
-        # Убеждаемся, что переменные окружения извлекаются с значениями по умолчанию при необходимости
-        self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost') # Хост RabbitMQ
+        
+        self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq') # Changed default to 'rabbitmq'
+        self.rabbitmq_port = int(os.environ.get('RABBITMQ_PORT', 5672))
+        self.rabbitmq_user = os.environ.get('RABBITMQ_DEFAULT_USER', 'user')
+        self.rabbitmq_pass = os.environ.get('RABBITMQ_DEFAULT_PASS', 'password')
+        self.rabbitmq_vhost = os.environ.get('RABBITMQ_DEFAULT_VHOST', '/')
+        
         self.player_commands_queue = RABBITMQ_QUEUE_PLAYER_COMMANDS # Имя очереди команд
 
-        # self._connect_and_declare() # Удалено из __init__
-
     def _connect_and_declare(self):
-        logger.info(f"PlayerCommandConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
+        logger.info(f"PlayerCommandConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}:{self.rabbitmq_port} (vhost: {self.rabbitmq_vhost}, user: {self.rabbitmq_user})...")
         try:
-            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
+            credentials = PlainCredentials(username=self.rabbitmq_user, password=self.rabbitmq_pass)
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
-                    port=5672, # Явно указываем порт
-                    virtual_host='/', # Стандартный virtual host
+                    port=self.rabbitmq_port,
+                    virtual_host=self.rabbitmq_vhost,
                     credentials=credentials,
                     heartbeat=600,
                     blocked_connection_timeout=300
@@ -70,7 +73,7 @@ class PlayerCommandConsumer:
             logger.info(f"PlayerCommandConsumer: Successfully connected to RabbitMQ and declared queue '{self.player_commands_queue}'.")
         except AMQPConnectionError as e:
             logger.error(f"PlayerCommandConsumer: Failed to connect to RabbitMQ in _connect_and_declare: {e}")
-            self.connection = None # Убедимся, что они None при ошибке
+            self.connection = None 
             self.rabbitmq_channel = None
         except Exception as e:
             logger.error(f"PlayerCommandConsumer: An unexpected error occurred during RabbitMQ setup: {e}", exc_info=True)
@@ -80,26 +83,17 @@ class PlayerCommandConsumer:
     def _callback(self, ch, method, properties, body):
         """
         Callback-функция для обработки входящих сообщений из RabbitMQ.
-
-        Декодирует сообщение, извлекает данные команды, находит соответствующий
-        танк и вызывает его методы. Подтверждает сообщение после обработки.
-
-        Args:
-            ch: Канал RabbitMQ.
-            method: Метаданные метода доставки.
-            properties: Свойства сообщения.
-            body (bytes): Тело сообщения (ожидается JSON).
         """
         try:
             logger.info(f"PlayerCommandConsumer: Received command via RabbitMQ: {body.decode()}")
-            message_data = json.loads(body.decode()) # Декодируем JSON
+            message_data = json.loads(body.decode()) 
             player_id = message_data.get("player_id")
             command = message_data.get("command")
-            details = message_data.get("details", {}) # Детали команды, по умолчанию пустой словарь
+            details = message_data.get("details", {})
 
             if not player_id or not command:
                 logger.error("PlayerCommandConsumer: Message is missing player_id or command.")
-                ch.basic_ack(delivery_tag=method.delivery_tag) # Подтверждаем сообщение, чтобы удалить его из очереди
+                ch.basic_ack(delivery_tag=method.delivery_tag) 
                 return
 
             session = self.session_manager.get_session_by_player_id(player_id)
@@ -129,53 +123,30 @@ class PlayerCommandConsumer:
             logger.info(f"PlayerCommandConsumer: Processing command '{command}' for player {player_id}, tank {tank_id}.")
 
             if command == "shoot":
-                tank.shoot() # Этот метод уже отправляет сообщение в Kafka
-                # Дополнительная логика, связанная с результатом выстрела, может быть добавлена здесь
+                tank.shoot() 
                 logger.info(f"PlayerCommandConsumer: Tank {tank_id} executed 'shoot' command for player {player_id}.")
             elif command == "move":
-                # Предполагается, что 'details' содержит 'new_position'
                 new_position = details.get("new_position")
                 if new_position:
-                    tank.move(tuple(new_position)) # Этот метод уже отправляет сообщение в Kafka
+                    tank.move(tuple(new_position)) 
                     logger.info(f"PlayerCommandConsumer: Tank {tank_id} executed 'move' to {new_position} for player {player_id}.")
                 else:
                     logger.warning(f"PlayerCommandConsumer: Missing new_position in 'move' command details for player {player_id}.")
-            # Добавляйте обработчики других команд по мере необходимости
-            # Пример:
-            # elif command == "use_ability":
-            #    ability_id = details.get("ability_id")
-            #    if ability_id:
-            #        # tank.use_ability(ability_id) # Предполагая, что такой метод существует
-            #        logger.info(f"PlayerCommandConsumer: Tank {tank_id} used ability {ability_id} for player {player_id}.")
-            #        # Отправка сообщения Kafka об использовании способности, если это не обрабатывается в методе танка
-            #        send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, {
-            #            "event_type": "ability_used", "tank_id": tank.tank_id, 
-            #            "ability_id": ability_id, "player_id": player_id, "timestamp": time.time()
-            #        })
-            #    else:
-            #        logger.warning(f"PlayerCommandConsumer: Missing ability_id in 'use_ability' command for player {player_id}.")
             else:
                 logger.warning(f"PlayerCommandConsumer: Received unknown command '{command}' for player {player_id}.")
 
-            ch.basic_ack(delivery_tag=method.delivery_tag) # Подтверждаем успешную обработку
+            ch.basic_ack(delivery_tag=method.delivery_tag) 
 
         except json.JSONDecodeError as e:
             logger.error(f"PlayerCommandConsumer: Failed to decode JSON from message: {body.decode()}. Error: {e}")
-            ch.basic_ack(delivery_tag=method.delivery_tag) # Подтверждаем некорректное сообщение, чтобы удалить его
+            ch.basic_ack(delivery_tag=method.delivery_tag) 
         except Exception as e:
             logger.exception(f"PlayerCommandConsumer: Unexpected error while processing RabbitMQ message: {body.decode()}")
-            # Повторная постановка сообщения в очередь (requeue) если это уместно, или отправка в DLQ (dead-letter queue).
-            # Для простоты, мы подтверждаем сообщение, но в продакшене рассмотрите requeue или DLQ.
-            # ch.basic_nack(delivery_tag=method.delivery_tag, requeue=False) # Пример: отправить в DLQ, если настроено
-            ch.basic_ack(delivery_tag=method.delivery_tag) # Пока просто подтверждаем
+            ch.basic_ack(delivery_tag=method.delivery_tag)
 
 
     def start_consuming(self):
-        """
-        Начинает потребление сообщений из очереди RabbitMQ.
-        Включает механизм повторного подключения и перезапуска потребления в случае ошибок.
-        """
-        self._connect_and_declare() # Добавлен вызов в начало метода
+        self._connect_and_declare() 
 
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
             logger.error("PlayerCommandConsumer: Failed to establish connection with RabbitMQ. Consumer cannot start.")
@@ -185,7 +156,6 @@ class PlayerCommandConsumer:
         self.rabbitmq_channel.basic_consume(
             queue=self.player_commands_queue,
             on_message_callback=self._callback
-            # auto_ack=False # Уже по умолчанию, обеспечивает ручное подтверждение
         )
         try:
             self.rabbitmq_channel.start_consuming()
@@ -194,24 +164,17 @@ class PlayerCommandConsumer:
             self.stop_consuming()
         except Exception as e:
             logger.error(f"PlayerCommandConsumer: Consumer error: {e}. Attempting to restart consumption...", exc_info=True)
-            # Потенциально можно добавить задержку и механизм повторных попыток здесь
-            self.stop_consuming() # Очищаем текущее состояние
-            time.sleep(5) # Ожидание перед повторной попыткой
-            self.start_consuming() # Повторная попытка
+            self.stop_consuming() 
+            time.sleep(5) 
+            self.start_consuming() 
 
     def stop_consuming(self):
-        """
-        Останавливает потребление сообщений и закрывает соединение с RabbitMQ.
-        """
         if self.rabbitmq_channel and self.rabbitmq_channel.is_open:
             logger.info("PlayerCommandConsumer: Stopping RabbitMQ consumer...")
             try:
-                self.rabbitmq_channel.stop_consuming() # Останавливаем потребление
+                self.rabbitmq_channel.stop_consuming() 
             except Exception as e:
                 logger.error(f"PlayerCommandConsumer: Error while stopping consumption: {e}", exc_info=True)
-            # Закрытие канала здесь может быть преждевременным, если соединение используется совместно.
-            # Однако, если этот консьюмер управляет своим каналом эксклюзивно, то можно закрыть.
-            # self.rabbitmq_channel.close() 
             logger.info("PlayerCommandConsumer: RabbitMQ consumer stopped.")
         if self.connection and self.connection.is_open:
             logger.info("PlayerCommandConsumer: Closing connection to RabbitMQ...")
@@ -221,97 +184,29 @@ class PlayerCommandConsumer:
                 logger.error(f"PlayerCommandConsumer: Error while closing connection: {e}", exc_info=True)
             logger.info("PlayerCommandConsumer: Connection to RabbitMQ closed.")
 
-# Пример того, как это может быть запущено (например, в отдельном потоке или процессе)
-if __name__ == '__main__':
-    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s - %(message)s')
-    
-    # Мок-объекты для SessionManager и TankPool для автономного тестирования
-    class MockSessionManager:
-        """Мок-класс для SessionManager."""
-        def get_session_by_player_id(self, player_id):
-            if player_id == "player123":
-                mock_session = type('MockSession', (), {})() # Создаем простой мок-объект
-                mock_session.session_id = "session789"
-                mock_session.players = {"player123": {"tank_id": "tankABC"}}
-                return mock_session
-            return None
-
-    class MockTank:
-        """Мок-класс для Tank."""
-        def __init__(self, tank_id):
-            self.tank_id = tank_id
-        def shoot(self):
-            logger.info(f"MockTank {self.tank_id} is shooting.")
-            # Имитация отправки сообщения Kafka, как в реальном классе Tank
-            send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, {
-                "event_type": "tank_shot", "tank_id": self.tank_id, "timestamp": time.time()
-            })
-        def move(self, new_position):
-            logger.info(f"MockTank {self.tank_id} is moving to {new_position}.")
-            send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, { # Или KAFKA_DEFAULT_TOPIC_TANK_COORDINATES
-                "event_type": "tank_moved", "tank_id": self.tank_id, 
-                "position": new_position, "timestamp": time.time()
-            })
-
-
-    class MockTankPool:
-        """Мок-класс для TankPool."""
-        def get_tank(self, tank_id):
-            if tank_id == "tankABC":
-                return MockTank(tank_id)
-            return None
-
-    # Убедитесь, что KAFKA_BOOTSTRAP_SERVERS установлена, чтобы мок-клиент Kafka попытался подключиться
-    # os.environ['KAFKA_BOOTSTRAP_SERVERS'] = 'localhost:9092' # Установите, если не установлено извне
-    # os.environ['RABBITMQ_HOST'] = 'localhost' # Установите, если не установлено извне
-
-    logger.info("Initializing mock components for PlayerCommandConsumer test...")
-    session_manager_mock = MockSessionManager()
-    tank_pool_mock = MockTankPool()
-
-    consumer = PlayerCommandConsumer(session_manager=session_manager_mock, tank_pool=tank_pool_mock)
-    try:
-        logger.info("Starting PlayerCommandConsumer for testing...")
-        consumer.start_consuming()
-    except Exception as e:
-        logger.error(f"Failed to start consumer for testing: {e}", exc_info=True)
-    finally:
-        logger.info("Cleaning up PlayerCommandConsumer test.")
-        consumer.stop_consuming()
-
-# Добавлен класс MatchmakingEventConsumer ниже
-
 class MatchmakingEventConsumer:
-    """
-    Потребитель событий матчмейкинга из RabbitMQ.
-
-    Отвечает за получение событий, таких как 'new_match_created', и
-    взаимодействие с SessionManager для создания новых игровых сессий.
-    """
     def __init__(self, session_manager: SessionManager):
-        """
-        Инициализирует потребителя событий матчмейкинга.
-
-        Args:
-            session_manager (SessionManager): Менеджер игровых сессий.
-        """
         self.session_manager = session_manager
         self.rabbitmq_channel = None
         self.connection = None
-        self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'localhost')
+
+        self.rabbitmq_host = os.environ.get('RABBITMQ_HOST', 'rabbitmq') # Changed default to 'rabbitmq'
+        self.rabbitmq_port = int(os.environ.get('RABBITMQ_PORT', 5672))
+        self.rabbitmq_user = os.environ.get('RABBITMQ_DEFAULT_USER', 'user')
+        self.rabbitmq_pass = os.environ.get('RABBITMQ_DEFAULT_PASS', 'password')
+        self.rabbitmq_vhost = os.environ.get('RABBITMQ_DEFAULT_VHOST', '/')
+
         self.matchmaking_events_queue = RABBITMQ_QUEUE_MATCHMAKING_EVENTS
 
-        # self._connect_and_declare() # Удалено из __init__
-
     def _connect_and_declare(self):
-        logger.info(f"MatchmakingEventConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}...")
+        logger.info(f"MatchmakingEventConsumer: Attempting to connect to RabbitMQ at {self.rabbitmq_host}:{self.rabbitmq_port} (vhost: {self.rabbitmq_vhost}, user: {self.rabbitmq_user})...")
         try:
-            credentials = PlainCredentials(username='user', password='password') # Используем значения из docker-compose.yml
+            credentials = PlainCredentials(username=self.rabbitmq_user, password=self.rabbitmq_pass)
             self.connection = pika.BlockingConnection(
                 pika.ConnectionParameters(
                     host=self.rabbitmq_host,
-                    port=5672, # Явно указываем порт
-                    virtual_host='/', # Стандартный virtual host
+                    port=self.rabbitmq_port,
+                    virtual_host=self.rabbitmq_vhost,
                     credentials=credentials,
                     heartbeat=600,
                     blocked_connection_timeout=300
@@ -331,40 +226,30 @@ class MatchmakingEventConsumer:
             self.rabbitmq_channel = None
 
     def _callback(self, ch, method, properties, body):
-        """
-        Callback-функция для обработки входящих событий матчмейкинга.
-        """
         try:
             logger.info(f"MatchmakingEventConsumer: Received matchmaking event via RabbitMQ: {body.decode()}")
             message_data = json.loads(body.decode())
             
             event_type = message_data.get("event_type")
-            match_details = message_data.get("match_details", {}) # Детали матча
+            match_details = message_data.get("match_details", {})
 
             if event_type == "new_match_created":
-                # Метод SessionManager.create_session() уже отправляет сообщение в Kafka.
-                session = self.session_manager.create_session() # Создаем новую сессию
-                # Текущий GameSession не хранит map_id или детальное имя комнаты из матчмейкинга.
-                # Это может быть улучшением для GameSession и SessionManager.
+                session = self.session_manager.create_session() 
                 logger.info(f"MatchmakingEventConsumer: New game session {session.session_id} created from matchmaking event. Details: {match_details}")
-                # Если необходимо связать конкретных игроков или дополнительно настроить комнату, эта логика будет здесь.
             else:
                 logger.warning(f"MatchmakingEventConsumer: Unknown event_type '{event_type}' in matchmaking message. Ignoring.")
 
-            ch.basic_ack(delivery_tag=method.delivery_tag) # Подтверждаем сообщение
+            ch.basic_ack(delivery_tag=method.delivery_tag) 
 
         except json.JSONDecodeError as e:
             logger.error(f"MatchmakingEventConsumer: Failed to decode JSON from matchmaking message: {body.decode()}. Error: {e}")
             ch.basic_ack(delivery_tag=method.delivery_tag)
         except Exception as e:
             logger.exception(f"MatchmakingEventConsumer: Unexpected error while processing matchmaking message: {body.decode()}")
-            ch.basic_ack(delivery_tag=method.delivery_tag) # Подтверждаем, чтобы избежать циклов повторной обработки при ошибках
+            ch.basic_ack(delivery_tag=method.delivery_tag)
 
     def start_consuming(self):
-        """
-        Начинает потребление событий матчмейкинга.
-        """
-        self._connect_and_declare() # Добавлен вызов в начало метода
+        self._connect_and_declare() 
 
         if not self.rabbitmq_channel or self.rabbitmq_channel.is_closed:
             logger.error("MatchmakingEventConsumer: Failed to establish connection with RabbitMQ. Consumer cannot start.")
@@ -387,9 +272,6 @@ class MatchmakingEventConsumer:
             self.start_consuming()
 
     def stop_consuming(self):
-        """
-        Останавливает потребление событий и закрывает соединение.
-        """
         if self.rabbitmq_channel and self.rabbitmq_channel.is_open:
             logger.info("MatchmakingEventConsumer: Stopping RabbitMQ consumer...")
             try:
@@ -404,3 +286,68 @@ class MatchmakingEventConsumer:
             except Exception as e:
                 logger.error(f"MatchmakingEventConsumer: Error while closing connection: {e}", exc_info=True)
             logger.info("MatchmakingEventConsumer: Connection to RabbitMQ closed.")
+
+# Example test execution block from original file (modified for clarity)
+if __name__ == '__main__':
+    logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(name)s  - %(module)s - %(message)s')
+    
+    # Mock objects for standalone testing
+    class MockSessionManager:
+        def get_session_by_player_id(self, player_id):
+            if player_id == "player123":
+                mock_session = type('MockSession', (), {})()
+                mock_session.session_id = "session789"
+                mock_session.players = {"player123": {"tank_id": "tankABC"}}
+                return mock_session
+            return None
+        def create_session(self): # Added for MatchmakingEventConsumer
+            mock_session = type('MockSession', (), {})()
+            mock_session.session_id = "new_mock_session_" + str(time.time())
+            logger.info(f"MockSessionManager: created session {mock_session.session_id}")
+            return mock_session
+
+
+    class MockTank:
+        def __init__(self, tank_id):
+            self.tank_id = tank_id
+        def shoot(self):
+            logger.info(f"MockTank {self.tank_id} is shooting.")
+            send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, {
+                "event_type": "tank_shot", "tank_id": self.tank_id, "timestamp": time.time()
+            })
+        def move(self, new_position):
+            logger.info(f"MockTank {self.tank_id} is moving to {new_position}.")
+            send_kafka_message(KAFKA_DEFAULT_TOPIC_GAME_EVENTS, { 
+                "event_type": "tank_moved", "tank_id": self.tank_id, 
+                "position": new_position, "timestamp": time.time()
+            })
+
+    class MockTankPool:
+        def get_tank(self, tank_id):
+            if tank_id == "tankABC":
+                return MockTank(tank_id)
+            return None
+
+    # Ensure KAFKA_BOOTSTRAP_SERVERS is set if send_kafka_message is to be tested
+    # os.environ['KAFKA_BOOTSTRAP_SERVERS'] = os.environ.get('KAFKA_BOOTSTRAP_SERVERS','localhost:29092') 
+    # Ensure RabbitMQ env vars are set if not running in docker-compose context for this test
+    # os.environ['RABBITMQ_HOST'] = os.environ.get('RABBITMQ_HOST','localhost')
+    # os.environ['RABBITMQ_DEFAULT_USER'] = os.environ.get('RABBITMQ_DEFAULT_USER','user')
+    # os.environ['RABBITMQ_DEFAULT_PASS'] = os.environ.get('RABBITMQ_DEFAULT_PASS','password')
+
+
+    logger.info("Initializing mock components for Consumer tests...")
+    session_manager_mock = MockSessionManager()
+    tank_pool_mock = MockTankPool()
+
+    player_consumer = PlayerCommandConsumer(session_manager_mock, tank_pool_mock)
+    matchmaking_consumer = MatchmakingEventConsumer(session_manager_mock)
+    
+    logger.info("Starting consumers for testing (will run indefinitely if not interrupted)...")
+    # In a real test, these would be run in threads and stopped.
+    # For this __main__ block, you'd typically run one or the other, or handle KeyboardInterrupt.
+    # player_consumer.start_consuming() 
+    # matchmaking_consumer.start_consuming()
+    # For a simple test, one could publish a message and then stop.
+    # This block is mostly for illustrative purposes or manual testing.
+    print("Run consumers manually or in a separate test script for automated testing.")

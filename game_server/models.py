@@ -61,17 +61,19 @@ class Player:
             try:
                 # Добавляем символ новой строки, чтобы клиент мог использовать readuntil(b'\n')
                 self.writer.write(message.encode('utf-8') + b"\n") 
-                await self.writer.drain() # Ожидаем, пока буфер записи не будет очищен
+                # Ожидаем, пока буфер записи не будет очищен, с таймаутом
+                await asyncio.wait_for(self.writer.drain(), timeout=5.0)
                 logger.debug(f"Сообщение успешно отправлено игроку {self.name} (ID: {self.id}): {message}")
+            except asyncio.TimeoutError:
+                logger.error(f"TimeoutError: Таймаут (5s) при ожидании drain для игрока {self.name} (ID: {self.id}). Закрытие соединения.")
+                if self.writer and not self.writer.is_closing():
+                    self.writer.close()
             except ConnectionResetError:
                 logger.warning(f"ConnectionResetError: Не удалось отправить сообщение игроку {self.name} (ID: {self.id}). Соединение сброшено.")
-                # Здесь можно добавить логику для обработки сброса соединения,
-                # например, пометить игрока для удаления из игровой комнаты или сессии.
                 if self.writer and not self.writer.is_closing():
                     self.writer.close() # Закрываем writer, если он еще открыт и произошла ошибка
             except Exception as e:
                 logger.error(f"Ошибка при отправке сообщения игроку {self.name} (ID: {self.id}): {e}", exc_info=True)
-                # Аналогично, обработка других ошибок отправки.
                 if self.writer and not self.writer.is_closing():
                     self.writer.close()
         else:

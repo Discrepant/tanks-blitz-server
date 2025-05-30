@@ -41,9 +41,28 @@ async def main():
     Инициализирует и запускает TCP-сервер для приема клиентских подключений
     и сервер метрик.
     """
-    host = '0.0.0.0'  # Сервер будет слушать на всех доступных сетевых интерфейсах
-    port = 8888       # Порт для TCP-сервера аутентификации
+    DEFAULT_AUTH_HOST = '0.0.0.0'
+    DEFAULT_AUTH_PORT = 8888
+    AUTH_HOST_ENV_VAR = 'AUTH_SERVER_HOST'
+    AUTH_PORT_ENV_VAR = 'AUTH_SERVER_PORT'
+
+    host = os.environ.get(AUTH_HOST_ENV_VAR, DEFAULT_AUTH_HOST)
+
+    try:
+        port_str = os.environ.get(AUTH_PORT_ENV_VAR)
+        if port_str:
+            port = int(port_str)
+            logger.info(f"Используется порт из переменной окружения {AUTH_PORT_ENV_VAR}: {port}")
+        else:
+            port = DEFAULT_AUTH_PORT
+            logger.info(f"Переменная окружения {AUTH_PORT_ENV_VAR} не установлена, используется порт по умолчанию: {port}")
+    except ValueError:
+        port_str_val = os.environ.get(AUTH_PORT_ENV_VAR) # Re-fetch for logging
+        port = DEFAULT_AUTH_PORT
+        logger.warning(f"Не удалось преобразовать значение переменной окружения {AUTH_PORT_ENV_VAR} ('{port_str_val}') в число. Используется порт по умолчанию: {port}")
     
+    logger.info(f"Сервер аутентификации будет запущен на {host}:{port}.")
+
     # Запуск сервера метрик в отдельном потоке.
     # daemon=True означает, что поток завершится при завершении основного процесса.
     # metrics_thread = threading.Thread(target=start_metrics_server, daemon=True)

@@ -176,16 +176,28 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         logger.info(f"setUpClass: _check_server_ready для сервера аутентификации завершен. Результат: {auth_ready_result}")
         if not auth_ready_result:
             logger.error("setUpClass: Сервер аутентификации не прошел проверку готовности (или был терминирован).")
-            cls.auth_server_process.terminate() 
             try:
-                cls.auth_server_process.wait(timeout=2)
+                auth_stdout_bytes, auth_stderr_bytes = cls.auth_server_process.communicate(timeout=1)
+                auth_stdout = auth_stdout_bytes.decode(errors='ignore')
+                auth_stderr = auth_stderr_bytes.decode(errors='ignore')
+                logger.error(f"setUpClass: STDOUT сервера аутентификации (при ошибке готовности): {auth_stdout}")
+                logger.error(f"setUpClass: STDERR сервера аутентификации (при ошибке готовности): {auth_stderr}")
             except subprocess.TimeoutExpired:
-                logger.warning(f"setUpClass: Таймаут ожидания завершения сервера аутентификации (PID: {cls.auth_server_process.pid}) после terminate. Попытка kill...")
-                cls.auth_server_process.kill()
+                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от сервера аутентификации.")
+            except Exception as e_comm_auth:
+                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от сервера аутентификации: {e_comm_auth}")
+
+            if cls.auth_server_process.poll() is None: # Если еще работает, терминировать
+                cls.auth_server_process.terminate()
                 try:
-                    cls.auth_server_process.wait(timeout=1)
+                    cls.auth_server_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    logger.error(f"setUpClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) не завершился даже после kill.")
+                    logger.warning(f"setUpClass: Таймаут ожидания завершения сервера аутентификации (PID: {cls.auth_server_process.pid}) после terminate. Попытка kill...")
+                    cls.auth_server_process.kill()
+                    try:
+                        cls.auth_server_process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"setUpClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) не завершился даже после kill.")
             raise RuntimeError("Auth Server не прошел проверку готовности (или был терминирован).")
         logger.info("setUpClass: Auth Server успешно запущен и готов.")
 
@@ -218,16 +230,30 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         logger.info(f"setUpClass: _check_server_ready для игрового сервера завершен. Результат: {game_ready_result}")
         if not game_ready_result:
             logger.error("setUpClass: Игровой сервер не прошел проверку готовности (или был терминирован).")
-            cls.game_server_process.terminate() 
+            # Попытка получить вывод из игрового сервера для диагностики
             try:
-                cls.game_server_process.wait(timeout=2)
+                game_stdout_bytes, game_stderr_bytes = cls.game_server_process.communicate(timeout=1)
+                game_stdout = game_stdout_bytes.decode(errors='ignore')
+                game_stderr = game_stderr_bytes.decode(errors='ignore')
+                logger.error(f"setUpClass: STDOUT игрового сервера (при ошибке готовности): {game_stdout}")
+                logger.error(f"setUpClass: STDERR игрового сервера (при ошибке готовности): {game_stderr}")
             except subprocess.TimeoutExpired:
-                logger.warning(f"setUpClass: Таймаут ожидания завершения игрового сервера (PID: {cls.game_server_process.pid}) после terminate. Попытка kill...")
-                cls.game_server_process.kill()
+                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от игрового сервера.")
+            except Exception as e_comm:
+                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от игрового сервера: {e_comm}")
+
+            if cls.game_server_process.poll() is None: # Если еще работает, терминировать
+                cls.game_server_process.terminate()
                 try:
-                    cls.game_server_process.wait(timeout=1)
+                    cls.game_server_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
-                    logger.error(f"setUpClass: Игровой сервер (PID: {cls.game_server_process.pid}) не завершился даже после kill.")
+                    logger.warning(f"setUpClass: Таймаут ожидания завершения игрового сервера (PID: {cls.game_server_process.pid}) после terminate. Попытка kill...")
+                    cls.game_server_process.kill()
+                    try:
+                        cls.game_server_process.wait(timeout=1)
+                    except subprocess.TimeoutExpired:
+                        logger.error(f"setUpClass: Игровой сервер (PID: {cls.game_server_process.pid}) не завершился даже после kill.")
+
             if cls.auth_server_process and cls.auth_server_process.poll() is None: 
                 cls.auth_server_process.terminate()
                 try:

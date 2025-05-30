@@ -7,7 +7,7 @@
 
 import asyncio
 import unittest
-from unittest.mock import MagicMock, patch, AsyncMock # Инструменты для мокирования
+from unittest.mock import MagicMock, patch, AsyncMock, call # Инструменты для мокирования
 
 # Добавляем путь к корневой директории проекта для корректного импорта модулей.
 import sys
@@ -364,7 +364,12 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         self.game_room.add_player.assert_not_called() # Игрок не должен быть добавлен в комнату
 
         # Проверяем отправку сообщения о неудаче
-        writer.write.assert_called_once_with("LOGIN_FAILURE Incorrect password\n".encode('utf-8')) # English
+        expected_calls = [
+            call("SERVER_ACK_CONNECTED\n".encode('utf-8')),
+            call("LOGIN_FAILURE Incorrect password\n".encode('utf-8'))
+        ]
+        writer.write.assert_has_calls(expected_calls, any_order=False)
+        self.assertEqual(writer.write.call_count, len(expected_calls), "Количество вызовов writer.write не совпадает с ожидаемым")
         self.game_room.remove_player.assert_not_called() # Игрок не был добавлен, поэтому не должен удаляться
         writer.close.assert_called_once() # Соединение все равно должно быть закрыто
         writer.wait_closed.assert_called_once()

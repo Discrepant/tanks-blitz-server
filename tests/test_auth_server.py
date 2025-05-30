@@ -116,7 +116,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Ожидаем байты, так как `writer.write` принимает байты.
         # Также ожидаем символ новой строки в конце сообщения от сервера.
         # Message from authenticate_user is used directly.
-        expected_response_dict = {"status": "success", "message": "fake_token_123", "session_id": "fake_token_123"}
+        # The handler uses the username as the token value.
+        expected_response_dict = {"status": "success", "message": "fake_token_123", "token": "testuser_auth"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once() # Проверяем, что соединение было закрыто
@@ -144,7 +145,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_called_once_with("testuser_auth", "wrongpass")
-        expected_response_dict = {"status": "failure", "message": "Authentication failed: Incorrect password."} # English
+        expected_response_dict = {"status": "failure", "message": "Incorrect password."} # English
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()

@@ -1,7 +1,7 @@
-import sys # Import sys before using sys.stderr
-print(f"[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.", flush=True, file=sys.stderr) # MUST BE THE VERY FIRST LINE
-
 # game_server/main.py
+import sys # Ensure sys is imported first if using sys.stderr
+print(f"[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.", flush=True, file=sys.stderr) # THIS IS THE TARGET FIRST LINE
+
 # Главный модуль игрового сервера.
 # Отвечает за инициализацию и запуск всех компонентов игрового сервера:
 # - UDP-сервер для основного игрового взаимодействия.
@@ -12,12 +12,12 @@ print(f"[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.", flush=Tr
 # - Сервер метрик Prometheus.
 
 import os
-print(f"[GAME_SERVER_MAIN_DEBUG] os imported. About to print STARTING...", flush=True, file=sys.stderr)
+# Removed redundant print: os imported. About to print STARTING...
 
 # --- BEGIN DEBUG PRINTS ---
 # import sys # sys is already imported
 # import os # os is already imported
-print(f"[GAME_SERVER_MAIN_DEBUG] STARTING game_server/main.py", flush=True, file=sys.stderr)
+# Removed redundant print: STARTING game_server/main.py -- MODIFICATION CHECK 12345 --
 print(f"[GAME_SERVER_MAIN_DEBUG] Current sys.path: {sys.path}", flush=True, file=sys.stderr)
 print(f"[GAME_SERVER_MAIN_DEBUG] Current os.getcwd(): {os.getcwd()}", flush=True, file=sys.stderr)
 print(f"[GAME_SERVER_MAIN_DEBUG] Environ USE_MOCKS: {os.environ.get('USE_MOCKS')}", flush=True, file=sys.stderr)

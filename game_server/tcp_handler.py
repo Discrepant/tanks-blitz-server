@@ -65,21 +65,24 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     # Создаем экземпляр Player
                     # Предполагается, что Player импортирован корректно (например, из .models или .game_logic)
                     player_obj = Player(writer=writer, name=username, session_token=session_token)
-                    # Добавляем объект игрока в игровую комнату
-                    await game_room.add_player(player_obj) 
                     player = player_obj # Присваиваем объект игрока переменной обработчика
                     
-                    # Отправляем успешный ответ
+                    # Отправляем успешный ответ ПЕРЕД добавлением в комнату, чтобы тест получил его первым
                     response_msg = f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n"
                     logger.debug(f"GameTCPHandler: Sending LOGIN_SUCCESS to client. Message='{auth_message}', Token='{session_token if session_token else 'N/A'}'")
                     writer.write(response_msg.encode('utf-8'))
                     logger.debug(f"Attempting to drain writer for {addr} after sending: LOGIN_SUCCESS")
                     await writer.drain()
                     logger.info(f"Player {username} logged in from {addr} (LOGIN_SUCCESS sent). Token: {session_token if session_token else 'N/A'}")
+
+                    # Теперь добавляем объект игрока в игровую комнату
+                    # Это может отправить "Welcome" и другие сообщения комнаты
+                    await game_room.add_player(player_obj)
+
                     # player_obj is created BEFORE this block by tcp_handler
                     # The Welcome message is sent from game_room.add_player()
-                    # Add delay *before* welcome message is sent by add_player
-                    await asyncio.sleep(0.02) # Increased diagnostic delay
+                    # Add delay *after* welcome message is sent by add_player (or after LOGIN_SUCCESS)
+                    await asyncio.sleep(0.02) # Increased diagnostic delay, kept for now
                 else:
                     # Отправляем ответ о неудаче
                     response_msg = f"LOGIN_FAILURE {auth_message}\n"

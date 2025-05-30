@@ -118,25 +118,36 @@ class GameRoom:
             exclude_player (Player, optional): Игрок, которому не нужно отправлять сообщение.
                                                По умолчанию None.
         """
-        disconnected_players = [] # Список для игроков, у которых соединение было сброшено
-        # Создаем копию items для безопасной итерации, если self.players может изменяться (хотя здесь не должно)
+        # disconnected_players = [] # Список для игроков, у которых соединение было сброшено -> Handled by send_message or subsequent checks
+        tasks = []
+        # Создаем копию items для безопасной итерации, если self.players может изменяться
         for p_name, p_obj in list(self.players.items()): 
             if p_obj != exclude_player:
-                try:
-                    await p_obj.send_message(message)
-                except ConnectionResetError:
-                    logger.warning(f"Error sending to player {p_name}: connection reset. Scheduling removal.")
-                    disconnected_players.append(p_obj) # Собираем игроков для последующего удаления
-                except Exception as e:
-                    logger.error(f"Error broadcasting message to player {p_name}: {e}", exc_info=True)
-                    # Можно добавить логику для обработки других ошибок отправки,
-                    # например, пометить игрока как "проблемного" или увеличить счетчик ошибок.
+                # Player.send_message должен быть достаточно устойчив к ошибкам соединения,
+                # логировать их и, возможно, закрывать свой writer.
+                # Создаем задачу для каждой отправки, чтобы они выполнялись конкурентно.
+                tasks.append(asyncio.create_task(p_obj.send_message(message)))
 
-        # Удаляем игроков, у которых соединение было сброшено
-        for p_obj in disconnected_players:
-            if p_obj.name in self.players: # Проверяем, не был ли игрок уже удален (например, двойной вызов)
-                 logger.info(f"Removing player {p_obj.name} due to connection reset during broadcast.")
-                 await self.remove_player(p_obj)
+        if tasks:
+            # Ожидаем завершения всех задач по отправке.
+            # return_exceptions=True гарантирует, что все задачи будут выполнены,
+            # даже если некоторые из них завершатся с ошибкой.
+            # Ошибки логируются внутри Player.send_message.
+            # Здесь можно добавить дополнительное логирование результатов gather, если необходимо.
+            results = await asyncio.gather(*tasks, return_exceptions=True)
+            for i, result in enumerate(results):
+                if isinstance(result, Exception):
+                    # Эта ошибка уже должна быть залогирована в Player.send_message,
+                    # но можно добавить дополнительный контекст здесь, если задача tasks[i] доступна для интроспекции.
+                    logger.error(f"Broadcast task for a player resulted in an exception: {result}. This should have been handled within Player.send_message.")
+                    # Логика по удалению игрока здесь может быть сложной, так как нужно сопоставить результат с игроком.
+                    # Player.send_message уже должен закрывать writer при ошибке.
+                    # Последующие операции или проверки активности должны будут убирать "мертвых" игроков.
+
+        # Логика удаления отключившихся игроков может быть вынесена или усилена.
+        # Player.send_message при ошибке закрывает свой writer.
+        # Возможно, потребуется периодическая проверка "живых" соединений или при следующей попытке взаимодействия.
+        # Текущая реализация remove_player вызывается из tcp_handler при IncompleteReadError/ConnectionResetError.
 
 
     async def handle_player_command(self, player: Player, command_message: str):

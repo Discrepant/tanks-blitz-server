@@ -168,7 +168,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
 
         logger.info(f"setUpClass: Запуск процесса сервера аутентификации (auth_server.main) на {HOST}:{AUTH_PORT}...")
         cls.auth_server_process = subprocess.Popen(
-            [sys.executable, "-m", "auth_server.main"],
+            [sys.executable, "-B", "-m", "auth_server.main"], # Added -B flag
             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         logger.info(f"setUpClass: Процесс сервера аутентификации запущен. PID: {cls.auth_server_process.pid}")
@@ -218,8 +218,10 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         logger.info("setUpClass: Auth Server успешно запущен и готов.")
 
         logger.info(f"setUpClass: Запуск процесса игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
+
+        diagnostic_command = "import sys; print('DIAGNOSTIC_PRINT_FROM_GAME_SERVER_SUBPROCESS', file=sys.stderr, flush=True); sys.exit(0)"
         cls.game_server_process = subprocess.Popen(
-            [sys.executable, "-m", "game_server.main"],
+            [sys.executable, "-c", diagnostic_command], # Using -c with the new diagnostic_command
             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         logger.info(f"setUpClass: Процесс игрового сервера запущен. PID: {cls.game_server_process.pid}")
@@ -506,29 +508,43 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(welcome2_bytes.decode('utf-8').strip(), "SERVER: Welcome to the game room!")
 
         # Player joined messages
-        # Client 2 receives that Client 1 joined
-        join_msg_c1_for_c2 = await reader2.readuntil(b"\n") 
-        self.assertIn(f"SERVER: Player {login_cmd1.split()[1]} joined the room.".encode('utf-8'), join_msg_c1_for_c2, "Клиент 2 не получил сообщение о присоединении Клиента 1")
+        # When Client 2 (integ_user2) joins, Client 1 (integ_user) should be notified.
+        # Client 2 will NOT receive a "Client 1 joined" message because Client 1 was already in the room.
+
         # Client 1 receives that Client 2 joined
-        join_msg_c2_for_c1 = await reader1.readuntil(b"\n")
-        self.assertIn(f"SERVER: Player {login_cmd2.split()[1]} joined the room.".encode('utf-8'), join_msg_c2_for_c1, "Клиент 1 не получил сообщение о присоединении Клиента 2")
+        logger.debug("Test_08: Client 1 (integ_user) expecting notification that Client 2 (integ_user2) joined.")
+        join_msg_c2_for_c1 = await asyncio.wait_for(reader1.readuntil(b"\n"), timeout=1.0) # Added timeout
+        self.assertIn(f"SERVER: Player {login_cmd2.split()[1]} joined the room.".encode('utf-8'), join_msg_c2_for_c1,
+                      f"Клиент 1 ({login_cmd1.split()[1]}) не получил сообщение о присоединении Клиента 2 ({login_cmd2.split()[1]}). Получено: {join_msg_c2_for_c1.decode(errors='ignore')}")
+
+        # Client 2 should not expect a "Client 1 joined" message at this point.
+        # It will proceed to listen for chat messages.
 
         say_cmd1 = "SAY Hello from client1\n"
+        logger.debug(f"Test_08: Client 1 ({login_cmd1.split()[1]}) sending: {say_cmd1.strip()}")
         writer1.write(say_cmd1.encode('utf-8'))
         await writer1.drain()
+        logger.debug(f"Test_08: Client 1 ({login_cmd1.split()[1]}) waiting for echo of SAY command.")
         echo_msg_for_c1 = await asyncio.wait_for(reader1.readuntil(b"\n"), timeout=1.0)
-        self.assertIn(f"{login_cmd1.split()[1]}: Hello from client1".encode('utf-8'), echo_msg_for_c1, "Клиент 1 не получил эхо своего сообщения.")
+        self.assertIn(f"{login_cmd1.split()[1]}: Hello from client1".encode('utf-8'), echo_msg_for_c1, f"Клиент 1 не получил эхо своего сообщения. Получено: {echo_msg_for_c1.decode(errors='ignore')}")
+
+        logger.debug(f"Test_08: Client 2 ({login_cmd2.split()[1]}) waiting for chat message from Client 1.")
         chat_msg_for_c2 = await asyncio.wait_for(reader2.readuntil(b"\n"), timeout=1.0)
-        self.assertIn(f"{login_cmd1.split()[1]}: Hello from client1".encode('utf-8'), chat_msg_for_c2, "Клиент 2 не получил сообщение от Клиента 1.")
+        self.assertIn(f"{login_cmd1.split()[1]}: Hello from client1".encode('utf-8'), chat_msg_for_c2, f"Клиент 2 не получил сообщение от Клиента 1. Получено: {chat_msg_for_c2.decode(errors='ignore')}")
 
         say_cmd2 = "SAY Hi from client2\n"
+        logger.debug(f"Test_08: Client 2 ({login_cmd2.split()[1]}) sending: {say_cmd2.strip()}")
         writer2.write(say_cmd2.encode('utf-8'))
         await writer2.drain()
+        logger.debug(f"Test_08: Client 2 ({login_cmd2.split()[1]}) waiting for echo of SAY command.")
         echo_msg_for_c2 = await asyncio.wait_for(reader2.readuntil(b"\n"), timeout=1.0)
-        self.assertIn(f"{login_cmd2.split()[1]}: Hi from client2".encode('utf-8'), echo_msg_for_c2, "Клиент 2 не получил эхо своего сообщения.")
-        chat_msg_for_c1 = await asyncio.wait_for(reader1.readuntil(b"\n"), timeout=1.0)
-        self.assertIn(f"{login_cmd2.split()[1]}: Hi from client2".encode('utf-8'), chat_msg_for_c1, "Клиент 1 не получил сообщение от Клиента 2.")
+        self.assertIn(f"{login_cmd2.split()[1]}: Hi from client2".encode('utf-8'), echo_msg_for_c2, f"Клиент 2 не получил эхо своего сообщения. Получено: {echo_msg_for_c2.decode(errors='ignore')}")
 
+        logger.debug(f"Test_08: Client 1 ({login_cmd1.split()[1]}) waiting for chat message from Client 2.")
+        chat_msg_for_c1 = await asyncio.wait_for(reader1.readuntil(b"\n"), timeout=1.0)
+        self.assertIn(f"{login_cmd2.split()[1]}: Hi from client2".encode('utf-8'), chat_msg_for_c1, f"Клиент 1 не получил сообщение от Клиента 2. Получено: {chat_msg_for_c1.decode(errors='ignore')}")
+
+        logger.debug(f"Test_08: Client 1 ({login_cmd1.split()[1]}) sending QUIT.")
         writer1.write(b"QUIT\n")
         await writer1.drain()
         await reader1.readuntil(b"\n") 

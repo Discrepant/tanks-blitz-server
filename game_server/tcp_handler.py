@@ -25,6 +25,12 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     """
     addr = writer.get_extra_info('peername') # Получаем адрес клиента (IP, порт)
     logger.info(f"New TCP connection from {addr}")
+
+    # Send SERVER_ACK_CONNECTED message
+    writer.write("SERVER_ACK_CONNECTED\n".encode('utf-8'))
+    await writer.drain()
+    logger.info(f"Sent SERVER_ACK_CONNECTED to {addr}")
+
     player: Player | None = None # Переменная для хранения объекта Player после успешного логина
     
     try:

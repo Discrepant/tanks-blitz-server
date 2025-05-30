@@ -12,6 +12,7 @@ print(f"[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.", flush=Tr
 # - Сервер метрик Prometheus.
 
 import os
+import tempfile # Added import
 # Removed redundant print: os imported. About to print STARTING...
 
 # --- BEGIN DEBUG PRINTS ---
@@ -88,7 +89,7 @@ logger = logging.getLogger(__name__) # Создаем логгер для тек
 print(f"[GAME_SERVER_MAIN_DEBUG] Main logger acquired.", flush=True, file=sys.stderr)
 
 # Define a file path for integration test logging
-INTEGRATION_TEST_LOG_FILE = "/tmp/game_server_integration_test.log"
+INTEGRATION_TEST_LOG_FILE = os.path.join(tempfile.gettempdir(), "game_server_integration_test.log") # Changed to be cross-platform
 
 # Function to set up file logging
 def setup_file_logging():
@@ -185,9 +186,16 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
 
     # Запуск TCP-сервера
     game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
-    game_tcp_port = int(os.getenv('GAME_SERVER_TCP_PORT', 8889))
+    game_tcp_port = int(os.getenv('GAME_SERVER_TCP_PORT', 8889)) # Assuming this should be int and crash if invalid for game server itself
+
     auth_server_host = os.getenv('AUTH_SERVER_HOST', 'localhost')
-    auth_server_port = int(os.getenv('AUTH_SERVER_PORT', 8888))
+    auth_port_str = os.getenv('AUTH_SERVER_PORT', "8888")
+    try:
+        auth_server_port = int(auth_port_str)
+    except ValueError:
+        logger.warning(f"Invalid value for AUTH_SERVER_PORT ('{auth_port_str}'). Using default port 8888.")
+        auth_server_port = 8888
+
     logger.info(f"AuthClient will connect to {auth_server_host}:{auth_server_port}")
     print(f"[GameServerMain_start_game_server] AuthClient target: {auth_server_host}:{auth_server_port}", flush=True, file=sys.stderr)
 

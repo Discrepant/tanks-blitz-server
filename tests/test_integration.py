@@ -219,9 +219,9 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
 
         logger.info(f"setUpClass: Запуск процесса игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
 
-        diagnostic_command = "import sys; print('DIAGNOSTIC_PRINT_FROM_GAME_SERVER_SUBPROCESS', file=sys.stderr, flush=True); sys.exit(0)"
+        # diagnostic_command = "import sys; print('DIAGNOSTIC_PRINT_FROM_GAME_SERVER_SUBPROCESS', file=sys.stderr, flush=True); sys.exit(0)"
         cls.game_server_process = subprocess.Popen(
-            [sys.executable, "-c", diagnostic_command], # Using -c with the new diagnostic_command
+            [sys.executable, "-B", "-m", "game_server.main"], # Changed to actual server launch command
             env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
         )
         logger.info(f"setUpClass: Процесс игрового сервера запущен. PID: {cls.game_server_process.pid}")

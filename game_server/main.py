@@ -311,8 +311,15 @@ if __name__ == '__main__':
         asyncio.run(start_game_server(session_manager=session_manager, tank_pool=tank_pool))
     except KeyboardInterrupt:
         logger.info("Server shutdown requested via KeyboardInterrupt.")
+        print("[GameServerMain] Server shutdown requested via KeyboardInterrupt.", flush=True, file=sys.stderr)
+    except OSError as e: # Catch OSError specifically if it's a common startup issue like port binding
+        logger.critical(f"Failed to start server due to OSError (e.g., port binding issue): {e}", exc_info=True)
+        print(f"[GameServerMain] CRITICAL: Failed to start server due to OSError: {e}", flush=True, file=sys.stderr)
+        sys.exit(1) # Exit with error code 1 for critical startup failures
     except Exception as e:
-        logger.error(f"Unhandled critical error in main execution block: {e}", exc_info=True)
+        logger.critical(f"Unhandled critical error in main execution block: {e}", exc_info=True)
+        print(f"[GameServerMain] CRITICAL: Unhandled error: {e}", flush=True, file=sys.stderr)
+        sys.exit(1) # Exit with error code 1 for other critical failures
     # finally: # Keep consumers commented for now
     #     logger.info("Attempting to stop consumers...")
     #     # Корректная остановка потребителя команд игроков

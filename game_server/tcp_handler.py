@@ -24,12 +24,14 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         game_room (GameRoom): Экземпляр игровой комнаты для взаимодействия.
     """
     addr = writer.get_extra_info('peername') # Получаем адрес клиента (IP, порт)
-    logger.info(f"New TCP connection from {addr}")
+    # logger.info(f"New TCP connection from {addr}")
+    logger.debug(f"Handling new TCP connection from {addr}")
 
     # Send SERVER_ACK_CONNECTED message
+    logger.debug(f"Attempting to send SERVER_ACK_CONNECTED to {addr}")
     writer.write("SERVER_ACK_CONNECTED\n".encode('utf-8'))
     await writer.drain()
-    logger.info(f"Sent SERVER_ACK_CONNECTED to {addr}")
+    logger.info(f"Successfully sent SERVER_ACK_CONNECTED to {addr}")
 
     player: Player | None = None # Переменная для хранения объекта Player после успешного логина
     
@@ -37,10 +39,12 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         while True: # Основной цикл обработки команд от клиента
             data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
             message_str = data.decode('utf-8').strip() # Декодируем и удаляем пробельные символы
+            logger.debug(f"Received message from {addr}: '{message_str}'")
             
             if not message_str: # Если получена пустая строка
                 logger.warning(f"Empty command line received from {addr}.")
                 writer.write("EMPTY_COMMAND\n".encode('utf-8')) # Отправляем ошибку клиенту
+                logger.debug(f"Attempting to drain writer for {addr} after sending: EMPTY_COMMAND")
                 await writer.drain()
                 continue # Переходим к следующей итерации цикла
 
@@ -69,6 +73,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     response_msg = f"LOGIN_SUCCESS {auth_message} Token: {session_token if session_token else 'N/A'}\n"
                     logger.debug(f"GameTCPHandler: Sending LOGIN_SUCCESS to client. Message='{auth_message}', Token='{session_token if session_token else 'N/A'}'")
                     writer.write(response_msg.encode('utf-8'))
+                    logger.debug(f"Attempting to drain writer for {addr} after sending: LOGIN_SUCCESS")
                     await writer.drain()
                     logger.info(f"Player {username} logged in from {addr} (LOGIN_SUCCESS sent). Token: {session_token if session_token else 'N/A'}")
                     # player_obj is created BEFORE this block by tcp_handler
@@ -80,6 +85,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     response_msg = f"LOGIN_FAILURE {auth_message}\n"
                     logger.debug(f"GameTCPHandler: Sending LOGIN_FAILURE to client. Message='{auth_message}'")
                     writer.write(response_msg.encode('utf-8'))
+                    logger.debug(f"Attempting to drain writer for {addr} after sending: LOGIN_FAILURE")
                     await writer.drain()
                     logger.info(f"Failed login for {username} from {addr}. Message: {auth_message}. Terminating handler.")
                     return  # Завершаем обработчик для этого клиента
@@ -88,6 +94,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             elif cmd == 'REGISTER' and len(parts) == 3:
                 # Регистрация через игровой сервер пока не поддерживается или обрабатывается иначе
                 writer.write("REGISTER_FAILURE Registration via game server is not supported yet.\n".encode('utf-8')) # Already in English
+                logger.debug(f"Attempting to drain writer for {addr} after sending: REGISTER_FAILURE")
                 await writer.drain()
                 logger.info(f"REGISTER_FAILURE sent to {addr}. Terminating handler.")
                 return # Завершаем обработчик
@@ -96,12 +103,14 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             elif cmd == 'MOVE' or cmd == 'SHOOT':
                 if not player: # Если игрок не аутентифицирован
                     writer.write("UNAUTHORIZED You need to log in first\n".encode('utf-8'))
+                    logger.debug(f"Attempting to drain writer for {addr} after sending: UNAUTHORIZED")
                     await writer.drain()
                     continue
 
                 if cmd == 'MOVE':
                     if len(parts) < 3: # Проверяем наличие координат
                         writer.write("MOVE_ERROR Coordinates are missing\n".encode('utf-8'))
+                        logger.debug(f"Attempting to drain writer for {addr} after sending: MOVE_ERROR Coordinates are missing")
                         await writer.drain()
                         continue
                     try:
@@ -118,9 +127,11 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                         logger.info(f"MOVE command from {player.name} ({x},{y}) published to RabbitMQ.")
                         # ADD THIS: Send confirmation to client
                         writer.write(f"COMMAND_RECEIVED MOVE\n".encode('utf-8')) # Already in English
+                        logger.debug(f"Attempting to drain writer for {player.name} ({addr}) after sending: COMMAND_RECEIVED MOVE")
                         await writer.drain()
                     except ValueError:
                         writer.write("MOVE_ERROR Invalid coordinates\n".encode('utf-8')) # Already in English
+                        logger.debug(f"Attempting to drain writer for {player.name} ({addr}) after sending: MOVE_ERROR Invalid coordinates")
                         await writer.drain()
                         logger.error(f"Invalid coordinates for MOVE command from {player.name}: {parts[1:]}")
                         continue
@@ -136,6 +147,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     logger.info(f"SHOOT command from {player.name} published to RabbitMQ.")
                     # ADD THIS: Send confirmation to client
                     writer.write(f"COMMAND_RECEIVED SHOOT\n".encode('utf-8')) # Already in English
+                    logger.debug(f"Attempting to drain writer for {player.name} ({addr}) after sending: COMMAND_RECEIVED SHOOT")
                     await writer.drain()
             
             # Обработка других команд (например, из GameRoom.handle_player_command)
@@ -155,9 +167,11 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 #     await player.send_message(f"SERVER: Unknown command '{cmd}'. Type HELP for a list of commands.")
                 # else: 
                 #     writer.write("UNKNOWN_COMMAND\n".encode('utf-8'))
+                #     logger.debug(f"Attempting to drain writer for {addr} after sending: UNKNOWN_COMMAND")
                 #     await writer.drain()
                 # ALWAYS SEND UNKNOWN_COMMAND for simplicity in tests, or adjust tests
                 writer.write("UNKNOWN_COMMAND\n".encode('utf-8')) # Already in English
+                logger.debug(f"Attempting to drain writer for {player.name if player else addr} after sending: UNKNOWN_COMMAND")
                 await writer.drain()
 
             # Подтверждение получения команды (если команда не QUIT и не вызвала ошибку ранее)
@@ -171,15 +185,16 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                 pass # Решено убрать общий COMMAND_RECEIVED, так как ответы специфичны для команд
 
     except ConnectionResetError:
-        logger.info(f"Connection reset by client {player.name if player else addr} ({addr}).")
+        logger.warning(f"Connection reset by client {player.name if player else addr} ({addr}).", exc_info=True)
     except asyncio.IncompleteReadError:
-        logger.info(f"Client {player.name if player else addr} ({addr}) closed connection (IncompleteReadError).")
+        logger.warning(f"Client {player.name if player else addr} ({addr}) closed connection prematurely (IncompleteReadError).", exc_info=True)
     except Exception as e:
         logger.critical(f"Critical error in handle_game_client for {addr}: {e}", exc_info=True)
         if writer and not writer.is_closing(): # Если writer все еще открыт
             try:
                 # Пытаемся уведомить клиента о критической ошибке
                 writer.write(f"CRITICAL_SERVER_ERROR {type(e).__name__}\n".encode('utf-8')) # Already in English
+                logger.debug(f"Attempting to drain writer for {addr} after sending: CRITICAL_SERVER_ERROR")
                 await writer.drain()
             except Exception as we:
                 logger.error(f"Failed to send critical error message to client {addr}: {we}")
@@ -191,7 +206,7 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         
         # Закрываем writer, если он еще не закрыт
         if writer and not writer.is_closing():
-            logger.debug(f"Closing writer for {addr} in finally block.")
+            logger.debug(f"Ensuring writer for {addr} is closed in finally block.")
             writer.close()
             try:
                 await writer.wait_closed() # Ожидаем полного закрытия

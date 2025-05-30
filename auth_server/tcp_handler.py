@@ -10,6 +10,9 @@ from .metrics import ACTIVE_CONNECTIONS_AUTH, SUCCESSFUL_AUTHS, FAILED_AUTHS # �
 # Создаем логгер для этого модуля
 logger = logging.getLogger(__name__)
 
+# Таймаут для операции чтения от клиента
+CLIENT_READ_TIMEOUT = 15.0 # секунд
+
 async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter):
     """
     Обрабатывает входящее клиентское подключение для аутентификации.
@@ -24,22 +27,26 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     addr = writer.get_extra_info('peername') # Получаем адрес клиента
     logger.info(f"New connection from {addr}, JSON expected.")
     ACTIVE_CONNECTIONS_AUTH.inc() 
-    response_data = {} 
-    logger.info(f"handle_auth_client: [{addr}] Entered try block.") 
+    # response_data = {} # Not used here anymore, response is built per case
+    # logger.info(f"handle_auth_client: [{addr}] Entered try block.") # Replaced by New connection log
     try:
-        data = await reader.readuntil(b"\n")
+        logger.debug(f"handle_auth_client: [{addr}] Waiting for data from client with timeout {CLIENT_READ_TIMEOUT}s.")
+        data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=CLIENT_READ_TIMEOUT)
+        logger.debug(f"handle_auth_client: [{addr}] Received raw data: {data!r}") # Log raw data
         message = data.decode('utf-8').strip()
         
-        logger.info(f"handle_auth_client: [{addr}] Received message: '{message}'")
+        logger.info(f"handle_auth_client: [{addr}] Received stripped message: '{message}'")
 
-        if not message: # This check might be redundant if readuntil ensures data, but good for safety.
-            logger.warning(f"handle_auth_client: [{addr}] Empty message received.")
-            response_data = {"status": "error", "message": "Empty message received"}
-            writer.write(json.dumps(response_data).encode('utf-8') + b'\n')
+        if not message:
+            logger.warning(f"handle_auth_client: [{addr}] Empty message after strip from raw: {data!r}.")
+            response_payload = {"status": "error", "message": "Empty message received"}
+            writer.write(json.dumps(response_payload).encode('utf-8') + b'\n')
             await writer.drain()
+            # Still want to go to finally for proper closure
             return
 
         try:
+            logger.debug(f"handle_auth_client: [{addr}] Attempting to parse JSON: '{message}'")
             payload = json.loads(message)
             action = payload.get("action")
             username = payload.get("username") 
@@ -92,39 +99,46 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                     await writer.drain()
                 except Exception as ex_send:
-                    logger.error(f"handle_auth_client: [{addr}] Failed to send error response during general exception: {ex_send}")
+                    logger.error(f"handle_auth_client: [{addr}] Failed to send error response during general exception: {ex_send}", exc_info=True)
             # No return here, let finally handle cleanup.
-            
-    except asyncio.IncompleteReadError:
-        logger.warning(f"handle_auth_client: [{addr}] Incomplete read. Client closed connection prematurely.")
-    except ConnectionResetError:
-        logger.warning(f"handle_auth_client: [{addr}] Connection reset by client.")
+
+    except asyncio.TimeoutError: # Specifically for reader.readuntil timeout
+        logger.warning(f"handle_auth_client: [{addr}] Timeout waiting for client message ({CLIENT_READ_TIMEOUT}s).")
+        # Attempt to send timeout response if writer is still open
+        if not writer.is_closing():
+            try:
+                error_response = {"status": "error", "message": "Request timeout"}
+                writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
+                await writer.drain()
+            except Exception as ex_send:
+                logger.error(f"handle_auth_client: [{addr}] Failed to send timeout error response: {ex_send}", exc_info=True)
+    except asyncio.IncompleteReadError as e:
+        logger.warning(f"handle_auth_client: [{addr}] Incomplete read. Client closed connection prematurely. Partial data: {e.partial!r}", exc_info=True)
+    except ConnectionResetError as e:
+        logger.warning(f"handle_auth_client: [{addr}] Connection reset by client.", exc_info=True)
     except UnicodeDecodeError as ude: 
         logger.error(f"handle_auth_client: [{addr}] Unicode decode error: {ude}. Raw data might not be UTF-8.", exc_info=True)
-        # Attempt to send error if writer is still open
         if not writer.is_closing():
             try:
                 error_response = {"status":"error", "message":"Invalid character encoding. UTF-8 expected."}
                 writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                 await writer.drain()
             except Exception as ex_send:
-                logger.error(f"handle_auth_client: [{addr}] Failed to send UnicodeDecodeError response: {ex_send}")
-    except Exception as e: # Catch-all for other unexpected errors in the main try block
+                logger.error(f"handle_auth_client: [{addr}] Failed to send UnicodeDecodeError response: {ex_send}", exc_info=True)
+    except Exception as e:
         logger.critical(f"handle_auth_client: [{addr}] Critical error in handler: {e}", exc_info=True)
-        # Attempt to send a generic error if possible
         if not writer.is_closing():
             try:
                 error_response = {"status": "error", "message": "Critical internal server error"}
                 writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                 await writer.drain()
             except Exception as ex_send:
-                logger.error(f"handle_auth_client: [{addr}] Failed to send critical error response: {ex_send}")
+                logger.error(f"handle_auth_client: [{addr}] Failed to send critical error response: {ex_send}", exc_info=True)
     finally:
-        logger.debug(f"handle_auth_client: [{addr}] Entering finally block, preparing to close writer.")
-        logger.info(f"Closing connection with {addr}") # Original log was just "Closing connection with {addr}"
+        logger.info(f"handle_auth_client: [{addr}] Closing connection.")
         ACTIVE_CONNECTIONS_AUTH.dec()
         if writer and not writer.is_closing(): 
-            logger.debug(f"handle_auth_client: Closing writer for {addr} in finally block.")
+            logger.debug(f"handle_auth_client: [{addr}] Actually closing writer now.")
             writer.close()
             try:
                 await writer.wait_closed()

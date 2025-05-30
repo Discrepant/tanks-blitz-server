@@ -178,12 +178,16 @@ class GameRoom:
             player_list = ", ".join(self.players.keys()) # Формируем список имен игроков
             await player.send_message(f"SERVER: Players in room: {player_list}") # Already in English
         elif command == "QUIT":
-            await player.send_message("SERVER: You are leaving the room...") # Already in English
-            # Фактическое удаление игрока (remove_player) будет вызвано из tcp_handler
-            # при обнаружении закрытия соединения со стороны клиента или здесь.
-            if player.writer and not player.writer.is_closing():
-                player.writer.close() # Инициируем закрытие соединения со стороны сервера
-                # await player.writer.wait_closed() # Ожидание может быть здесь или в tcp_handler
+            logger.info(f"Player {player.name} initiated QUIT command. Sending confirmation and closing connection.")
+            try:
+                await player.send_message("SERVER: You are leaving the room...") # Already in English
+                if player.writer and not player.writer.is_closing():
+                    player.writer.close()
+                    await player.writer.wait_closed() # Ensure connection is properly closed
+                    logger.info(f"Connection for player {player.name} closed successfully after QUIT command.")
+            except Exception as e:
+                logger.error(f"Error during QUIT process for player {player.name}: {e}", exc_info=True)
+            # Player removal will be handled by tcp_handler's finally block when readuntil() fails due to closed writer.
         # Сюда можно добавить другие игровые команды
         # Например, начало игры, ходы, использование способностей и т.д.
         else:

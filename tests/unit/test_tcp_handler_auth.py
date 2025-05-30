@@ -45,7 +45,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         mock_auth_user.assert_called_once_with("player1", "password123")
         
         # Ожидаемый JSON-ответ от сервера
-        expected_response = {"status": "success", "message": "User player1 authenticated successfully.", "session_id": "User player1 authenticated successfully."}
+        # В соответствии с tcp_handler, "token" должен содержать имя пользователя
+        expected_response = {"status": "success", "message": "User player1 authenticated successfully.", "token": "player1"}
         
         # Проверяем, что writer.write был вызван
         self.assertTrue(writer.write.called, "Метод writer.write не был вызван.")
@@ -78,8 +79,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
             await handle_auth_client(reader, writer)
 
         mock_auth_user.assert_called_once_with("player1", "wrongpassword")
-        # Сообщение от tcp_handler должно быть "Authentication failed: " + "Incorrect password."
-        expected_response = {"status": "failure", "message": "Authentication failed: Incorrect password."}
+        # Сообщение от tcp_handler теперь "Incorrect password."
+        expected_response = {"status": "failure", "message": "Incorrect password."}
         
         actual_call_args_bytes = writer.write.call_args[0][0]
         self.assertEqual(json.loads(actual_call_args_bytes.decode('utf-8').strip()), expected_response)
@@ -203,7 +204,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
 
         expected_response_json = {
             "status": "error",
-            "message": "Empty message or only newline character received" # English
+            "message": "Empty message received" # Updated message
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
 
@@ -219,8 +220,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Сообщение в логгере также должно быть на английском, если оно генерируется в tcp_handler
         # На основе предыдущего вывода, логгер использует английский:
         # "Empty message or only newline character received from ..."
-        # Однако, в коде теста указано русское сообщение. Изменим ожидаемое на английское.
-        mock_logger.warning.assert_any_call("Empty message or only newline character received from ('127.0.0.1', 12345). Sending error and closing.")
+        # Handler log is "Empty message received."
+        mock_logger.warning.assert_any_call("handle_auth_client: [('127.0.0.1', 12345)] Empty message received.")
         # Удалена проверка logger.error, так как она не вызывается в этом сценарии
         # mock_logger.error.assert_any_call("Ошибка обработки запроса от %s:%s: %s", 
         #                                   '127.0.0.1', 12345, "Получено пустое сообщение или только символ новой строки")
@@ -253,7 +254,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Ожидаем, что будет отправлено сообщение об ошибке
         expected_response_json = {
             "status": "error",
-            "message": "Empty message or only newline character received" # English
+            "message": "Empty message received" # Updated message
         }
         expected_response_bytes = json.dumps(expected_response_json).encode('utf-8') + b'\n'
         

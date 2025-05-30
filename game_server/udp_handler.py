@@ -23,15 +23,14 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
     обработку игровых действий (присоединение, движение, стрельба, выход) и
     отправку ответов/обновлений состояния.
     """
-    def __init__(self):
+    def __init__(self, session_manager: SessionManager, tank_pool: TankPool):
         """
-        Инициализирует протокол, получая экземпляры SessionManager и TankPool.
-        Предполагается, что SessionManager и TankPool реализованы как Singletons.
+        Инициализирует протокол с предоставленными экземплярами SessionManager и TankPool.
         """
         super().__init__()
-        self.session_manager = SessionManager() # Получаем экземпляр менеджера сессий
-        self.tank_pool = TankPool() # Получаем экземпляр пула танков
-        logger.info("GameUDPProtocol initialized.")
+        self.session_manager = session_manager
+        self.tank_pool = tank_pool
+        logger.info("GameUDPProtocol initialized with provided SessionManager and TankPool.")
 
     def connection_made(self, transport):
         """

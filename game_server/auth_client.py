@@ -14,16 +14,18 @@ class AuthClient:
     Позволяет отправлять команды (например, для входа пользователя) на сервер
     аутентификации и получать результаты.
     """
-    def __init__(self, auth_server_host: str, auth_server_port: int):
+    def __init__(self, auth_server_host: str, auth_server_port: int, timeout: float = 5.0):
         """
         Инициализирует AuthClient.
 
         Args:
             auth_server_host (str): Хост сервера аутентификации.
             auth_server_port (int): Порт сервера аутентификации.
+            timeout (float): Таймаут по умолчанию для сетевых операций (в секундах).
         """
         self.auth_host = auth_server_host
         self.auth_port = auth_server_port
+        self.timeout = timeout # Таймаут для сетевых операций
 
     async def _send_auth_command(self, command_dict: dict):
         """
@@ -38,46 +40,74 @@ class AuthClient:
             tuple[str, str, str|None]: Кортеж со статусом ответа ("AUTH_SUCCESS" или "AUTH_FAILURE"),
                                        сообщением от сервера и токеном сессии (если есть).
         """
+        reader = None
+        writer = None
         try:
-            # Устанавливаем соединение с сервером аутентификации
-            reader, writer = await asyncio.open_connection(self.auth_host, self.auth_port)
-        except ConnectionRefusedError:
-            error_msg = f"Failed to connect to authentication server at {self.auth_host}:{self.auth_port}. Server unavailable."
-            logger.error(error_msg)
-            return "AUTH_FAILURE", error_msg, None # Возвращаем None для токена
-        except Exception as e:
-            error_msg = f"Unknown error when connecting to authentication server: {e}"
-            logger.error(error_msg, exc_info=True)
-            return "AUTH_FAILURE", error_msg, None # Возвращаем None для токена
-
-        # Сериализуем команду в JSON и кодируем в байты
-        json_payload_str = json.dumps(command_dict)
-        json_payload_bytes = json_payload_str.encode('utf-8')
-        logger.debug(f"Sending to authentication server ({self.auth_host}:{self.auth_port}): {json_payload_str}")
-        writer.write(json_payload_bytes + b"\n") # Добавляем символ новой строки как разделитель
-        await writer.drain() # Ожидаем отправки данных
-
-        response_str = "" # Инициализируем строку ответа
-        try:
-            # Читаем ответ от сервера с таймаутом
-            response_data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=10.0)
-            response_str = response_data.decode().strip()
-            logger.info(f"Response from authentication server: {response_str}")
+            logger.debug(f"AuthClient: Attempting to connect to {self.auth_host}:{self.auth_port} with timeout {self.timeout}s.")
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(self.auth_host, self.auth_port),
+                timeout=self.timeout
+            )
+            logger.info(f"AuthClient: Successfully connected to authentication server at {self.auth_host}:{self.auth_port}.")
         except asyncio.TimeoutError:
-            logger.error(f"AuthClient: Response from authentication server ({self.auth_host}:{self.auth_port}) not received (timeout).")
-            # response_str остается пустым, обработка ошибки произойдет ниже при парсинге JSON
-        except asyncio.IncompleteReadError:
-            logger.error(f"AuthClient: Authentication server ({self.auth_host}:{self.auth_port}) closed connection without full response.")
-            # response_str остается пустым
-        except Exception as e:
-            logger.error(f"AuthClient: Error reading response from authentication server ({self.auth_host}:{self.auth_port}): {e}", exc_info=True)
-            # response_str остается пустым
-        finally:
-            # Закрываем соединение
-            writer.close()
-            await writer.wait_closed()
+            error_msg = f"AuthClient: Timeout when trying to connect to authentication server at {self.auth_host}:{self.auth_port} (timeout: {self.timeout}s)."
+            logger.error(error_msg)
+            return "AUTH_FAILURE", error_msg, None
+        except ConnectionRefusedError:
+            error_msg = f"AuthClient: Connection refused by authentication server at {self.auth_host}:{self.auth_port}."
+            logger.error(error_msg)
+            return "AUTH_FAILURE", error_msg, None
+        except OSError as e: # Catches socket.gaierror and other OS-level network errors
+            error_msg = f"AuthClient: Network error when connecting to authentication server at {self.auth_host}:{self.auth_port}: {e}"
+            logger.error(error_msg, exc_info=True) # Include stack trace for OSError
+            return "AUTH_FAILURE", error_msg, None
+        except Exception as e: # Catch-all for other unexpected errors during connection
+            error_msg = f"AuthClient: Unexpected error when connecting to authentication server at {self.auth_host}:{self.auth_port}: {e}"
+            logger.error(error_msg, exc_info=True)
+            return "AUTH_FAILURE", error_msg, None
 
-        # Парсим JSON-ответ
+        response_str = ""
+        try:
+            json_payload_str = json.dumps(command_dict)
+            json_payload_bytes = json_payload_str.encode('utf-8')
+            logger.debug(f"AuthClient: Sending to {self.auth_host}:{self.auth_port}: {json_payload_str}")
+
+            writer.write(json_payload_bytes + b"\n")
+            await asyncio.wait_for(writer.drain(), timeout=self.timeout) # Added timeout for drain
+            logger.debug(f"AuthClient: Data drained to {self.auth_host}:{self.auth_port}.")
+
+            response_data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=self.timeout) # Using self.timeout, was 10.0
+            response_str = response_data.decode('utf-8').strip()
+            logger.info(f"AuthClient: Response from {self.auth_host}:{self.auth_port}: {response_str}")
+
+        except asyncio.TimeoutError:
+            error_msg = f"AuthClient: Timeout during operation (drain or read) with authentication server {self.auth_host}:{self.auth_port} (timeout: {self.timeout}s)."
+            logger.error(error_msg)
+            # response_str remains empty or partially filled, error handled by JSON parsing below
+            return "AUTH_FAILURE", error_msg, None # Return early on operational timeout
+        except asyncio.IncompleteReadError as e:
+            error_msg = f"AuthClient: Authentication server {self.auth_host}:{self.auth_port} closed connection prematurely. Partial data: {e.partial!r}"
+            logger.error(error_msg)
+            return "AUTH_FAILURE", error_msg, None # Return early
+        except OSError as e: # Catch possible errors during write/drain/read if connection drops
+            error_msg = f"AuthClient: Network error during communication with {self.auth_host}:{self.auth_port}: {e}"
+            logger.error(error_msg, exc_info=True)
+            return "AUTH_FAILURE", error_msg, None
+        except Exception as e: # Catch-all for other unexpected errors during communication
+            error_msg = f"AuthClient: Unexpected error during communication with {self.auth_host}:{self.auth_port}: {e}"
+            logger.error(error_msg, exc_info=True)
+            return "AUTH_FAILURE", error_msg, None # Return early
+        finally:
+            if writer: # Ensure writer exists before trying to close
+                logger.debug(f"AuthClient: Closing connection to {self.auth_host}:{self.auth_port}.")
+                writer.close()
+                try:
+                    await writer.wait_closed()
+                    logger.debug(f"AuthClient: Connection to {self.auth_host}:{self.auth_port} closed.")
+                except Exception as e_close: # Log if wait_closed fails for some reason
+                    logger.error(f"AuthClient: Error during writer.wait_closed() for {self.auth_host}:{self.auth_port}: {e_close}", exc_info=True)
+
+        # Парсим JSON-ответ (This part is reached only if communication was successful)
         try:
             response_json = json.loads(response_str)
             status_from_auth_server = response_json.get("status")

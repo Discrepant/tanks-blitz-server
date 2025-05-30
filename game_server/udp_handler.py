@@ -52,23 +52,20 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             data (bytes): Полученные байты данных.
             addr (tuple): Адрес отправителя (IP, порт).
         """
-        logger.info(f"UDP Handler: Raw request received from {addr}: {data!r}")
         TOTAL_DATAGRAMS_RECEIVED.inc() # Увеличиваем счетчик полученных датаграмм
-        # logger.debug(f"Raw bytes received: {data}") # Moved lower, after first processing attempt
+        logger.debug(f"UDP [{addr}]: Received raw datagram: {data!r}") # Consolidated raw data log
 
         decoded_payload_str = None # Will be used in exception log if other strings are not set
 
         try:
-            logger.debug(f"Raw bytes received from {addr}: {data!r}") # Log original bytes
-
             # 1. Attempt decoding (strict)
             try:
                 decoded_payload_str = data.decode('utf-8') # Strict UTF-8 decoding
-                logger.info(f"UDP Handler: Decoded message from {addr}: {decoded_payload_str.strip()}")
+                logger.debug(f"UDP [{addr}]: Decoded message: '{decoded_payload_str.strip()}'") # Changed to DEBUG for successfully decoded string before parsing
             except UnicodeDecodeError as ude:
-                logger.error(f"Unicode decode error from {addr}: {ude}. Raw data: {data!r}")
+                logger.error(f"UDP [{addr}]: Unicode decode error: {ude}. Raw data: {data!r}", exc_info=True)
                 # Send error to client
-                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr) # Already in English
+                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
                 return
 
             # 2. Remove whitespace
@@ -84,36 +81,33 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             
             # 4. Check for emptiness after cleaning
             if not processed_payload_str:
-                logger.warning(f"Empty message after decoding, whitespace and null character cleaning from {addr}. Original string: '{decoded_payload_str}', Original bytes: {data!r}")
-                self.transport.sendto(json.dumps({"status": "error", "message": "Empty JSON message"}).encode('utf-8'), addr) # Already in English
+                logger.warning(f"UDP [{addr}]: Empty message after decoding, whitespace and null character cleaning. Original string: '{decoded_payload_str}', Original bytes: {data!r}")
+                self.transport.sendto(json.dumps({"status": "error", "message": "Empty JSON message"}).encode('utf-8'), addr)
                 return
 
-            logger.debug(f"Successfully decoded, cleaned (whitespace, nulls) message from {addr}: '{processed_payload_str}'")
+            logger.debug(f"UDP [{addr}]: Cleaned message for JSON parsing: '{processed_payload_str}'")
 
             # 5. Attempt JSON parsing
             try:
                 message = json.loads(processed_payload_str) # Parse JSON
             except json.JSONDecodeError as jde:
-                # Log the string that failed to parse, and original bytes
-                logger.error(f"Invalid JSON received from {addr}: '{processed_payload_str}' | Error: {jde}. Raw bytes: {data!r}")
-                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr) # Already in English
+                logger.error(f"UDP [{addr}]: Invalid JSON: '{processed_payload_str}'. Error: {jde}. Raw bytes: {data!r}", exc_info=True)
+                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr)
                 return
             
-            # If parsing is successful, log the JSON object
-            logger.debug(f"Successfully parsed JSON from {addr}: {message}")
+            logger.debug(f"UDP [{addr}]: Successfully parsed JSON: {message}")
 
-            # Main message processing logic starts here
-            action = message.get("action") # Action the client wants to perform
-            player_id = message.get("player_id") # Player ID
+            action = message.get("action")
+            player_id = message.get("player_id")
 
-            if not player_id: # If player ID is missing
-                logger.warning(f"Missing player_id in message from {addr}. Message: '{processed_payload_str}'. Ignoring.")
-                # Can send an error, but for UDP this might be excessive if no response is expected.
+            if not player_id:
+                logger.warning(f"UDP [{addr}]: Missing player_id in message: {message}. Ignoring.")
+                # No error response for missing player_id to avoid amplification for malformed/malicious UDP packets
                 return
 
-            logger.info(f"Received action '{action}' from player '{player_id}' ({addr})")
+            logger.info(f"UDP [{addr}]: Received action '{action}' from player '{player_id}'.")
 
-            if action == "join_game": # Join game
+            if action == "join_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
                 response = None
                 if not session: # Если игрок еще не в сессии
@@ -135,16 +129,16 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         logger.info(f"Player {player_id} joined session {target_session.session_id} with tank {tank.tank_id}")
                     else:
                         response = {"status": "join_failed", "reason": "No free tanks available"}
-                        logger.warning(f"Failed to join player {player_id}: no free tanks.")
+                        logger.warning(f"UDP [{addr}]: Failed to join player {player_id}: no free tanks.")
                 else: # If player is already in session
                     response = {"status": "already_in_session", "session_id": session.session_id}
-                    logger.info(f"Player {player_id} is already in session {session.session_id}.")
+                    logger.info(f"UDP [{addr}]: Player {player_id} is already in session {session.session_id}.")
                 
                 if response: # Send response to client
                     self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                    logger.debug(f"Sent response for join_game to player {player_id} ({addr}): {response}")
+                    logger.debug(f"UDP [{addr}]: Sent response for join_game to player {player_id}: {response}")
 
-            elif action == "move": # Tank movement
+            elif action == "move":
                 session = self.session_manager.get_session_by_player_id(player_id)
                 if session:
                     player_data = session.players.get(player_id)
@@ -164,17 +158,17 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                                 }
                                 try:
                                     publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
-                                    logger.info(f"Published 'move' command for player {player_id} (tank: {tank_id}, position: {position}) to RabbitMQ queue '{RABBITMQ_QUEUE_PLAYER_COMMANDS}'.")
+                                    logger.info(f"UDP [{addr}]: Published 'move' command for player {player_id} (tank: {tank_id}, position: {position}) to RabbitMQ.")
                                 except Exception as e:
-                                    logger.error(f"Failed to publish 'move' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
+                                    logger.error(f"UDP [{addr}]: Failed to publish 'move' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
                             else:
-                                logger.warning(f"Missing 'position' in 'move' command from player {player_id} ({addr}).")
+                                logger.warning(f"UDP [{addr}]: Missing 'position' in 'move' command from player {player_id}. Message: {message}")
                         else:
-                            logger.warning(f"tank_id not found for player {player_id} in session, cannot perform 'move'.")
+                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'move'.")
                 else:
-                    logger.warning(f"Player {player_id} not in session, cannot perform 'move'.")
+                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'move'.")
 
-            elif action == "shoot": # Tank shot
+            elif action == "shoot":
                 session = self.session_manager.get_session_by_player_id(player_id)
                 if session:
                     player_data = session.players.get(player_id)
@@ -194,59 +188,51 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                             try:
                                 # Use default exchange (empty string), routing key is queue name
                                 publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
-                                logger.info(f"Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ queue '{RABBITMQ_QUEUE_PLAYER_COMMANDS}'.")
+                                logger.info(f"UDP [{addr}]: Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ.")
                             except Exception as e:
-                                logger.error(f"Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
+                                logger.error(f"UDP [{addr}]: Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
                                 # Optionally: send error back to player or handle retry.
-                                # For now, just log the error.
-
-                            # Removed direct call to tank.shoot() and broadcast_to_session for shot event.
-                            # Consumer is now responsible for processing the command and any resulting game state updates/broadcasts.
-                            # Optimistic update can be sent here if needed, but task assumes consumer handles this.
-                            # Example: self.transport.sendto(json.dumps({"status":"shoot_command_sent"}).encode('utf-8'), addr)
                         else:
-                            logger.warning(f"tank_id not found for player {player_id} in session, cannot perform 'shoot'.")
+                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'shoot'.")
                 else:
-                    logger.warning(f"Player {player_id} not in session, cannot perform 'shoot'.")
+                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'shoot'.")
             
-            elif action == "leave_game": # Leave game
+            elif action == "leave_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
                 response = None
                 if session:
                     player_data = session.players.get(player_id)
                     if player_data:
                         tank_id = player_data['tank_id']
-                        self.session_manager.remove_player_from_session(player_id) # Remove player from session
-                        self.tank_pool.release_tank(tank_id) # Return tank to pool
-                        response = {"status": "left_game", "message": "You have left the game."} # Already in English
-                        logger.info(f"Player {player_id} (Tank: {tank_id}) left the game. Tank returned to pool.")
+                        self.session_manager.remove_player_from_session(player_id)
+                        self.tank_pool.release_tank(tank_id)
+                        response = {"status": "left_game", "message": "You have left the game."}
+                        logger.info(f"UDP [{addr}]: Player {player_id} (Tank: {tank_id}) left the game. Tank returned to pool.")
                     # Check if session was deleted (if it became empty)
-                    if not self.session_manager.get_session(session.session_id):
-                         logger.info(f"Session {session.session_id} was automatically deleted (became empty).")
+                    if not self.session_manager.get_session(session.session_id): # Check if session still exists
+                         logger.info(f"UDP [{addr}]: Session {session.session_id} was automatically deleted after player {player_id} left (became empty).")
                 else: # If player not found in active session
-                    response = {"status": "not_in_game", "message": "You are not currently in a game."} # Already in English
-                    logger.warning(f"Player {player_id} tried to leave game but was not found in an active session.")
+                    response = {"status": "not_in_game", "message": "You are not currently in a game."}
+                    logger.warning(f"UDP [{addr}]: Player {player_id} tried to leave game but was not found in an active session.")
                 
                 if response: # Send response to client
                     self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                    logger.debug(f"Sent response for leave_game to player {player_id} ({addr}): {response}")
+                    logger.debug(f"UDP [{addr}]: Sent response for leave_game to player {player_id}: {response}")
 
             else: # Unknown action
-                logger.warning(f"Unknown action '{action}' from player {player_id} ({addr}). Message: {processed_payload_str}")
-                response = {"status": "error", "message": "Unknown action"} # Already in English
+                logger.warning(f"UDP [{addr}]: Unknown action '{action}' from player '{player_id}'. Message: {message}")
+                response = {"status": "error", "message": "Unknown action"}
                 self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                logger.debug(f"Sent error response (Unknown action) to player {player_id} ({addr}): {response}")
+                logger.debug(f"UDP [{addr}]: Sent error response (Unknown action) to player {player_id}: {response}")
 
-        except Exception as e:
-            # Use processed_payload_str if available, otherwise decoded_payload_str, otherwise log raw data
+        except Exception as e: # Catch-all for any other unexpected error during datagram processing
             msg_for_log = processed_payload_str if processed_payload_str is not None else \
                           (decoded_payload_str if decoded_payload_str is not None else f"Raw data: {data!r}")
-            logger.exception(f"Error processing datagram from {addr} (Processed/decoded data before error: '{msg_for_log}'):")
+            logger.error(f"UDP [{addr}]: Error processing datagram (Processed/decoded data before error: '{msg_for_log}'): {e}", exc_info=True)
             try:
-                # Try to send a generic error message to the client
-                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr) # Already in English
+                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr)
             except Exception as ex_send:
-                logger.error(f"Failed to send error message to client {addr}: {ex_send}")
+                logger.error(f"UDP [{addr}]: Failed to send generic error message to client: {ex_send}", exc_info=True)
 
     def broadcast_to_session(self, session: GameSession, message_dict: dict, log_reason: str = ""):
         """
@@ -257,17 +243,23 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             message_dict (dict): Dictionary with the message to send (will be serialized to JSON).
             log_reason (str, optional): Reason for broadcast for logging.
         """
-        message_bytes = json.dumps(message_dict).encode('utf-8') # Ensure UTF-8 is used
-        # Log the message itself only at DEBUG level to avoid cluttering logs during frequent updates
-        logger.debug(f"Broadcasting message to session {session.session_id} ({log_reason}): {message_dict}")
-        for player_id, player_info in session.players.items(): # Iterate over players in session
-            player_addr = player_info['address'] # Get player address
+        message_bytes = json.dumps(message_dict).encode('utf-8')
+        logger.debug(f"UDP Broadcast to session {session.session_id} ({log_reason}): {message_dict}")
+        for player_id, player_info in session.players.items():
+            player_addr = player_info['address']
             try:
-                self.transport.sendto(message_bytes, player_addr) # Send message
-                logger.debug(f"Message ({log_reason}) sent to player {player_id} at {player_addr}")
+                self.transport.sendto(message_bytes, player_addr)
+                logger.debug(f"UDP Broadcast: Message ({log_reason}) successfully sent to player {player_id} at {player_addr}")
             except Exception as e:
-                logger.error(f"Error broadcasting message to player {player_id} at {player_addr}: {e}")
+                logger.error(f"UDP Broadcast: Error sending message to player {player_id} at {player_addr} in session {session.session_id}: {e}", exc_info=True)
     
+    def error_received(self, exc: Exception):
+        """
+        Called when a previous send or receive operation raises an OSError.
+        Important for "connected" UDP sockets, less so for simple sendto/recvfrom.
+        """
+        logger.error(f"UDP socket error received: {exc}", exc_info=True)
+
     def connection_lost(self, exc: Optional[Exception]):
         """
         Called when the "connection" is lost.

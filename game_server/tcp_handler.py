@@ -10,6 +10,7 @@ from .game_logic import GameRoom, Player # Импортируем GameRoom и Pl
 from core.message_broker_clients import publish_rabbitmq_message, RABBITMQ_QUEUE_PLAYER_COMMANDS  
 logger = logging.getLogger(__name__) # Инициализация логгера для этого модуля
 
+CLIENT_TCP_READ_TIMEOUT = 30.0 # Таймаут для чтения команды от клиента (секунды)
 
 async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.StreamWriter, game_room: GameRoom):
     """
@@ -37,12 +38,14 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
     
     try:
         while True: # Основной цикл обработки команд от клиента
-            data = await reader.readuntil(b'\n') # Читаем данные до символа новой строки
-            message_str = data.decode('utf-8').strip() # Декодируем и удаляем пробельные символы
-            logger.debug(f"Received message from {addr}: '{message_str}'")
+            logger.debug(f"TCPHandler [{addr}]: Waiting for command with timeout {CLIENT_TCP_READ_TIMEOUT}s...")
+            data = await asyncio.wait_for(reader.readuntil(b'\n'), timeout=CLIENT_TCP_READ_TIMEOUT)
+            logger.debug(f"TCPHandler [{addr}]: Received raw data: {data!r}")
+            message_str = data.decode('utf-8').strip()
+            logger.info(f"TCPHandler [{addr}]: Received command: '{message_str}'") # Changed from DEBUG to INFO for commands
             
-            if not message_str: # Если получена пустая строка
-                logger.warning(f"Empty command line received from {addr}.")
+            if not message_str:
+                logger.warning(f"TCPHandler [{addr}]: Empty command after strip from raw: {data!r}.")
                 writer.write("EMPTY_COMMAND\n".encode('utf-8')) # Отправляем ошибку клиенту
                 logger.debug(f"Attempting to drain writer for {addr} after sending: EMPTY_COMMAND")
                 await writer.drain()
@@ -187,22 +190,37 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     # logger.info(f"DEBUG: Player {player.name if player else addr} response sent and flushed.")
                 pass # Решено убрать общий COMMAND_RECEIVED, так как ответы специфичны для команд
 
-    except ConnectionResetError:
-        logger.warning(f"Connection reset by client {player.name if player else addr} ({addr}).", exc_info=True)
-    except asyncio.IncompleteReadError:
-        logger.warning(f"Client {player.name if player else addr} ({addr}) closed connection prematurely (IncompleteReadError).", exc_info=True)
-    except Exception as e:
-        logger.critical(f"Critical error in handle_game_client for {addr}: {e}", exc_info=True)
-        if writer and not writer.is_closing(): # Если writer все еще открыт
+    except asyncio.TimeoutError: # Specifically for reader.readuntil timeout
+        logger.warning(f"TCPHandler [{addr}]: Timeout waiting for client command ({CLIENT_TCP_READ_TIMEOUT}s). Player: {player.name if player else 'N/A'}")
+        if writer and not writer.is_closing():
             try:
-                # Пытаемся уведомить клиента о критической ошибке
-                writer.write(f"CRITICAL_SERVER_ERROR {type(e).__name__}\n".encode('utf-8')) # Already in English
-                logger.debug(f"Attempting to drain writer for {addr} after sending: CRITICAL_SERVER_ERROR")
+                writer.write(f"SERVER_ERROR Timeout waiting for command\n".encode('utf-8'))
+                await writer.drain()
+            except Exception as e_timeout_send:
+                logger.error(f"TCPHandler [{addr}]: Failed to send timeout error to client: {e_timeout_send}", exc_info=True)
+    except ConnectionResetError:
+        logger.warning(f"TCPHandler [{addr}]: Connection reset by client. Player: {player.name if player else 'N/A'}.", exc_info=True)
+    except asyncio.IncompleteReadError:
+        logger.warning(f"TCPHandler [{addr}]: Client closed connection prematurely (IncompleteReadError). Player: {player.name if player else 'N/A'}.", exc_info=True)
+    except UnicodeDecodeError as ude:
+        logger.error(f"TCPHandler [{addr}]: Unicode decode error: {ude}. Raw data might not be UTF-8. Player: {player.name if player else 'N/A'}.", exc_info=True)
+        if writer and not writer.is_closing():
+            try:
+                writer.write("SERVER_ERROR Invalid character encoding. UTF-8 expected.\n".encode('utf-8'))
+                await writer.drain()
+            except Exception as ex_send:
+                logger.error(f"TCPHandler [{addr}]: Failed to send UnicodeDecodeError response: {ex_send}", exc_info=True)
+    except Exception as e:
+        logger.critical(f"TCPHandler [{addr}]: Critical error in handler. Player: {player.name if player else 'N/A'}: {e}", exc_info=True)
+        if writer and not writer.is_closing():
+            try:
+                writer.write(f"CRITICAL_SERVER_ERROR {type(e).__name__}\n".encode('utf-8'))
+                logger.debug(f"TCPHandler [{addr}]: Attempting to drain writer after sending: CRITICAL_SERVER_ERROR")
                 await writer.drain()
             except Exception as we:
-                logger.error(f"Failed to send critical error message to client {addr}: {we}")
+                logger.error(f"TCPHandler [{addr}]: Failed to send critical error message to client: {we}", exc_info=True)
     finally:
-        logger.info(f"Finishing processing for {addr}. Player: {player.name if player else 'N/A'}.")
+        logger.info(f"TCPHandler [{addr}]: Finishing processing. Player: {player.name if player else 'N/A'}.")
         if player: # Если объект игрока был создан
             logger.info(f"Removing player {player.name} from game room {game_room}.")
             await game_room.remove_player(player) # Удаляем игрока из игровой комнаты

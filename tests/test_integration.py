@@ -79,7 +79,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     game_server_process: subprocess.Popen | None = None
 
     @staticmethod
-    async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 5, delay: float = 0.5, conn_timeout: float = 1.0):
+    async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 10, delay: float = 1.0, conn_timeout: float = 2.0): # Increased defaults
         logger.info(f"_check_server_ready: Вход для {server_name} на {host}:{port}, expect_ack='{expect_ack_message}', attempts={attempts}, delay={delay}s, conn_timeout={conn_timeout}s")
         for i in range(attempts):
             writer = None

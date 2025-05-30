@@ -39,7 +39,7 @@ services:
       RABBITMQ_DEFAULT_LISTENERS: "amqp://0.0.0.0:5672"
       RABBITMQ_DEFAULT_VHOST: "/"
     healthcheck:
-      test: ["CMD", "rabbitmq-diagnostics", "status"]
+      test: ["CMD", "curl", "-f", "-u", "user:password", "http://localhost:15672/api/vhosts"]
       interval: 10s
       timeout: 5s
       retries: 10

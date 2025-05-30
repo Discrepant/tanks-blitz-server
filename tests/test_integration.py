@@ -76,37 +76,32 @@ async def tcp_client_request(host: str, port: int, message: str, timeout: float 
                 ack_line_bytes = await asyncio.wait_for(reader.readuntil(b'\n'), timeout=timeout)
                 ack_line_str = ack_line_bytes.decode('utf-8').strip()
                 logger.info(f"TCP Client: Received initial ACK from game server ({host}:{port}): {ack_line_str}")
-                if ack_line_str != "SERVER_ACK_CONNECTED":
-                    logger.warning(f"TCP Client: Unexpected ACK from game server: {ack_line_str}")
-                    # This could be an early error message from the server instead of the ACK.
-                    # We might want to return this as the response or raise an error.
-                    # For now, let's assume if it's not ACK, it might be the actual response or an error response.
-                    # If we proceed, the actual command's response might be missed or this ACK might be misinterpreted.
-                    # A robust client might handle this by checking if the "ACK" is actually a JSON error.
-                    # For this fix, if it's not the ACK, we'll let the subsequent read attempt to get the real response.
-                    # However, the test expects the *command's* response, so if ACK is not there, something is wrong.
-                    # Forcing an error if ACK is not as expected for GAME_PORT might be better for test clarity.
-                    if not ack_line_str.startswith("SERVER_ACK_CONNECTED"): # Be a bit flexible if other info is on the line
-                         raise ConnectionAbortedError(f"Game server did not send expected ACK. Got: {ack_line_str}")
-
+                if not ack_line_str.startswith("SERVER_ACK_CONNECTED"):
+                    logger.error(f"TCP Client: Unexpected ACK from game server. Expected to start with 'SERVER_ACK_CONNECTED', got: '{ack_line_str}'")
+                    if writer and not writer.is_closing():
+                        writer.close()
+                        await writer.wait_closed() 
+                    raise ConnectionAbortedError(f"Game server did not send expected ACK. Got: {ack_line_str}")
             except asyncio.TimeoutError:
                 logger.error(f"TCP Client: Timeout waiting for initial ACK from game server {host}:{port}.")
-                writer.close()
-                await writer.wait_closed()
+                if writer and not writer.is_closing(): 
+                    writer.close()
+                    await writer.wait_closed()
                 raise ConnectionAbortedError(f"Timeout waiting for initial ACK from game server {host}:{port}")
             except asyncio.IncompleteReadError as e:
                 logger.error(f"TCP Client: IncompleteReadError waiting for initial ACK from game server {host}:{port}. Partial: {e.partial!r}")
-                writer.close()
-                await writer.wait_closed()
+                if writer and not writer.is_closing():
+                    writer.close()
+                    await writer.wait_closed()
                 raise ConnectionAbortedError(f"IncompleteReadError waiting for initial ACK from game server: {e.partial!r}")
-            except ConnectionAbortedError: # Re-raise if we raised it above
+            except ConnectionAbortedError: 
                 raise
-            except Exception as e_ack: # Catch any other unexpected error during ACK read
+            except Exception as e_ack: 
                 logger.error(f"TCP Client: Exception waiting for initial ACK from game server {host}:{port}: {e_ack}", exc_info=True)
-                writer.close()
-                await writer.wait_closed()
+                if writer and not writer.is_closing():
+                    writer.close()
+                    await writer.wait_closed()
                 raise ConnectionAbortedError(f"Exception waiting for initial ACK from game server: {e_ack}")
-
 
         # Отправляем сообщение, добавляя перевод строки, если его нет (хотя лучше, чтобы он был в message)
         # Серверы в проекте ожидают \n как разделитель.
@@ -142,6 +137,70 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     auth_server_process: subprocess.Popen | None = None # Процесс сервера аутентификации
     game_server_process: subprocess.Popen | None = None # Процесс игрового сервера
 
+    @staticmethod
+    async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 5, delay: float = 0.5, conn_timeout: float = 1.0):
+        logger.info(f"_check_server_ready: Вход для {server_name} на {host}:{port}, expect_ack='{expect_ack_message}' (attempts={attempts}, delay={delay}, conn_timeout={conn_timeout})")
+        for i in range(attempts):
+            writer = None
+            attempt_num = i + 1
+            logger.info(f"_check_server_ready: Попытка {attempt_num}/{attempts}: Подключение к {server_name}...")
+            try:
+                reader, writer = await asyncio.wait_for(
+                    asyncio.open_connection(host, port),
+                    timeout=conn_timeout
+                )
+                logger.info(f"_check_server_ready: Попытка {attempt_num}: Соединение с {server_name} установлено.")
+                if expect_ack_message:
+                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Чтение ACK от {server_name}...")
+                    # Увеличим таймаут для чтения ACK от игрового сервера, он может быть чуть дольше из-за внутренней инициализации
+                    # Используем conn_timeout (базовый) + некий буфер (например, 1.0 или 2.0), а не conn_timeout + 2.0 жестко.
+                    # Новый conn_timeout = 1.0, так что ack_timeout будет 1.0 + 1.0 = 2.0
+                    ack_timeout = conn_timeout + 1.0 
+                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Чтение ACK от {server_name} с таймаутом {ack_timeout}s...")
+                    ack_bytes = await asyncio.wait_for(reader.readuntil(b'\n'), timeout=ack_timeout)
+                    ack_str = ack_bytes.decode('utf-8').strip()
+                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Получен ACK от {server_name}: '{ack_str}'")
+                    if ack_str.startswith(expect_ack_message):
+                        logger.info(f"_check_server_ready: {server_name} готов и ответил ожидаемым ACK.")
+                        if writer:
+                            writer.close()
+                            await writer.wait_closed()
+                        logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ.")
+                        return True
+                    else:
+                        logger.warning(f"_check_server_ready: Попытка {attempt_num}: ACK от {server_name} НЕВЕРНЫЙ: '{ack_str}', ожидалось начало с '{expect_ack_message}'.")
+                else:
+                    logger.info(f"_check_server_ready: {server_name} готов (соединение установлено без ACK).")
+                    if writer:
+                        writer.close()
+                        await writer.wait_closed()
+                    logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ.")
+                    return True
+
+            except ConnectionRefusedError as e:
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: ConnectionRefusedError - {e}")
+            except asyncio.TimeoutError as e:
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.TimeoutError - {e}")
+            except asyncio.IncompleteReadError as e:
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.IncompleteReadError - Partial: {e.partial!r}")
+            except Exception as e:
+                logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: {type(e).__name__} - {e}", exc_info=False)
+            finally:
+                if writer and not writer.is_closing():
+                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Закрытие writer для {server_name}...")
+                    writer.close()
+                    try:
+                        await writer.wait_closed()
+                    except Exception as e_close:
+                        logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при закрытии writer для {server_name}: {e_close}")
+            
+            if i < attempts - 1:
+                logger.info(f"_check_server_ready: Попытка {attempt_num}: Ожидание задержки ({delay}s) перед следующей попыткой для {server_name}...")
+                await asyncio.sleep(delay)
+
+        logger.error(f"_check_server_ready: Выход: {server_name} НЕ ГОТОВ после {attempts} попыток.")
+        return False
+
     @classmethod
     def setUpClass(cls):
         """
@@ -150,62 +209,96 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         Устанавливает переменные окружения, включая USE_MOCKS="true",
         чтобы серверы использовали мок-объекты для внешних зависимостей (Kafka, Redis).
         """
-        logger.info("Инициализация тестового окружения для интеграционных тестов...")
-        # Запускаем серверы в отдельных процессах.
-        # Используем переменную окружения PYTHONPATH, чтобы серверы могли найти свои модули.
+        logger.info("setUpClass: Инициализация тестового окружения для интеграционных тестов...")
         env = os.environ.copy()
         project_root = os.path.abspath(os.path.join(os.path.dirname(__file__), '..'))
         env["PYTHONPATH"] = project_root + os.pathsep + env.get("PYTHONPATH", "")
-
-        # Устанавливаем USE_MOCKS в "true" для использования моков Kafka/Redis/RabbitMQ на серверах
         env["USE_MOCKS"] = "true" 
-        # env["REDIS_HOST"] = "localhost" # Закомментировано, так как используется мок
-        # env["REDIS_PORT"] = "6379"      # Закомментировано
-        # env["KAFKA_BOOTSTRAP_SERVERS"] = "localhost:29092" # Закомментировано
-        # env["RABBITMQ_HOST"] = "localhost" # Закомментировано
+        env["AUTH_SERVER_HOST"] = HOST
+        env["AUTH_SERVER_PORT"] = str(AUTH_PORT)
+        env["GAME_SERVER_TCP_HOST"] = HOST
+        env["GAME_SERVER_TCP_PORT"] = str(GAME_PORT)
+        env["GAME_SERVER_UDP_PORT"] = "9999"
         
-        # Адреса и порты, на которых серверы должны слушать
-        # Эти переменные используются самими серверами при запуске
-        env["AUTH_SERVER_HOST"] = HOST # Сервер аутентификации слушает на localhost
-        env["AUTH_SERVER_PORT"] = str(AUTH_PORT) # Порт сервера аутентификации
-        env["GAME_SERVER_TCP_HOST"] = HOST # Игровой TCP-сервер слушает на localhost
-        env["GAME_SERVER_TCP_PORT"] = str(GAME_PORT) # Порт игрового TCP-сервера
-        env["GAME_SERVER_UDP_PORT"] = "9999"  # Порт игрового UDP-сервера (если он используется в тестах)
-        
-        logger.info(f"Переменные окружения для запуска серверов: {env.get('PYTHONPATH')}, USE_MOCKS={env.get('USE_MOCKS')}")
+        logger.info(f"setUpClass: Переменные окружения для запуска серверов: PYTHONPATH={env.get('PYTHONPATH')}, USE_MOCKS={env.get('USE_MOCKS')}")
 
         # Запуск сервера аутентификации
-        logger.info(f"Запуск сервера аутентификации (auth_server.main) на {HOST}:{AUTH_PORT}...")
+        logger.info(f"setUpClass: Запуск процесса сервера аутентификации (auth_server.main) на {HOST}:{AUTH_PORT}...")
         cls.auth_server_process = subprocess.Popen(
-            [sys.executable, "-m", "auth_server.main"], # Запускаем как модуль
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, "-m", "auth_server.main"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
         )
+        logger.info(f"setUpClass: Процесс сервера аутентификации запущен. PID: {cls.auth_server_process.pid}")
+        logger.info("setUpClass: Небольшая пауза для инициализации сервера аутентификации...")
+        time.sleep(0.5) 
+        logger.info("setUpClass: Пауза завершена. Проверка состояния процесса сервера аутентификации...")
+        
+        logger.info("setUpClass: Проверка `auth_server_process.poll()`...")
+        auth_poll_result = cls.auth_server_process.poll()
+        if auth_poll_result is not None:
+            logger.error(f"setUpClass: Сервер аутентификации завершился сразу после запуска. Код возврата: {auth_poll_result}")
+            auth_stdout = cls.auth_server_process.stdout.read() if cls.auth_server_process.stdout else ""
+            auth_stderr = cls.auth_server_process.stderr.read() if cls.auth_server_process.stderr else ""
+            logger.error(f"setUpClass: STDOUT сервера аутентификации: {auth_stdout}")
+            logger.error(f"setUpClass: STDERR сервера аутентификации: {auth_stderr}")
+            raise RuntimeError(f"Сервер аутентификации не запустился. Код: {auth_poll_result}")
+
+        logger.info("setUpClass: Вызов _check_server_ready для сервера аутентификации...")
+        auth_ready_result = asyncio.run(cls._check_server_ready(HOST, AUTH_PORT, server_name="Auth Server"))
+        logger.info(f"setUpClass: _check_server_ready для сервера аутентификации завершен. Результат: {auth_ready_result}")
+        if not auth_ready_result:
+            logger.error("setUpClass: Сервер аутентификации не прошел проверку готовности. Чтение вывода...")
+            auth_stdout = cls.auth_server_process.stdout.read() if cls.auth_server_process.stdout else ""
+            auth_stderr = cls.auth_server_process.stderr.read() if cls.auth_server_process.stderr else ""
+            cls.auth_server_process.terminate() 
+            cls.auth_server_process.wait(timeout=2)
+            logger.error(f"setUpClass: STDOUT сервера аутентификации: {auth_stdout}")
+            logger.error(f"setUpClass: STDERR сервера аутентификации: {auth_stderr}")
+            raise RuntimeError("Auth Server не прошел проверку готовности.")
+        logger.info("setUpClass: Auth Server успешно запущен и готов.")
+
         # Запуск игрового сервера
-        logger.info(f"Запуск игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
+        logger.info(f"setUpClass: Запуск процесса игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
         cls.game_server_process = subprocess.Popen(
-            [sys.executable, "-m", "game_server.main"], # Запускаем как модуль
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, "-m", "game_server.main"],
+            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, bufsize=1, universal_newlines=True
         )
-        
-        # Даем серверам время на запуск. Это важно, особенно на медленных машинах или в CI.
-        logger.info("Ожидание запуска серверов (2 секунды)...")
-        time.sleep(2) # Увеличено время ожидания для надежности
+        logger.info(f"setUpClass: Процесс игрового сервера запущен. PID: {cls.game_server_process.pid}")
+        logger.info("setUpClass: Небольшая пауза для инициализации игрового сервера...")
+        time.sleep(0.5)
+        logger.info("setUpClass: Пауза завершена. Проверка состояния процесса игрового сервера...")
 
-        # Проверяем, что серверы действительно запустились (хотя бы что процессы не упали сразу)
-        if cls.auth_server_process.poll() is not None:
-            auth_stdout = cls.auth_server_process.stdout.read().decode(errors='ignore') if cls.auth_server_process.stdout else ""
-            auth_stderr = cls.auth_server_process.stderr.read().decode(errors='ignore') if cls.auth_server_process.stderr else ""
-            logger.error(f"Сервер аутентификации не запустился. STDOUT: {auth_stdout} STDERR: {auth_stderr}")
-            raise RuntimeError("Сервер аутентификации не запустился.")
-        
-        if cls.game_server_process.poll() is not None:
-            game_stdout = cls.game_server_process.stdout.read().decode(errors='ignore') if cls.game_server_process.stdout else ""
-            game_stderr = cls.game_server_process.stderr.read().decode(errors='ignore') if cls.game_server_process.stderr else ""
-            logger.error(f"Игровой сервер не запустился. STDOUT: {game_stdout} STDERR: {game_stderr}")
-            raise RuntimeError("Игровой сервер не запустился.")
-        
-        logger.info("Серверы успешно запущены для интеграционных тестов.")
+        logger.info("setUpClass: Проверка `game_server_process.poll()`...")
+        game_poll_result = cls.game_server_process.poll()
+        if game_poll_result is not None:
+            logger.error(f"setUpClass: Игровой сервер завершился сразу после запуска. Код возврата: {game_poll_result}")
+            game_stdout = cls.game_server_process.stdout.read() if cls.game_server_process.stdout else ""
+            game_stderr = cls.game_server_process.stderr.read() if cls.game_server_process.stderr else ""
+            logger.error(f"setUpClass: STDOUT игрового сервера: {game_stdout}")
+            logger.error(f"setUpClass: STDERR игрового сервера: {game_stderr}")
+            if cls.auth_server_process and cls.auth_server_process.poll() is None:
+                cls.auth_server_process.terminate()
+                cls.auth_server_process.wait(timeout=2)
+            raise RuntimeError(f"Игровой сервер не запустился. Код: {game_poll_result}")
 
+        logger.info("setUpClass: Вызов _check_server_ready для игрового сервера...")
+        game_ready_result = asyncio.run(cls._check_server_ready(HOST, GAME_PORT, server_name="Game Server", expect_ack_message="SERVER_ACK_CONNECTED"))
+        logger.info(f"setUpClass: _check_server_ready для игрового сервера завершен. Результат: {game_ready_result}")
+        if not game_ready_result:
+            logger.error("setUpClass: Игровой сервер не прошел проверку готовности. Чтение вывода...")
+            game_stdout = cls.game_server_process.stdout.read() if cls.game_server_process.stdout else ""
+            game_stderr = cls.game_server_process.stderr.read() if cls.game_server_process.stderr else ""
+            cls.game_server_process.terminate() 
+            cls.game_server_process.wait(timeout=2)
+            if cls.auth_server_process and cls.auth_server_process.poll() is None: 
+                cls.auth_server_process.terminate()
+                cls.auth_server_process.wait(timeout=2)
+            logger.error(f"setUpClass: STDOUT игрового сервера: {game_stdout}")
+            logger.error(f"setUpClass: STDERR игрового сервера: {game_stderr}")
+            raise RuntimeError("Game Server не прошел проверку готовности.")
+        logger.info("setUpClass: Game Server успешно запущен и готов.")
+        
+        logger.info("setUpClass: Все серверы успешно запущены и готовы для интеграционных тестов.")
 
     @classmethod
     def tearDownClass(cls):

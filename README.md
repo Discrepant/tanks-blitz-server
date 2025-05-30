@@ -235,8 +235,8 @@ pip install -r requirements.txt
 | `RABBITMQ_PASSWORD`         | Пароль RabbitMQ.                                                         | `password`                          | `password`                | `password`                    |
 | `REDIS_HOST`                | Хост Redis.                                                              | `localhost`                         | `redis-service`           | `localhost`                   |
 | `REDIS_PORT`                | Порт Redis.                                                              | `6379`                              | `6379`                    | `6379`                        |
-| `AUTH_SERVER_HOST`          | Хост сервера аутентификации.                                             | `0.0.0.0`                           | `0.0.0.0`                 | `localhost`                   |
-| `AUTH_SERVER_PORT`          | Порт сервера аутентификации.                                             | `8888`                              | `8888`                    | `8888`                        |
+| `AUTH_SERVER_HOST`          | Хост, который слушает сервер аутентификации (по умолчанию `0.0.0.0`). Также хост, к которому Game Server подключается для аутентификации (по умолчанию `localhost` в Game Server). | `0.0.0.0` (слушает), `localhost` (подключается Game Server) | `auth_server` (слушает), `auth_server` (подключается Game Server) | `0.0.0.0` (слушает), `localhost` (подключается Game Server) |
+| `AUTH_SERVER_PORT`          | Порт, который слушает сервер аутентификации. Game Server использует эту переменную для подключения к Auth Server. | `8888`                              | `8888`                    | `8888`                        |
 | `AUTH_PROMETHEUS_PORT`      | Порт метрик Prometheus для сервера аутентификации.                       | `8000`                              | `8000`                    | `8000`                        |
 | `GAME_SERVER_HOST`          | Хост игрового сервера (для TCP).                                         | `0.0.0.0`                           | `0.0.0.0`                 | `localhost`                   |
 | `GAME_SERVER_TCP_PORT`      | TCP порт игрового сервера.                                               | `8889`                              | `8889`                    | `8889`                        |
@@ -244,6 +244,7 @@ pip install -r requirements.txt
 | `GAME_PROMETHEUS_PORT`      | Порт метрик Prometheus для игрового сервера.                             | `8001`                              | `8001`                    | `8001`                        |
 | `USE_MOCKS`                 | Использовать ли моки для внешних сервисов (`true` или `false`).          | `false`                             | -                         | `false` (для тестов `true`)   |
 | `LOG_LEVEL`                 | Уровень логирования (DEBUG, INFO, WARNING, ERROR).                       | `INFO`                              | `INFO`                    | `INFO`                        |
+| `INTEGRATION_TEST_LOG_FILE` | Путь к лог-файлу интеграционных тестов Game Server. Определяется кроссплатформенно (например, `os.path.join(tempfile.gettempdir(), "game_server_integration_test.log")`). Фактический путь зависит от ОС. | `os.path.join(tempfile.gettempdir(), "game_server_integration_test.log")` | - (не используется Docker Compose для тестов) | Зависит от ОС (`/tmp/...` или `%TEMP%\\...`) |
 
 **Способы установки переменных окружения:**
 
@@ -324,7 +325,24 @@ pip install -r requirements.txt
     ```bash
     python -m game_server.main
     ```
-    Сервер будет доступен по UDP на `localhost:9999` и TCP на `localhost:8889`. Метрики Prometheus: `http://localhost:8001/metrics`.
+    Сервер будет доступен по UDP на `localhost:9999` (или порт из `GAME_SERVER_UDP_PORT`) и TCP на `localhost:8889` (или порт из `GAME_SERVER_TCP_PORT`).
+    Game Server будет пытаться подключиться к Auth Server по адресу, указанному в `AUTH_SERVER_HOST` и `AUTH_SERVER_PORT`.
+    Метрики Prometheus для Game Server: `http://localhost:8001/metrics` (или порт из `GAME_PROMETHEUS_PORT`).
+
+    **Примеры запуска с указанием портов и хостов:**
+
+    ```bash
+    # Запуск Auth Server на порту 8890
+    AUTH_SERVER_PORT=8890 python -m auth_server.main
+
+    # Запуск Game Server:
+    # - TCP порт 8891
+    # - UDP порт 9991
+    # - Подключается к Auth Server на localhost:8890
+    GAME_SERVER_TCP_PORT=8891 GAME_SERVER_UDP_PORT=9991 \
+    AUTH_SERVER_HOST=localhost AUTH_SERVER_PORT=8890 \
+    python -m game_server.main
+    ```
 
 ## Тестирование
 
@@ -368,6 +386,8 @@ pip install -r requirements.txt
     # или если тесты написаны с использованием pytest:
     # python -m pytest tests/integration/
     ```
+    Интеграционные тесты запускают Auth Server и Game Server как подпроцессы. Эти подпроцессы теперь корректно учитывают переменные окружения для конфигурации портов (например, `AUTH_SERVER_PORT` для Auth Server, `GAME_SERVER_TCP_PORT` для Game Server) и адреса Auth Server (`AUTH_SERVER_HOST`, `AUTH_SERVER_PORT`), к которому должен подключаться Game Server в тестах.
+    Если в вашем окружении установлены эти переменные (например, `AUTH_SERVER_PORT`), тестовые серверы попытаются использовать их. Для предсказуемого поведения тестов рекомендуется либо сбрасывать эти переменные перед запуском тестов, либо явно устанавливать их в нужные значения для тестового окружения (например, в скрипте запуска тестов или непосредственно перед командой `python -m unittest ...`).
 
 **Режим мокирования (`USE_MOCKS=true`):**
 *   По умолчанию, интеграционные тесты (`tests/integration/test_integration.py`) запускают серверы в режиме мокирования. Это достигается установкой переменной окружения `USE_MOCKS=true` для подпроцессов серверов, запускаемых тестами.
@@ -494,6 +514,11 @@ python -m pytest tests/unit/ -v -s
     git fetch upstream # (если upstream - это оригинальный репозиторий)
     git rebase upstream/main # (или develop, в зависимости от основной ветки)
     ```
+
+## Логирование
+В проекте используется стандартный модуль `logging` Python.
+*   **Уровень логирования:** Может быть настроен через переменную окружения `LOG_LEVEL` (например, `DEBUG`, `INFO`, `WARNING`).
+*   **Логи интеграционных тестов:** Лог-файл для интеграционных тестов Game Server (`game_server_integration_test.log`) теперь создается в стандартной временной директории системы (например, `/tmp` в Linux или `%TEMP%` в Windows). Это определяется с помощью `os.path.join(tempfile.gettempdir(), "game_server_integration_test.log")`.
 7.  **Создайте Pull Request (PR):** Отправьте PR из вашей ветки в основную ветку оригинального репозитория.
     *   Дайте подробное описание внесенных изменений в PR.
     *   Если ваш PR исправляет существующий Issue, укажите его номер (например, `Closes #123`).

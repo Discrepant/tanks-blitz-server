@@ -37,13 +37,16 @@ class TestGameUDPHandlerRabbitMQ(unittest.TestCase):
         Создает экземпляр GameUDPProtocol и мокирует его транспорт и зависимости
         (SessionManager, TankPool).
         """
-        self.protocol = GameUDPProtocol() # Создаем экземпляр тестируемого протокола
+        self.mock_session_manager = MagicMock(spec=SessionManager)
+        self.mock_tank_pool = MagicMock(spec=TankPool)
+        self.protocol = GameUDPProtocol(session_manager=self.mock_session_manager,
+                                        tank_pool=self.mock_tank_pool)
         self.mock_transport = MagicMock(spec=asyncio.DatagramTransport) # Мок для транспорта UDP
         self.protocol.transport = self.mock_transport # Присваиваем мок-транспорт протоколу
         
-        # Мокируем зависимости GameUDPProtocol
-        self.protocol.session_manager = MagicMock(spec=SessionManager)
-        self.protocol.tank_pool = MagicMock(spec=TankPool)
+        # Строки ниже больше не нужны, так как зависимости передаются в конструктор
+        # self.protocol.session_manager = MagicMock(spec=SessionManager)
+        # self.protocol.tank_pool = MagicMock(spec=TankPool)
 
     def test_datagram_received_shoot_command_publishes_to_rabbitmq(self, mock_publish_rabbitmq: MagicMock):
         """

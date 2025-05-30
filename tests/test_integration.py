@@ -395,44 +395,99 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
             self.fail(f"Не удалось декодировать JSON: {response_str}")
             
     async def test_05_game_server_login_success_via_auth_client(self):
-        response = await tcp_client_request(HOST, GAME_PORT, "LOGIN integ_user integ_pass")
-        self.assertTrue(response.startswith("LOGIN_SUCCESS"), f"Ответ от игрового сервера: {response}")
-        self.assertIn("Token:", response, "Ответ должен содержать информацию о токене.")
+        reader = None
+        writer = None
+        try:
+            reader, writer = await asyncio.wait_for(
+                asyncio.open_connection(HOST, GAME_PORT),
+                timeout=2.0
+            )
+
+            # 1. Read SERVER_ACK_CONNECTED
+            ack_bytes = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=2.0)
+            self.assertEqual(ack_bytes.decode('utf-8').strip(), "SERVER_ACK_CONNECTED", "Did not receive SERVER_ACK_CONNECTED")
+
+            # 2. Send LOGIN command
+            login_command = "LOGIN integ_user integ_pass\n"
+            writer.write(login_command.encode('utf-8'))
+            await writer.drain()
+
+            # 3. Read LOGIN_SUCCESS response
+            login_response_bytes = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=2.0)
+            login_response_str = login_response_bytes.decode('utf-8').strip()
+            self.assertTrue(login_response_str.startswith("LOGIN_SUCCESS"), f"Ответ от игрового сервера на LOGIN: {login_response_str}")
+            self.assertIn("Token:", login_response_str, "Ответ на LOGIN должен содержать информацию о токене.")
+
+            # 4. Read SERVER: Welcome to the game room!
+            welcome_response_bytes = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=2.0)
+            welcome_response_str = welcome_response_bytes.decode('utf-8').strip()
+            self.assertEqual(welcome_response_str, "SERVER: Welcome to the game room!", "Did not receive welcome message")
+
+        except asyncio.TimeoutError:
+            self.fail(f"Timeout during TCP communication in test_05")
+        except ConnectionRefusedError:
+            self.fail(f"Connection refused in test_05")
+        except Exception as e:
+            self.fail(f"An unexpected error occurred in test_05: {e}")
+        finally:
+            if writer and not writer.is_closing():
+                writer.close()
+                await writer.wait_closed()
 
     async def test_06_game_server_login_failure_via_auth_client(self):
         response = await tcp_client_request(HOST, GAME_PORT, "LOGIN integ_user wrong_pass_for_game")
         self.assertTrue(response.startswith("LOGIN_FAILURE"), f"Ответ от игрового сервера: {response}")
-        self.assertIn("Неверный пароль", response, "Сообщение должно указывать на неверный пароль от сервера аутентификации.")
+        self.assertIn("Incorrect password.", response, "Сообщение должно указывать на неверный пароль от сервера аутентификации.")
 
     async def test_07_game_server_login_user_not_found_via_auth_client(self):
         response = await tcp_client_request(HOST, GAME_PORT, "LOGIN nosuchuser_integ gamepass")
         self.assertTrue(response.startswith("LOGIN_FAILURE"), f"Ответ от игрового сервера: {response}")
-        self.assertIn("Пользователь не найден", response, "Сообщение должно указывать, что пользователь не найден (от сервера аутентификации).")
+        self.assertIn("User not found.", response, "Сообщение должно указывать, что пользователь не найден (от сервера аутентификации).")
 
     async def test_08_game_server_chat_after_login(self):
         reader1, writer1 = await asyncio.open_connection(HOST, GAME_PORT)
+        # Client 1: Read ACK
+        ack1_bytes = await reader1.readuntil(b"\n")
+        self.assertEqual(ack1_bytes.decode('utf-8').strip(), "SERVER_ACK_CONNECTED")
+
         login_cmd1 = "LOGIN integ_user integ_pass\n"
         writer1.write(login_cmd1.encode('utf-8'))
         await writer1.drain()
+
+        # Client 1: Read LOGIN_SUCCESS
         login_response1_bytes = await reader1.readuntil(b"\n")
         login_response1 = login_response1_bytes.decode('utf-8')
         self.assertTrue(login_response1.startswith("LOGIN_SUCCESS"), f"Клиент 1: Неудачный логин: {login_response1.strip()}")
         
-        await reader1.readuntil(b"\n") 
+        # Client 1: Read Welcome message
+        welcome1_bytes = await reader1.readuntil(b"\n")
+        self.assertEqual(welcome1_bytes.decode('utf-8').strip(), "SERVER: Welcome to the game room!")
 
         reader2, writer2 = await asyncio.open_connection(HOST, GAME_PORT)
+        # Client 2: Read ACK
+        ack2_bytes = await reader2.readuntil(b"\n")
+        self.assertEqual(ack2_bytes.decode('utf-8').strip(), "SERVER_ACK_CONNECTED")
+
         login_cmd2 = "LOGIN integ_user2 integ_pass2\n"
         writer2.write(login_cmd2.encode('utf-8'))
         await writer2.drain()
+
+        # Client 2: Read LOGIN_SUCCESS
         login_response2_bytes = await reader2.readuntil(b"\n")
         login_response2 = login_response2_bytes.decode('utf-8')
         self.assertTrue(login_response2.startswith("LOGIN_SUCCESS"), f"Клиент 2: Неудачный логин: {login_response2.strip()}")
 
-        await reader2.readuntil(b"\n")
+        # Client 2: Read Welcome message
+        welcome2_bytes = await reader2.readuntil(b"\n")
+        self.assertEqual(welcome2_bytes.decode('utf-8').strip(), "SERVER: Welcome to the game room!")
+
+        # Player joined messages
+        # Client 2 receives that Client 1 joined
         join_msg_c1_for_c2 = await reader2.readuntil(b"\n") 
-        self.assertIn(f"SERVER: Игрок {login_cmd1.split()[1]} присоединился".encode('utf-8'), join_msg_c1_for_c2, "Клиент 2 не получил сообщение о присоединении Клиента 1")
+        self.assertIn(f"SERVER: Player {login_cmd1.split()[1]} joined the room.".encode('utf-8'), join_msg_c1_for_c2, "Клиент 2 не получил сообщение о присоединении Клиента 1")
+        # Client 1 receives that Client 2 joined
         join_msg_c2_for_c1 = await reader1.readuntil(b"\n")
-        self.assertIn(f"SERVER: Игрок {login_cmd2.split()[1]} присоединился".encode('utf-8'), join_msg_c2_for_c1, "Клиент 1 не получил сообщение о присоединении Клиента 2")
+        self.assertIn(f"SERVER: Player {login_cmd2.split()[1]} joined the room.".encode('utf-8'), join_msg_c2_for_c1, "Клиент 1 не получил сообщение о присоединении Клиента 2")
 
         say_cmd1 = "SAY Hello from client1\n"
         writer1.write(say_cmd1.encode('utf-8'))
@@ -480,7 +535,7 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         await writer.drain()
         try:
             response_quit_bytes = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=1.0)
-            self.assertIn("SERVER: Вы выходите из комнаты...".encode('utf-8'), response_quit_bytes, "Не получено подтверждение выхода.")
+            self.assertIn("SERVER: You are leaving the room...\n".encode('utf-8'), response_quit_bytes, "Не получено подтверждение выхода.")
             eof_signal = await asyncio.wait_for(reader.read(100), timeout=1.0) 
             self.assertEqual(eof_signal, b"", "Соединение не было закрыто сервером после QUIT (ожидался EOF).")
         except asyncio.TimeoutError:

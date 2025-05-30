@@ -73,10 +73,11 @@ from .session_manager import SessionManager # Менеджер игровых с
 from .tank_pool import TankPool # Пул объектов танков
 # from .command_consumer import PlayerCommandConsumer, MatchmakingEventConsumer # Потребители сообщений из RabbitMQ
 # from .metrics import ACTIVE_SESSIONS, TANKS_IN_USE # Метрики Prometheus
-# from prometheus_client import start_http_server # Функция для запуска сервера метрик
-# import threading # Для запуска компонентов в отдельных потоках
+from .metrics import ACTIVE_SESSIONS, TANKS_IN_USE # Метрики Prometheus
+from prometheus_client import start_http_server # Функция для запуска сервера метрик
+import threading # Для запуска компонентов в отдельных потоках
 
-print(f"[GAME_SERVER_MAIN_DEBUG] Core application imports uncommented. About to call logging.basicConfig.", flush=True, file=sys.stderr)
+print(f"[GAME_SERVER_MAIN_DEBUG] Core application imports uncommented (including metrics and threading). About to call logging.basicConfig.", flush=True, file=sys.stderr)
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
 print(f"[GAME_SERVER_MAIN_DEBUG] logging.basicConfig called.", flush=True, file=sys.stderr)
 # Настройка базового логирования.
@@ -152,8 +153,8 @@ def setup_file_logging():
 #     metrics_loop_thread.start()
 
 
-async def start_game_server():
-#    pass # Add pass statement to avoid IndentationError when body is commented
+async def start_game_server(session_manager: SessionManager, tank_pool: TankPool):
+#    pass
     """
     Основная асинхронная функция для запуска UDP и TCP серверов игры.
     Настраивает обработчики, игровую комнату и клиент аутентификации.
@@ -164,15 +165,11 @@ async def start_game_server():
     logger.info(f"Starting game UDP server on {host}:{port}...")
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
 
-    # SessionManager и TankPool будут инициализированы в main или переданы при необходимости.
-    # Пока предполагается, что они являются синглтонами и будут инициализированы в __main__
-    # или их существующие экземпляры в update_metrics и здесь достаточны.
-    # Для PlayerCommandConsumer нам нужны конкретные экземпляры.
-    # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
+    # SessionManager и TankPool передаются как аргументы.
 
     # Создаем конечную точку UDP-сервера
     transport, protocol = await loop.create_datagram_endpoint(
-        lambda: GameUDPProtocol(), # GameUDPProtocol может потребоваться доступ к session_manager и tank_pool
+        lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
         local_addr=(host, port)
     )
 
@@ -242,34 +239,27 @@ if __name__ == '__main__':
     # Если нет, этот подход требует доработки, чтобы гарантировать использование
     # одних и тех же экземпляров в GameUDPProtocol, PlayerCommandConsumer и метриках.
     # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
-    # session_manager = SessionManager()
-    # tank_pool = TankPool(pool_size=50) # Инициализируем с размером пула
+    session_manager = SessionManager()
+    tank_pool = TankPool(pool_size=50) # Инициализируем с размером пула
 
-    # # Запуск сервера метрик Prometheus
-    # # Эта функция уже использует новые экземпляры SM и TP, может потребоваться рефакторинг,
-    # # если строго необходимы общие экземпляры.
-    # # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
+    # # Запуск сервера метрик Prometheus - ОСТАВИТЬ ЗАКОММЕНТИРОВАННЫМ для этого шага
     # start_metrics_server()
 
-    # # Инициализация и запуск потребителя команд игроков из RabbitMQ
+    # # Инициализация и запуск потребителя команд игроков из RabbitMQ - ОСТАВИТЬ ЗАКОММЕНТИРОВАННЫМ
     # logger.info("Initializing PlayerCommandConsumer...")
     # player_command_consumer = PlayerCommandConsumer(session_manager, tank_pool)
-    
-    # # Запускаем потребителя в отдельном daemon-потоке
     # consumer_thread = threading.Thread(target=player_command_consumer.start_consuming, daemon=True)
-    # consumer_thread.setName("PlayerCommandConsumerThread") # Имя потока полезно для отладки
+    # consumer_thread.setName("PlayerCommandConsumerThread")
     # consumer_thread.start()
     # logger.info("PlayerCommandConsumer started in a separate thread.")
 
-    # # Инициализация и запуск потребителя событий матчмейкинга из RabbitMQ
+    # # Инициализация и запуск потребителя событий матчмейкинга из RabbitMQ - ОСТАВИТЬ ЗАКОММЕНТИРОВАННЫМ
     # logger.info("Initializing MatchmakingEventConsumer...")
-    # matchmaking_event_consumer = MatchmakingEventConsumer(session_manager) # Использует тот же session_manager
-    
-    # # Запускаем потребителя событий матчмейкинга в отдельном daemon-потоке
+    # matchmaking_event_consumer = MatchmakingEventConsumer(session_manager)
     # matchmaking_consumer_thread = threading.Thread(
     #     target=matchmaking_event_consumer.start_consuming,
     #     daemon=True,
-    #     name="MatchmakingEventConsumerThread" # Имя потока
+    #     name="MatchmakingEventConsumerThread"
     # )
     # matchmaking_consumer_thread.start()
     # logger.info("MatchmakingEventConsumer started in a separate thread.")
@@ -277,10 +267,7 @@ if __name__ == '__main__':
     # Запуск основного игрового сервера
     try:
         logger.info("Starting asynchronous components of the game server...")
-        # Передаем session_manager и tank_pool в start_game_server, если это необходимо явно.
-        # Пока предполагается, что GameUDPProtocol получает их через паттерн Singleton из SessionManager/TankPool.
-        # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
-        asyncio.run(start_game_server()) 
+        asyncio.run(start_game_server(session_manager=session_manager, tank_pool=tank_pool))
     except KeyboardInterrupt:
         logger.info("Server shutdown initiated via KeyboardInterrupt.")
     except Exception as e:

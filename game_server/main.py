@@ -95,8 +95,13 @@ INTEGRATION_TEST_LOG_FILE = os.path.join(tempfile.gettempdir(), "game_server_int
 def setup_file_logging():
     try:
         # Clear previous log file
-        if os.path.exists(INTEGRATION_TEST_LOG_FILE):
-            os.remove(INTEGRATION_TEST_LOG_FILE)
+        try:
+            if os.path.exists(INTEGRATION_TEST_LOG_FILE):
+                os.remove(INTEGRATION_TEST_LOG_FILE)
+        except (FileNotFoundError, PermissionError) as e:
+            # Use the module-level logger if available, otherwise logging.warning
+            # logger should be available as it's defined globally in this module
+            logger.warning(f"Could not remove old log file {INTEGRATION_TEST_LOG_FILE}: {e}")
         
         file_handler = logging.FileHandler(INTEGRATION_TEST_LOG_FILE)
         # Ensure file_handler also processes DEBUG messages
@@ -168,7 +173,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     Настраивает обработчики, игровую комнату и клиент аутентификации.
     """
     host = '0.0.0.0' # Слушаем на всех доступных интерфейсах
-    port = 9999      # Порт для UDP-сервера
+    port = 9998      # Порт для UDP-сервера ИЗМЕНЕНО c 9999 на 9998
 
     # logger.info(f"Starting game UDP server on {host}:{port}...") # Replaced by debug and then specific info
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
@@ -195,7 +200,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     except ValueError:
         logger.warning(f"Invalid value for AUTH_SERVER_PORT ('{auth_port_str}'). Using default port 8888.")
         auth_server_port = 8888
-
+    
     logger.info(f"AuthClient will connect to {auth_server_host}:{auth_server_port}")
     print(f"[GameServerMain_start_game_server] AuthClient target: {auth_server_host}:{auth_server_port}", flush=True, file=sys.stderr)
 

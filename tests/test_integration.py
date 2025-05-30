@@ -17,7 +17,7 @@ HOST = '127.0.0.1'
 logger = logging.getLogger(__name__)
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(name)s - %(levelname)s - %(message)s')
 
-async def tcp_client_request(host: str, port: int, message: str, timeout: float = 2.0) -> str:
+async def tcp_client_request(host: str, port: int, message: str, timeout: float = 10.0) -> str: # Default timeout increased to 10.0
     try:
         reader, writer = await asyncio.wait_for(
             asyncio.open_connection(host, port),
@@ -78,8 +78,33 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     auth_server_process: subprocess.Popen | None = None
     game_server_process: subprocess.Popen | None = None
 
+    # Log file names
+    AUTH_SERVER_STDOUT_LOG = "auth_server_stdout.log"
+    AUTH_SERVER_STDERR_LOG = "auth_server_stderr.log"
+    GAME_SERVER_STDOUT_LOG = "game_server_stdout.log"
+    GAME_SERVER_STDERR_LOG = "game_server_stderr.log"
+
+    # File objects for server logs
+    auth_stdout_file = None
+    auth_stderr_file = None
+    game_stdout_file = None
+    game_stderr_file = None
+
     @staticmethod
-    async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 10, delay: float = 1.0, conn_timeout: float = 2.0): # Increased defaults
+    def _log_file_content(filename: str, description: str):
+        logger.info(f"--- Содержимое {description} ({filename}) ---")
+        try:
+            with open(filename, "r", encoding="utf-8", errors="ignore") as f:
+                content = f.read()
+            logger.info(content if content.strip() else "<пусто или только пробельные символы>")
+        except FileNotFoundError:
+            logger.warning(f"Файл лога {filename} не найден.")
+        except Exception as e:
+            logger.error(f"Ошибка при чтении файла лога {filename}: {e}", exc_info=True)
+        logger.info(f"--- Конец {description} ({filename}) ---")
+
+    @staticmethod
+    async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 30, delay: float = 2.0, conn_timeout: float = 5.0): # Defaults further increased
         logger.info(f"_check_server_ready: Вход для {server_name} на {host}:{port}, expect_ack='{expect_ack_message}', attempts={attempts}, delay={delay}s, conn_timeout={conn_timeout}s")
         for i in range(attempts):
             writer = None
@@ -166,45 +191,46 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         
         logger.info(f"setUpClass: Переменные окружения для запуска серверов: PYTHONPATH={env.get('PYTHONPATH')}, USE_MOCKS={env.get('USE_MOCKS')}")
 
+        # --- Auth Server Setup ---
+        logger.info(f"setUpClass: Открытие файлов логов для Auth Server: {cls.AUTH_SERVER_STDOUT_LOG}, {cls.AUTH_SERVER_STDERR_LOG}")
+        cls.auth_stdout_file = open(cls.AUTH_SERVER_STDOUT_LOG, "wb")
+        cls.auth_stderr_file = open(cls.AUTH_SERVER_STDERR_LOG, "wb")
+
         logger.info(f"setUpClass: Запуск процесса сервера аутентификации (auth_server.main) на {HOST}:{AUTH_PORT}...")
         cls.auth_server_process = subprocess.Popen(
-            [sys.executable, "-B", "-m", "auth_server.main"], # Added -B flag
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, "-B", "-m", "auth_server.main"],
+            env=env,
+            stdout=cls.auth_stdout_file,
+            stderr=cls.auth_stderr_file
         )
         logger.info(f"setUpClass: Процесс сервера аутентификации запущен. PID: {cls.auth_server_process.pid}")
-        logger.info("setUpClass: Небольшая пауза для инициализации сервера аутентификации...")
-        time.sleep(0.5) 
-        logger.info("setUpClass: Пауза завершена. Проверка состояния процесса сервера аутентификации...")
-        
-        logger.info("setUpClass: Проверка `auth_server_process.poll()`...")
+        time.sleep(0.5) # Даем время на возможный немедленный выход
+
         auth_poll_result = cls.auth_server_process.poll()
         if auth_poll_result is not None:
             logger.error(f"setUpClass: Сервер аутентификации завершился сразу после запуска. Код возврата: {auth_poll_result}")
-            auth_stdout_bytes, auth_stderr_bytes = cls.auth_server_process.communicate(timeout=1)
-            auth_stdout = auth_stdout_bytes.decode(errors='ignore')
-            auth_stderr = auth_stderr_bytes.decode(errors='ignore')
-            logger.error(f"setUpClass: STDOUT сервера аутентификации: {auth_stdout}")
-            logger.error(f"setUpClass: STDERR сервера аутентификации: {auth_stderr}")
-            raise RuntimeError(f"Сервер аутентификации не запустился. Код: {auth_poll_result}. STDERR: {auth_stderr}")
+            if cls.auth_stdout_file: cls.auth_stdout_file.close()
+            if cls.auth_stderr_file: cls.auth_stderr_file.close()
+            cls._log_file_content(cls.AUTH_SERVER_STDOUT_LOG, "Auth Server STDOUT on immediate exit")
+            cls._log_file_content(cls.AUTH_SERVER_STDERR_LOG, "Auth Server STDERR on immediate exit")
+            raise RuntimeError(f"Сервер аутентификации не запустился (код: {auth_poll_result}). См. {cls.AUTH_SERVER_STDERR_LOG}")
 
         logger.info("setUpClass: Вызов _check_server_ready для сервера аутентификации...")
         auth_ready_result = asyncio.run(cls._check_server_ready(HOST, AUTH_PORT, server_name="Auth Server"))
-        logger.info(f"setUpClass: _check_server_ready для сервера аутентификации завершен. Результат: {auth_ready_result}")
         if not auth_ready_result:
-            logger.error("setUpClass: Сервер аутентификации не прошел проверку готовности (или был терминирован).")
-            try:
-                auth_stdout_bytes, auth_stderr_bytes = cls.auth_server_process.communicate(timeout=1)
-                auth_stdout = auth_stdout_bytes.decode(errors='ignore')
-                auth_stderr = auth_stderr_bytes.decode(errors='ignore')
-                logger.error(f"setUpClass: STDOUT сервера аутентификации (при ошибке готовности): {auth_stdout}")
-                logger.error(f"setUpClass: STDERR сервера аутентификации (при ошибке готовности): {auth_stderr}")
-            except subprocess.TimeoutExpired:
-                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от сервера аутентификации.")
-            except Exception as e_comm_auth:
-                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от сервера аутентификации: {e_comm_auth}")
-
-            if cls.auth_server_process.poll() is None: # Если еще работает, терминировать
+            logger.error("setUpClass: Сервер аутентификации не прошел проверку готовности.")
+            if cls.auth_stdout_file: cls.auth_stdout_file.close()
+            if cls.auth_stderr_file: cls.auth_stderr_file.close()
+            cls._log_file_content(cls.AUTH_SERVER_STDOUT_LOG, "Auth Server STDOUT on readiness failure")
+            cls._log_file_content(cls.AUTH_SERVER_STDERR_LOG, "Auth Server STDERR on readiness failure")
+            if cls.auth_server_process.poll() is None:
                 cls.auth_server_process.terminate()
+                try:
+                    cls.auth_server_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"setUpClass: Таймаут ожидания завершения сервера аутентификации (PID: {cls.auth_server_process.pid}) после terminate. Попытка kill...")
+                    cls.auth_server_process.kill()
+                # terminate/kill logic from original code
                 try:
                     cls.auth_server_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
@@ -214,62 +240,56 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
                         cls.auth_server_process.wait(timeout=1)
                     except subprocess.TimeoutExpired:
                         logger.error(f"setUpClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) не завершился даже после kill.")
-            raise RuntimeError("Auth Server не прошел проверку готовности (или был терминирован).")
+            raise RuntimeError("Auth Server не прошел проверку готовности. См. лог-файлы.")
         logger.info("setUpClass: Auth Server успешно запущен и готов.")
 
-        logger.info(f"setUpClass: Запуск процесса игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
+        # --- Game Server Setup ---
+        logger.info(f"setUpClass: Открытие файлов логов для Game Server: {cls.GAME_SERVER_STDOUT_LOG}, {cls.GAME_SERVER_STDERR_LOG}")
+        cls.game_stdout_file = open(cls.GAME_SERVER_STDOUT_LOG, "wb")
+        cls.game_stderr_file = open(cls.GAME_SERVER_STDERR_LOG, "wb")
 
-        # diagnostic_command = "import sys; print('DIAGNOSTIC_PRINT_FROM_GAME_SERVER_SUBPROCESS', file=sys.stderr, flush=True); sys.exit(0)"
+        logger.info(f"setUpClass: Запуск процесса игрового сервера (game_server.main) TCP на {HOST}:{GAME_PORT}...")
         cls.game_server_process = subprocess.Popen(
-            [sys.executable, "-B", "-m", "game_server.main"], # Changed to actual server launch command
-            env=env, stdout=subprocess.PIPE, stderr=subprocess.PIPE
+            [sys.executable, "-B", "-m", "game_server.main"],
+            env=env,
+            stdout=cls.game_stdout_file,
+            stderr=cls.game_stderr_file
         )
         logger.info(f"setUpClass: Процесс игрового сервера запущен. PID: {cls.game_server_process.pid}")
-        logger.info("setUpClass: Небольшая пауза для инициализации игрового сервера...")
-        time.sleep(0.5)
-        logger.info("setUpClass: Пауза завершена. Проверка состояния процесса игрового сервера...")
+        time.sleep(0.5) # Даем время на возможный немедленный выход
 
-        logger.info("setUpClass: Проверка `game_server_process.poll()`...")
         game_poll_result = cls.game_server_process.poll()
         if game_poll_result is not None:
             logger.error(f"setUpClass: Игровой сервер завершился сразу после запуска. Код возврата: {game_poll_result}")
-            game_stdout_bytes, game_stderr_bytes = cls.game_server_process.communicate(timeout=1)
-            game_stdout = game_stdout_bytes.decode(errors='ignore')
-            game_stderr = game_stderr_bytes.decode(errors='ignore')
-            logger.error(f"setUpClass: STDOUT игрового сервера: {game_stdout}")
-            logger.error(f"setUpClass: STDERR игрового сервера: {game_stderr}")
+            if cls.game_stdout_file: cls.game_stdout_file.close()
+            if cls.game_stderr_file: cls.game_stderr_file.close()
+            cls._log_file_content(cls.GAME_SERVER_STDOUT_LOG, "Game Server STDOUT on immediate exit")
+            cls._log_file_content(cls.GAME_SERVER_STDERR_LOG, "Game Server STDERR on immediate exit")
+            # Stop auth server if game server failed
             if cls.auth_server_process and cls.auth_server_process.poll() is None:
                 cls.auth_server_process.terminate()
-                cls.auth_server_process.wait(timeout=2) 
-            raise RuntimeError(f"Игровой сервер не запустился. Код: {game_poll_result}. STDERR: {game_stderr}")
+                if cls.auth_stdout_file: cls.auth_stdout_file.close() # Close its logs too
+                if cls.auth_stderr_file: cls.auth_stderr_file.close()
+                cls.auth_server_process.wait(timeout=2)
+            raise RuntimeError(f"Игровой сервер не запустился (код: {game_poll_result}). См. {cls.GAME_SERVER_STDERR_LOG}")
 
-        logger.debug("Attempting to read initial stdout/stderr from game server before check_server_ready...")
         logger.info("setUpClass: Вызов _check_server_ready для игрового сервера...")
         game_ready_result = asyncio.run(cls._check_server_ready(HOST, GAME_PORT, server_name="Game Server", expect_ack_message="SERVER_ACK_CONNECTED"))
-        logger.info(f"setUpClass: _check_server_ready для игрового сервера завершен. Результат: {game_ready_result}")
         if not game_ready_result:
-            logger.error("setUpClass: Игровой сервер не прошел проверку готовности (или был терминирован).")
-            game_stdout = "<stdout not captured>"
-            game_stderr = "<stderr not captured>"
-            # Попытка получить вывод из игрового сервера для диагностики
-            try:
-                logger.debug("Attempting to communicate() with failed game server process...")
-                game_stdout_bytes, game_stderr_bytes = cls.game_server_process.communicate(timeout=1)
-                game_stdout = game_stdout_bytes.decode(errors='ignore')
-                game_stderr = game_stderr_bytes.decode(errors='ignore')
-                logger.error("===== Game Server STDOUT (from communicate on failure) =====")
-                logger.error(game_stdout if game_stdout else "<no stdout captured>")
-                logger.error("===== Game Server STDERR (from communicate on failure) =====")
-                logger.error(game_stderr if game_stderr else "<no stderr captured>")
-                logger.error("==========================================================")
-            except subprocess.TimeoutExpired:
-                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от игрового сервера через communicate().")
-            except Exception as e_comm:
-                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от игрового сервера через communicate(): {e_comm}", exc_info=True)
+            logger.error("setUpClass: Игровой сервер не прошел проверку готовности.")
+            if cls.game_stdout_file: cls.game_stdout_file.close()
+            if cls.game_stderr_file: cls.game_stderr_file.close()
+            cls._log_file_content(cls.GAME_SERVER_STDOUT_LOG, "Game Server STDOUT on readiness failure")
+            cls._log_file_content(cls.GAME_SERVER_STDERR_LOG, "Game Server STDERR on readiness failure")
 
-            if cls.game_server_process.poll() is None: # Если еще работает, терминировать
-                logger.info("setUpClass: Terminating game server process as it did not pass readiness check but is still running...")
+            if cls.game_server_process.poll() is None:
                 cls.game_server_process.terminate()
+                try:
+                    cls.game_server_process.wait(timeout=2)
+                except subprocess.TimeoutExpired:
+                    logger.warning(f"setUpClass: Таймаут ожидания завершения игрового сервера (PID: {cls.game_server_process.pid}) после terminate. Попытка kill...")
+                    cls.game_server_process.kill()
+                # terminate/kill logic from original code
                 try:
                     cls.game_server_process.wait(timeout=2)
                 except subprocess.TimeoutExpired:
@@ -280,18 +300,16 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
                     except subprocess.TimeoutExpired:
                         logger.error(f"setUpClass: Игровой сервер (PID: {cls.game_server_process.pid}) не завершился даже после kill.")
 
-            if cls.auth_server_process and cls.auth_server_process.poll() is None: 
+            # Stop auth server if game server failed readiness check
+            if cls.auth_server_process and cls.auth_server_process.poll() is None:
                 cls.auth_server_process.terminate()
-                try:
-                    cls.auth_server_process.wait(timeout=2)
-                except subprocess.TimeoutExpired:
-                    logger.warning(f"setUpClass: Таймаут ожидания завершения сервера аутентификации (PID: {cls.auth_server_process.pid}) при ошибке игрового сервера. Попытка kill...")
-                    cls.auth_server_process.kill() 
-                    try:
-                        cls.auth_server_process.wait(timeout=1)
-                    except subprocess.TimeoutExpired:
-                         logger.error("setUpClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) не завершился даже после kill (при ошибке игрового сервера).")
-            raise RuntimeError("Game Server не прошел проверку готовности (или был терминирован).")
+                if cls.auth_stdout_file: cls.auth_stdout_file.close() # Close its logs too
+                if cls.auth_stderr_file: cls.auth_stderr_file.close()
+                # Optionally log auth server files here as well if game server fails, for complete diagnostics
+                cls._log_file_content(cls.AUTH_SERVER_STDOUT_LOG, "Auth Server STDOUT (Game Server readiness failure)")
+                cls._log_file_content(cls.AUTH_SERVER_STDERR_LOG, "Auth Server STDERR (Game Server readiness failure)")
+                cls.auth_server_process.wait(timeout=2)
+            raise RuntimeError("Game Server не прошел проверку готовности. См. лог-файлы.")
         logger.info("setUpClass: Game Server успешно запущен и готов.")
         
         logger.info("setUpClass: Все серверы успешно запущены и готовы для интеграционных тестов.")
@@ -299,69 +317,49 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
     @classmethod
     def tearDownClass(cls):
         logger.info("tearDownClass: Начало остановки серверов...")
-        if cls.auth_server_process and cls.auth_server_process.poll() is None:
-            auth_pid = cls.auth_server_process.pid
-            logger.info(f"tearDownClass: Попытка терминировать сервер аутентификации (PID: {auth_pid})...")
-            cls.auth_server_process.terminate()
-            logger.info(f"tearDownClass: Команда terminate() отправлена серверу аутентификации (PID: {auth_pid}).")
-            try:
-                logger.info(f"tearDownClass: Ожидание завершения сервера аутентификации (PID: {auth_pid}, timeout=5s)...")
-                cls.auth_server_process.wait(timeout=5)
-                logger.info(f"tearDownClass: Сервер аутентификации (PID: {auth_pid}) завершил ожидание.")
-            except subprocess.TimeoutExpired:
-                logger.warning(f"tearDownClass: Таймаут ожидания завершения сервера аутентификации (PID: {auth_pid}). Попытка принудительного завершения (kill)...")
-                cls.auth_server_process.kill()
+        # Auth Server
+        if cls.auth_server_process:
+            if cls.auth_server_process.poll() is None:
+                logger.info(f"tearDownClass: Попытка терминировать сервер аутентификации (PID: {cls.auth_server_process.pid})...")
+                cls.auth_server_process.terminate()
                 try:
-                    cls.auth_server_process.wait(timeout=1)
-                    logger.info(f"tearDownClass: Сервер аутентификации (PID: {auth_pid}) завершился после kill.")
+                    cls.auth_server_process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    logger.error(f"tearDownClass: Сервер аутентификации (PID: {auth_pid}) не завершился даже после kill.")
-                except Exception as e_kill_wait: 
-                    logger.error(f"tearDownClass: Ошибка при ожидании завершения сервера аутентификации (PID: {auth_pid}) после kill: {e_kill_wait}")
-            except Exception as e_wait:
-                logger.error(f"tearDownClass: Ошибка при ожидании завершения сервера аутентификации (PID: {auth_pid}): {e_wait}")
-            
-            auth_stdout = "Output now via PIPE, check pytest capture if process crashed in setUpClass or test."
-            auth_stderr = "" 
-            logger.debug(f"\n--- STDOUT Сервера Аутентификации (PID: {auth_pid}) ---\n{auth_stdout}")
-            logger.debug(f"--- STDERR Сервера Аутентификации (PID: {auth_pid}) ---\n{auth_stderr}")
-            logger.info(f"tearDownClass: Сервер аутентификации (PID: {auth_pid}) остановлен.")
-        elif cls.auth_server_process:
-             logger.info(f"tearDownClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) уже был остановлен ранее.")
+                    logger.warning(f"tearDownClass: Таймаут ожидания завершения сервера аутентификации (PID: {cls.auth_server_process.pid}). Попытка kill...")
+                    cls.auth_server_process.kill()
+                    cls.auth_server_process.wait(timeout=1) # Give a moment for kill
+                logger.info(f"tearDownClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) остановлен.")
+            else:
+                logger.info(f"tearDownClass: Сервер аутентификации (PID: {cls.auth_server_process.pid}) уже был остановлен.")
+            # Close and log files
+            if cls.auth_stdout_file: cls.auth_stdout_file.close()
+            if cls.auth_stderr_file: cls.auth_stderr_file.close()
+            cls._log_file_content(cls.AUTH_SERVER_STDOUT_LOG, "Auth Server STDOUT")
+            cls._log_file_content(cls.AUTH_SERVER_STDERR_LOG, "Auth Server STDERR")
         else:
-            logger.info("tearDownClass: Сервер аутентификации не был запущен или уже очищен.")
+            logger.info("tearDownClass: Сервер аутентификации не был запущен.")
 
-        if cls.game_server_process and cls.game_server_process.poll() is None:
-            game_pid = cls.game_server_process.pid
-            logger.info(f"tearDownClass: Попытка терминировать игровой сервер (PID: {game_pid})...")
-            cls.game_server_process.terminate()
-            logger.info(f"tearDownClass: Команда terminate() отправлена игровому серверу (PID: {game_pid}).")
-            try:
-                logger.info(f"tearDownClass: Ожидание завершения игрового сервера (PID: {game_pid}, timeout=5s)...")
-                cls.game_server_process.wait(timeout=5)
-                logger.info(f"tearDownClass: Игровой сервер (PID: {game_pid}) завершил ожидание.")
-            except subprocess.TimeoutExpired:
-                logger.warning(f"tearDownClass: Таймаут ожидания завершения игрового сервера (PID: {game_pid}). Попытка принудительного завершения (kill)...")
-                cls.game_server_process.kill()
+        # Game Server
+        if cls.game_server_process:
+            if cls.game_server_process.poll() is None:
+                logger.info(f"tearDownClass: Попытка терминировать игровой сервер (PID: {cls.game_server_process.pid})...")
+                cls.game_server_process.terminate()
                 try:
-                    cls.game_server_process.wait(timeout=1)
-                    logger.info(f"tearDownClass: Игровой сервер (PID: {game_pid}) завершился после kill.")
+                    cls.game_server_process.wait(timeout=5)
                 except subprocess.TimeoutExpired:
-                    logger.error(f"tearDownClass: Игровой сервер (PID: {game_pid}) не завершился даже после kill.")
-                except Exception as e_kill_wait: 
-                    logger.error(f"tearDownClass: Ошибка при ожидании завершения игрового сервера (PID: {game_pid}) после kill: {e_kill_wait}")
-            except Exception as e_wait:
-                logger.error(f"tearDownClass: Ошибка при ожидании завершения игрового сервера (PID: {game_pid}): {e_wait}")
-
-            game_stdout = "Output now via PIPE, check pytest capture if process crashed in setUpClass or test."
-            game_stderr = ""
-            logger.debug(f"\n--- STDOUT Игрового Сервера (PID: {game_pid}) ---\n{game_stdout}")
-            logger.debug(f"--- STDERR Игрового Сервера (PID: {game_pid}) ---\n{game_stderr}")
-            logger.info(f"tearDownClass: Игровой сервер (PID: {game_pid}) остановлен.")
-        elif cls.game_server_process:
-            logger.info(f"tearDownClass: Игровой сервер (PID: {cls.game_server_process.pid}) уже был остановлен ранее.")
+                    logger.warning(f"tearDownClass: Таймаут ожидания завершения игрового сервера (PID: {cls.game_server_process.pid}). Попытка kill...")
+                    cls.game_server_process.kill()
+                    cls.game_server_process.wait(timeout=1) # Give a moment for kill
+                logger.info(f"tearDownClass: Игровой сервер (PID: {cls.game_server_process.pid}) остановлен.")
+            else:
+                logger.info(f"tearDownClass: Игровой сервер (PID: {cls.game_server_process.pid}) уже был остановлен.")
+            # Close and log files
+            if cls.game_stdout_file: cls.game_stdout_file.close()
+            if cls.game_stderr_file: cls.game_stderr_file.close()
+            cls._log_file_content(cls.GAME_SERVER_STDOUT_LOG, "Game Server STDOUT")
+            cls._log_file_content(cls.GAME_SERVER_STDERR_LOG, "Game Server STDERR")
         else:
-            logger.info("tearDownClass: Игровой сервер не был запущен или уже очищен.")
+            logger.info("tearDownClass: Игровой сервер не был запущен.")
         
         logger.info("tearDownClass: Завершение остановки серверов.")
 

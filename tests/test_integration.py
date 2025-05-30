@@ -80,55 +80,71 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
 
     @staticmethod
     async def _check_server_ready(host: str, port: int, server_name: str, expect_ack_message: str | None = None, attempts: int = 5, delay: float = 0.5, conn_timeout: float = 1.0):
-        logger.info(f"_check_server_ready: Вход для {server_name} на {host}:{port}, expect_ack='{expect_ack_message}' (attempts={attempts}, delay={delay}, conn_timeout={conn_timeout})")
+        logger.info(f"_check_server_ready: Вход для {server_name} на {host}:{port}, expect_ack='{expect_ack_message}', attempts={attempts}, delay={delay}s, conn_timeout={conn_timeout}s")
         for i in range(attempts):
             writer = None
             attempt_num = i + 1
-            logger.info(f"_check_server_ready: Попытка {attempt_num}/{attempts}: Подключение к {server_name}...")
+            # logger.info(f"_check_server_ready: Попытка {attempt_num}/{attempts}: Подключение к {server_name}...")
+            ack_timeout = conn_timeout + 1.0 # Defined here for use in TimeoutError log
             try:
+                logger.debug(f"_check_server_ready: Попытка {attempt_num}/{attempts}: Вызов asyncio.open_connection к {server_name} ({host}:{port}) с таймаутом {conn_timeout}s...")
                 reader, writer = await asyncio.wait_for(
                     asyncio.open_connection(host, port),
                     timeout=conn_timeout
                 )
-                logger.info(f"_check_server_ready: Попытка {attempt_num}: Соединение с {server_name} установлено.")
+                # logger.info(f"_check_server_ready: Попытка {attempt_num}: Соединение с {server_name} установлено.")
+                logger.debug(f"_check_server_ready: Попытка {attempt_num}: Соединение с {server_name} УСТАНОВЛЕНО.")
                 if expect_ack_message:
-                    ack_timeout = conn_timeout + 1.0 
-                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Чтение ACK от {server_name} с таймаутом {ack_timeout}s...")
+                    # ack_timeout = conn_timeout + 1.0 # Moved up
+                    # logger.info(f"_check_server_ready: Попытка {attempt_num}: Чтение ACK от {server_name} с таймаутом {ack_timeout}s...")
+                    logger.debug(f"_check_server_ready: Попытка {attempt_num}: Ожидание ACK '{expect_ack_message}' от {server_name} с таймаутом {ack_timeout}s...")
                     ack_bytes = await asyncio.wait_for(reader.readuntil(b'\n'), timeout=ack_timeout)
                     ack_str = ack_bytes.decode('utf-8').strip()
-                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Получен ACK от {server_name}: '{ack_str}'")
+                    # logger.info(f"_check_server_ready: Попытка {attempt_num}: Получен ACK от {server_name}: '{ack_str}'")
+                    logger.debug(f"_check_server_ready: Попытка {attempt_num}: Получен ответ от {server_name}: '{ack_str}' (сырые байты: {ack_bytes!r})")
                     if ack_str.startswith(expect_ack_message):
-                        logger.info(f"_check_server_ready: {server_name} готов и ответил ожидаемым ACK.")
+                        # logger.info(f"_check_server_ready: {server_name} готов и ответил ожидаемым ACK.")
+                        logger.info(f"_check_server_ready: Попытка {attempt_num}: ACK от {server_name} ВЕРНЫЙ. Сервер готов.")
                         if writer:
                             writer.close()
                             await writer.wait_closed()
-                        logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ.")
+                        logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ (попытка {attempt_num}).")
                         return True
                     else:
-                        logger.warning(f"_check_server_ready: Попытка {attempt_num}: ACK от {server_name} НЕВЕРНЫЙ: '{ack_str}', ожидалось начало с '{expect_ack_message}'.")
+                        # logger.warning(f"_check_server_ready: Попытка {attempt_num}: ACK от {server_name} НЕВЕРНЫЙ: '{ack_str}', ожидалось начало с '{expect_ack_message}'.")
+                        logger.warning(f"_check_server_ready: Попытка {attempt_num}: ACK от {server_name} НЕВЕРНЫЙ. Ожидалось начало с '{expect_ack_message}', получено: '{ack_str}'")
                 else:
-                    logger.info(f"_check_server_ready: {server_name} готов (соединение установлено без ACK).")
+                    # logger.info(f"_check_server_ready: {server_name} готов (соединение установлено без ACK).")
+                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Проверка соединения с {server_name} успешна (ACK не требовался). Сервер готов.")
                     if writer:
                         writer.close()
                         await writer.wait_closed()
-                    logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ.")
+                    logger.info(f"_check_server_ready: Выход: {server_name} ГОТОВ (попытка {attempt_num}, ACK не требовался).")
                     return True
             except ConnectionRefusedError as e:
-                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: ConnectionRefusedError - {e}")
+                # logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: ConnectionRefusedError - {e}")
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: ConnectionRefusedError при подключении к {server_name} ({host}:{port}). Сервер не доступен. Ошибка: {e}")
             except asyncio.TimeoutError as e:
-                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.TimeoutError - {e}")
+                # logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.TimeoutError - {e}")
+                current_timeout = conn_timeout if "open_connection" in str(e).lower() or not expect_ack_message else ack_timeout
+                # This distinction is heuristic. A more robust way would be to catch TimeoutError specifically around open_connection and readuntil.
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: asyncio.TimeoutError (таймаут примерно {current_timeout}s) при связи с {server_name} ({host}:{port}). Ошибка: {e}")
             except asyncio.IncompleteReadError as e:
-                logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.IncompleteReadError - Partial: {e.partial!r}")
+                # logger.warning(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: asyncio.IncompleteReadError - Partial: {e.partial!r}")
+                logger.warning(f"_check_server_ready: Попытка {attempt_num}: asyncio.IncompleteReadError при чтении от {server_name} ({host}:{port}). Частичные данные: {e.partial!r}. Ошибка: {e}")
             except Exception as e:
-                logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: {type(e).__name__} - {e}", exc_info=False)
+                # logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при подключении/чтении ACK от {server_name}: {type(e).__name__} - {e}", exc_info=False)
+                logger.error(f"_check_server_ready: Попытка {attempt_num}: Неожиданное исключение {type(e).__name__} при связи с {server_name} ({host}:{port}): {e}", exc_info=True)
             finally:
                 if writer and not writer.is_closing():
-                    logger.info(f"_check_server_ready: Попытка {attempt_num}: Закрытие writer для {server_name}...")
+                    # logger.info(f"_check_server_ready: Попытка {attempt_num}: Закрытие writer для {server_name}...")
+                    logger.debug(f"_check_server_ready: Попытка {attempt_num}: Закрытие writer для {server_name} в блоке finally.")
                     writer.close()
                     try:
                         await writer.wait_closed()
                     except Exception as e_close:
-                        logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при закрытии writer для {server_name}: {e_close}")
+                        # logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при закрытии writer для {server_name}: {e_close}")
+                        logger.error(f"_check_server_ready: Попытка {attempt_num}: Ошибка при ожидании закрытия writer для {server_name}: {e_close}", exc_info=True)
             if i < attempts - 1:
                 logger.info(f"_check_server_ready: Попытка {attempt_num}: Ожидание задержки ({delay}s) перед следующей попыткой для {server_name}...")
                 await asyncio.sleep(delay)
@@ -225,24 +241,32 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
                 cls.auth_server_process.wait(timeout=2) 
             raise RuntimeError(f"Игровой сервер не запустился. Код: {game_poll_result}. STDERR: {game_stderr}")
 
+        logger.debug("Attempting to read initial stdout/stderr from game server before check_server_ready...")
         logger.info("setUpClass: Вызов _check_server_ready для игрового сервера...")
         game_ready_result = asyncio.run(cls._check_server_ready(HOST, GAME_PORT, server_name="Game Server", expect_ack_message="SERVER_ACK_CONNECTED"))
         logger.info(f"setUpClass: _check_server_ready для игрового сервера завершен. Результат: {game_ready_result}")
         if not game_ready_result:
             logger.error("setUpClass: Игровой сервер не прошел проверку готовности (или был терминирован).")
+            game_stdout = "<stdout not captured>"
+            game_stderr = "<stderr not captured>"
             # Попытка получить вывод из игрового сервера для диагностики
             try:
+                logger.debug("Attempting to communicate() with failed game server process...")
                 game_stdout_bytes, game_stderr_bytes = cls.game_server_process.communicate(timeout=1)
                 game_stdout = game_stdout_bytes.decode(errors='ignore')
                 game_stderr = game_stderr_bytes.decode(errors='ignore')
-                logger.error(f"setUpClass: STDOUT игрового сервера (при ошибке готовности): {game_stdout}")
-                logger.error(f"setUpClass: STDERR игрового сервера (при ошибке готовности): {game_stderr}")
+                logger.error("===== Game Server STDOUT (from communicate on failure) =====")
+                logger.error(game_stdout if game_stdout else "<no stdout captured>")
+                logger.error("===== Game Server STDERR (from communicate on failure) =====")
+                logger.error(game_stderr if game_stderr else "<no stderr captured>")
+                logger.error("==========================================================")
             except subprocess.TimeoutExpired:
-                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от игрового сервера.")
+                logger.error("setUpClass: Таймаут при попытке получить stdout/stderr от игрового сервера через communicate().")
             except Exception as e_comm:
-                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от игрового сервера: {e_comm}")
+                logger.error(f"setUpClass: Исключение при попытке получить stdout/stderr от игрового сервера через communicate(): {e_comm}", exc_info=True)
 
             if cls.game_server_process.poll() is None: # Если еще работает, терминировать
+                logger.info("setUpClass: Terminating game server process as it did not pass readiness check but is still running...")
                 cls.game_server_process.terminate()
                 try:
                     cls.game_server_process.wait(timeout=2)

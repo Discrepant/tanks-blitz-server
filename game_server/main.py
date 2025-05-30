@@ -95,8 +95,13 @@ INTEGRATION_TEST_LOG_FILE = os.path.join(tempfile.gettempdir(), "game_server_int
 def setup_file_logging():
     try:
         # Clear previous log file
-        if os.path.exists(INTEGRATION_TEST_LOG_FILE):
-            os.remove(INTEGRATION_TEST_LOG_FILE)
+        try:
+            if os.path.exists(INTEGRATION_TEST_LOG_FILE):
+                os.remove(INTEGRATION_TEST_LOG_FILE)
+        except (FileNotFoundError, PermissionError) as e:
+            # Use the module-level logger if available, otherwise logging.warning
+            # logger should be available as it's defined globally in this module
+            logger.warning(f"Could not remove old log file {INTEGRATION_TEST_LOG_FILE}: {e}")
         
         file_handler = logging.FileHandler(INTEGRATION_TEST_LOG_FILE)
         # Ensure file_handler also processes DEBUG messages
@@ -168,14 +173,22 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     Настраивает обработчики, игровую комнату и клиент аутентификации.
     """
     host = '0.0.0.0' # Слушаем на всех доступных интерфейсах
-    port = 9999      # Порт для UDP-сервера
 
-    # logger.info(f"Starting game UDP server on {host}:{port}...") # Replaced by debug and then specific info
+    # Определение порта для UDP-сервера из переменной окружения или по умолчанию
+    udp_port_str = os.getenv("GAME_SERVER_UDP_PORT", "29998")
+    try:
+        port = int(udp_port_str) # 'port' используется для UDP-сервера
+        logger.info(f"Game UDP server attempting to use port {port} (from GAME_SERVER_UDP_PORT or default).")
+    except ValueError:
+        port = 29998 # Значение по умолчанию, если переменная задана некорректно
+        logger.warning(f"Invalid value for GAME_SERVER_UDP_PORT ('{udp_port_str}'). Using default UDP port {port}.")
+
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
 
     # SessionManager и TankPool передаются как аргументы.
 
     # Создаем конечную точку UDP-сервера
+    logger.info(f"Attempting to bind UDP server to {host}:{port}...") # Added specific INFO log for binding
     logger.debug(f"Attempting to start UDP server on {host}:{port}...")
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),

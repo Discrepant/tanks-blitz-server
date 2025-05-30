@@ -98,14 +98,21 @@ def setup_file_logging():
             os.remove(INTEGRATION_TEST_LOG_FILE)
         
         file_handler = logging.FileHandler(INTEGRATION_TEST_LOG_FILE)
+        # Ensure file_handler also processes DEBUG messages
+        file_handler.setLevel(logging.DEBUG)
         formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s')
         file_handler.setFormatter(formatter)
         logging.getLogger().addHandler(file_handler) # Add to root logger to capture all logs
         logging.getLogger().setLevel(logging.DEBUG) # Ensure root logger level is low enough
+        # Use logger only after basicConfig and file handler are set up if possible,
+        # or ensure this specific logger is configured to output this initial message.
+        # For now, this will go to console if root logger is not yet fully configured for file.
+        print(f"[GameServerMain] File logging configured to {INTEGRATION_TEST_LOG_FILE}. Root logger level: {logging.getLogger().getEffectiveLevel()}", flush=True, file=sys.stderr)
         logger.info(f"File logging set up to {INTEGRATION_TEST_LOG_FILE}")
-        print(f"[GameServerMain] File logging configured to {INTEGRATION_TEST_LOG_FILE}", flush=True, file=sys.stderr)
     except Exception as e:
+        # Fallback to print if logger itself fails during setup
         print(f"[GameServerMain] ERROR setting up file logging: {e}", flush=True, file=sys.stderr)
+        logging.error(f"ERROR setting up file logging: {e}", exc_info=True)
 
 
 # def update_metrics():
@@ -162,18 +169,19 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     host = '0.0.0.0' # Слушаем на всех доступных интерфейсах
     port = 9999      # Порт для UDP-сервера
 
-    logger.info(f"Starting game UDP server on {host}:{port}...")
+    # logger.info(f"Starting game UDP server on {host}:{port}...") # Replaced by debug and then specific info
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
 
     # SessionManager и TankPool передаются как аргументы.
 
     # Создаем конечную точку UDP-сервера
+    logger.debug(f"Attempting to start UDP server on {host}:{port}...")
     transport, protocol = await loop.create_datagram_endpoint(
         lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
         local_addr=(host, port)
     )
 
-    logger.info(f"Game UDP server started and listening on {transport.get_extra_info('sockname')}")
+    logger.info(f"Game UDP server started successfully and listening on {transport.get_extra_info('sockname')}.")
 
     # Запуск TCP-сервера
     game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
@@ -184,35 +192,40 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     print(f"[GameServerMain_start_game_server] AuthClient target: {auth_server_host}:{auth_server_port}", flush=True, file=sys.stderr)
 
     try:
+        logger.debug("Initializing AuthClient...")
         auth_client = AuthClient(auth_server_host=auth_server_host, auth_server_port=auth_server_port)
-        logger.info("AuthClient initialized successfully.")
+        logger.debug("AuthClient initialized.")
         print("[GameServerMain_start_game_server] AuthClient initialized.", flush=True, file=sys.stderr)
         
+        logger.debug("Initializing GameRoom...")
         game_room = GameRoom(auth_client=auth_client)
-        logger.info("GameRoom initialized successfully.")
+        logger.debug("GameRoom initialized.")
         print("[GameServerMain_start_game_server] GameRoom initialized.", flush=True, file=sys.stderr)
         
         tcp_server_handler = functools.partial(handle_game_client, game_room=game_room)
-        logger.info("TCP server handler (partial) created.")
+        # logger.info("TCP server handler (partial) created.") # This can be debug or removed if too verbose
+        logger.debug("TCP server handler (partial) for handle_game_client created.")
         print("[GameServerMain_start_game_server] TCP handler partial created.", flush=True, file=sys.stderr)
         
+        logger.debug(f"Attempting to start TCP server on {game_tcp_host}:{game_tcp_port}...")
         # Ensure using asyncio.start_server as per previous fix
         tcp_server = await asyncio.start_server( 
             tcp_server_handler,
             game_tcp_host,
             game_tcp_port
         )
-        logger.info(f"Game TCP server created using asyncio.start_server and listening on {game_tcp_host}:{game_tcp_port}")
+        logger.info(f"Game TCP server started successfully on {game_tcp_host}:{game_tcp_port}.")
         print(f"[GameServerMain_start_game_server] Game TCP server created using asyncio.start_server, listening on {game_tcp_host}:{game_tcp_port}.", flush=True, file=sys.stderr)
         # logger.info("Game Server network listeners (UDP/TCP) are currently COMMEFED OUT for debugging.") # Re-enable listeners
 
     except Exception as e_setup:
-        logger.critical(f"CRITICAL ERROR during server setup: {e_setup}", exc_info=True)
+        logger.error(f"Error during TCP server setup: {e_setup}", exc_info=True)
         print(f"[GameServerMain_start_game_server] CRITICAL ERROR during server setup: {e_setup}", flush=True, file=sys.stderr)
         return # Stop if setup fails
 
     try:
-        logger.info("Game server core logic setup done (network listeners commented out). Entering asyncio.Event().wait().")
+        # logger.info("Game server core logic setup done (network listeners commented out). Entering asyncio.Event().wait().")
+        logger.debug("Main server logic initialized. Waiting for termination signal (asyncio.Event().wait()).")
         await asyncio.Event().wait() 
     finally:
         logger.info("Stopping game servers (or what's left of it)...")
@@ -230,17 +243,23 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
 if __name__ == '__main__':
     print(f"[GAME_SERVER_MAIN_DEBUG] Entered if __name__ == '__main__'.", flush=True, file=sys.stderr)
     # Настраиваем логирование здесь, чтобы оно было установлено как можно раньше.
+    # logging.basicConfig должен быть вызван до любого logger.XYZ, если используется корневой логгер или логгеры без явной настройки.
+    # Поскольку setup_file_logging настраивает корневой логгер, он должен быть первым.
+    # А basicConfig должен быть до setup_file_logging, если setup_file_logging использует logger.info для своих сообщений.
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
     setup_file_logging() # Setup file logging
+
     logger.info("Starting game server application...")
     print("[GameServerMain] Starting game server application (after logger.info).", flush=True, file=sys.stderr)
 
     # Инициализация общих экземпляров SessionManager и TankPool.
-    # Вероятно, они спроектированы как синглтоны или управляют глобальным состоянием.
-    # Если нет, этот подход требует доработки, чтобы гарантировать использование
-    # одних и тех же экземпляров в GameUDPProtocol, PlayerCommandConsumer и метриках.
-    # Примечание переводчика: комментарий выше актуален для понимания архитектуры.
+    logger.debug("Initializing SessionManager...")
     session_manager = SessionManager()
+    logger.debug("SessionManager initialized.")
+
+    logger.debug("Initializing TankPool...")
     tank_pool = TankPool(pool_size=50) # Инициализируем с размером пула
+    logger.debug("TankPool initialized.")
 
     # # Запуск сервера метрик Prometheus - ОСТАВИТЬ ЗАКОММЕНТИРОВАННЫМ для этого шага
     # start_metrics_server()
@@ -266,12 +285,13 @@ if __name__ == '__main__':
 
     # Запуск основного игрового сервера
     try:
-        logger.info("Starting asynchronous components of the game server...")
+        # logger.info("Starting asynchronous components of the game server...")
+        logger.info("Attempting to run asyncio event loop with start_game_server.")
         asyncio.run(start_game_server(session_manager=session_manager, tank_pool=tank_pool))
     except KeyboardInterrupt:
-        logger.info("Server shutdown initiated via KeyboardInterrupt.")
+        logger.info("Server shutdown requested via KeyboardInterrupt.")
     except Exception as e:
-        logger.critical(f"Critical error during server execution: {e}", exc_info=True)
+        logger.error(f"Unhandled critical error in main execution block: {e}", exc_info=True)
     # finally: # Keep consumers commented for now
     #     logger.info("Attempting to stop consumers...")
     #     # Корректная остановка потребителя команд игроков

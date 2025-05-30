@@ -46,9 +46,10 @@ async def main():
     
     # Запуск сервера метрик в отдельном потоке.
     # daemon=True означает, что поток завершится при завершении основного процесса.
-    metrics_thread = threading.Thread(target=start_metrics_server, daemon=True)
-    metrics_thread.name = "AuthMetricsServerThread" # Give a name to the thread
-    metrics_thread.start()
+    # metrics_thread = threading.Thread(target=start_metrics_server, daemon=True)
+    # metrics_thread.name = "AuthMetricsServerThread" # Give a name to the thread
+    # metrics_thread.start()
+    logger.info("Prometheus metrics server startup is currently COMMENTED OUT for debugging.")
 
     server = None # Initialize server to None
     try:
@@ -74,13 +75,25 @@ async def main():
     # Бесконечный цикл для обслуживания подключений.
     if server:
         try:
-            async with server:
-                await server.serve_forever()
+            # async with server: # Temporarily remove async with to simplify
+            logger.info("Auth Server: About to call server.start_serving().")
+            print("[AuthServerMainLoop] About to call server.start_serving().", flush=True, file=sys.stderr)
+            await server.start_serving() # Explicitly start serving
+            logger.info("Auth Server: server.start_serving() completed. Entering wait loop.")
+            print("[AuthServerMainLoop] server.start_serving() completed. Entering wait loop.", flush=True, file=sys.stderr)
+            await asyncio.Event().wait() # Keep alive indefinitely
+            # logger.info("Auth Server: server.serve_forever() exited normally (SHOULD NOT HAPPEN IN NORMAL RUN).")
+            # print("[AuthServerMainLoop] server.serve_forever() exited normally (SHOULD NOT HAPPEN).", flush=True, file=sys.stderr)
         except KeyboardInterrupt: # Allow clean shutdown via Ctrl+C if run directly
-            logger.info("Authentication server shutting down (KeyboardInterrupt from serve_forever).")
-        finally: # Ensure server is closed if serve_forever is somehow exited differently
-            logger.info("Authentication server main loop ended. Cleaning up server.")
-            if server.is_serving():
+            logger.info("Authentication server shutting down (KeyboardInterrupt).")
+            print("[AuthServerMainLoop] KeyboardInterrupt received.", flush=True, file=sys.stderr)
+        except Exception as e_serve:
+            logger.error(f"Auth Server: Exception during server operation: {e_serve}", exc_info=True)
+            print(f"[AuthServerMainLoop] Exception during server operation: {e_serve}", flush=True, file=sys.stderr)
+        finally:
+            logger.info("Authentication server main loop ended (inside finally). Cleaning up server.")
+            print("[AuthServerMainLoop] Entered main operation's finally block.", flush=True, file=sys.stderr)
+            if server and server.is_serving():
                 server.close()
                 await server.wait_closed()
             logger.info("Authentication server fully stopped.")

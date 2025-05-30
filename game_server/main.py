@@ -7,7 +7,29 @@
 # - Менеджер игровых сессий и пул объектов танков.
 # - Потребители сообщений из RabbitMQ для команд игроков и событий матчмейкинга.
 # - Сервер метрик Prometheus.
-import sys # Added for file=sys.stderr
+
+# --- BEGIN DEBUG PRINTS ---
+import sys
+import os
+print(f"[GAME_SERVER_MAIN_DEBUG] STARTING game_server/main.py", flush=True)
+print(f"[GAME_SERVER_MAIN_DEBUG] Current sys.path: {sys.path}", flush=True)
+print(f"[GAME_SERVER_MAIN_DEBUG] Current os.getcwd(): {os.getcwd()}", flush=True)
+print(f"[GAME_SERVER_MAIN_DEBUG] Environ USE_MOCKS: {os.environ.get('USE_MOCKS')}", flush=True)
+print(f"[GAME_SERVER_MAIN_DEBUG] Environ PYTHONPATH: {os.environ.get('PYTHONPATH')}", flush=True)
+
+try:
+    import core.message_broker_clients
+    print(f"[GAME_SERVER_MAIN_DEBUG] core.message_broker_clients path: {core.message_broker_clients.__file__}", flush=True)
+except ImportError as e_core_mbc:
+    print(f"[GAME_SERVER_MAIN_DEBUG] FAILED to import core.message_broker_clients: {e_core_mbc}", flush=True)
+
+try:
+    import game_server.command_consumer
+    print(f"[GAME_SERVER_MAIN_DEBUG] game_server.command_consumer path: {game_server.command_consumer.__file__}", flush=True)
+except ImportError as e_gs_cc:
+    print(f"[GAME_SERVER_MAIN_DEBUG] FAILED to import game_server.command_consumer: {e_gs_cc}", flush=True)
+# --- END DEBUG PRINTS ---
+
 import logging # Добавляем импорт для логирования
 # # Устанавливаем уровень DEBUG для всего пакета 'game_server' и добавляем обработчик.
 # # Это позволяет детально логировать события внутри этого пакета.
@@ -151,13 +173,14 @@ async def start_game_server():
         logger.info("TCP server handler (partial) created.")
         print("[GameServerMain_start_game_server] TCP handler partial created.", flush=True, file=sys.stderr)
         
-        tcp_server = await loop.create_server(
+        # Ensure using asyncio.start_server as per previous fix
+        tcp_server = await asyncio.start_server( 
             tcp_server_handler,
             game_tcp_host,
             game_tcp_port
         )
-        logger.info(f"Game TCP server created and listening on {game_tcp_host}:{game_tcp_port}")
-        print(f"[GameServerMain_start_game_server] Game TCP server created, listening on {game_tcp_host}:{game_tcp_port}.", flush=True, file=sys.stderr)
+        logger.info(f"Game TCP server created using asyncio.start_server and listening on {game_tcp_host}:{game_tcp_port}")
+        print(f"[GameServerMain_start_game_server] Game TCP server created using asyncio.start_server, listening on {game_tcp_host}:{game_tcp_port}.", flush=True, file=sys.stderr)
 
     except Exception as e_setup:
         logger.critical(f"CRITICAL ERROR during server setup: {e_setup}", exc_info=True)

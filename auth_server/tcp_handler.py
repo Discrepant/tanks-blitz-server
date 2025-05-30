@@ -1,3 +1,4 @@
+raise Exception("DEBUG: ЗАГРУЖЕН AUTH_SERVER/TCP_HANDLER.PY")
 # auth_server/tcp_handler.py
 # Этот модуль отвечает за обработку TCP-соединений и сообщений от клиентов
 # для сервера аутентификации.

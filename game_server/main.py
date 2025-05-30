@@ -174,28 +174,28 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     """
     host = '0.0.0.0' # Слушаем на всех доступных интерфейсах
 
-    # # Определение порта для UDP-сервера из переменной окружения или по умолчанию
-    # udp_port_str = os.getenv("GAME_SERVER_UDP_PORT", "29998")
-    # try:
-    #     port = int(udp_port_str) # 'port' используется для UDP-сервера
-    #     logger.info(f"Game UDP server attempting to use port {port} (from GAME_SERVER_UDP_PORT or default).")
-    # except ValueError:
-    #     port = 29998 # Значение по умолчанию, если переменная задана некорректно
-    #     logger.warning(f"Invalid value for GAME_SERVER_UDP_PORT ('{udp_port_str}'). Using default UDP port {port}.")
+    # Определение порта для UDP-сервера из переменной окружения или по умолчанию
+    udp_port_str = os.getenv("GAME_SERVER_UDP_PORT", "29998")
+    try:
+        port = int(udp_port_str) # 'port' используется для UDP-сервера
+        logger.info(f"Game UDP server attempting to use port {port} (from GAME_SERVER_UDP_PORT or default).")
+    except ValueError:
+        port = 29998 # Значение по умолчанию, если переменная задана некорректно
+        logger.warning(f"Invalid value for GAME_SERVER_UDP_PORT ('{udp_port_str}'). Using default UDP port {port}.")
 
     loop = asyncio.get_running_loop() # Получаем текущий цикл событий
 
     # SessionManager и TankPool передаются как аргументы.
 
-    # # Создаем конечную точку UDP-сервера
-    # logger.info(f"Attempting to bind UDP server to {host}:{port}...") # Added specific INFO log for binding
-    # logger.debug(f"Attempting to start UDP server on {host}:{port}...")
-    # transport, protocol = await loop.create_datagram_endpoint(
-    #     lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
-    #     local_addr=(host, port) # 'port' for UDP was defined above
-    # )
-    # logger.info(f"Game UDP server started successfully and listening on {transport.get_extra_info('sockname')}.")
-    logger.info("UDP server startup is currently commented out.")
+    # Создаем конечную точку UDP-сервера
+    logger.info(f"Attempting to bind UDP server to {host}:{port}...") # Added specific INFO log for binding
+    logger.debug(f"Attempting to start UDP server on {host}:{port}...")
+    transport, protocol = await loop.create_datagram_endpoint(
+        lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
+        local_addr=(host, port) # 'port' for UDP was defined above
+    )
+    logger.info(f"Game UDP server started successfully and listening on {transport.get_extra_info('sockname')}.")
+    # logger.info("UDP server startup is currently commented out.") # Removed this line
 
 
     # Запуск TCP-сервера
@@ -257,10 +257,10 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
             tcp_server.close() # Закрываем сервер
             await tcp_server.wait_closed() # Ожидаем полного закрытия
             logger.info("Game TCP server stopped.")
-        # # Остановка UDP-сервера
-        # if 'transport' in locals() and transport: # 'transport' здесь относится к UDP
-        #     transport.close() # Закрываем транспорт UDP
-        #     logger.info("Game UDP server stopped.")
+        # Остановка UDP-сервера
+        if 'transport' in locals() and transport: # 'transport' здесь относится к UDP
+            transport.close() # Закрываем транспорт UDP
+            logger.info("Game UDP server stopped.")
 
 if __name__ == '__main__':
     print(f"[GAME_SERVER_MAIN_DEBUG] Entered if __name__ == '__main__'.", flush=True, file=sys.stderr)

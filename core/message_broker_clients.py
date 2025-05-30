@@ -7,11 +7,56 @@ import json
 import logging
 import os
 import pika # Библиотека для работы с RabbitMQ
-# Use the alias as requested by the subtask
-from confluent_kafka import Producer as ConfluentKafkaProducer_actual, KafkaException 
 from unittest.mock import MagicMock # Используется для мокирования в тестах
 
 logger = logging.getLogger(__name__)
+
+# Flag to track if the actual confluent_kafka library was imported
+_confluent_kafka_successfully_imported = False
+
+try:
+    from confluent_kafka import Producer as ConfluentKafkaProducer_real_class, KafkaException as KafkaException_real_class
+    
+    # If import succeeds, these are the actual classes/exceptions used by the module.
+    # The rest of the module refers to ConfluentKafkaProducer_actual and KafkaException.
+    ConfluentKafkaProducer_actual = ConfluentKafkaProducer_real_class
+    KafkaException = KafkaException_real_class
+    _confluent_kafka_successfully_imported = True
+    logger.info("Successfully imported 'confluent_kafka' library.")
+
+except ImportError as e:
+    _confluent_kafka_successfully_imported = False # Redundant due to init, but clear
+    if os.getenv("USE_MOCKS") == "true":
+        logger.warning(
+            "Failed to import 'confluent_kafka' library. "
+            "Since USE_MOCKS is 'true', Kafka client components will be mocked. "
+            f"Original error: {e}"
+        )
+        # Mock the Producer class itself
+        ConfluentKafkaProducer_actual = MagicMock(name="MockedConfluentKafkaProducerClassImportFallback")
+        
+        # Configure what happens when this mocked class is instantiated (e.g., Producer())
+        _mock_producer_instance = MagicMock(name="MockedConfluentKafkaProducerInstanceImportFallback")
+        # Add methods that are called on the instance, e.g., flush, poll, produce
+        _mock_producer_instance.flush.return_value = 0 
+        _mock_producer_instance.poll.return_value = None # Or appropriate mock
+        _mock_producer_instance.produce.return_value = None # Or appropriate mock
+        # Set the return_value of the mocked Class to be this instance mock
+        ConfluentKafkaProducer_actual.return_value = _mock_producer_instance
+        
+        # Mock the KafkaException class
+        KafkaException = type('MockedKafkaExceptionImportFallback', (Exception,), {})
+        logger.info("Mocked 'confluent_kafka.Producer' and 'confluent_kafka.KafkaException'.")
+    else:
+        logger.critical(
+            "CRITICAL: Failed to import 'confluent_kafka' library and USE_MOCKS is not 'true'. "
+            "Kafka functionality will be unavailable. Please install 'confluent-kafka-python' package."
+        )
+        # Re-raise the ImportError to halt execution if Kafka is essential and not in mock mode
+        raise ImportError(
+            "The 'confluent_kafka' library is not installed, and USE_MOCKS is not set to 'true'. "
+            "Cannot proceed without the Kafka client or an explicit mock mode."
+        ) from e
 
 # Конфигурация Kafka
 # Адрес серверов Kafka, по умолчанию 'localhost:9092'. Берется из переменной окружения KAFKA_BOOTSTRAP_SERVERS.

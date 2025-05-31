@@ -27,37 +27,6 @@ from prometheus_client import start_http_server # For commented out metrics serv
 # which this logger will inherit from.
 logger = logging.getLogger(__name__)
 
-INTEGRATION_TEST_LOG_FILE = os.path.join(tempfile.gettempdir(), "game_server_integration_test.log")
-
-def setup_file_logging():
-    """Sets up file logging for integration tests or general application logging."""
-    try:
-        # Clear previous log file with error handling
-        try:
-            if os.path.exists(INTEGRATION_TEST_LOG_FILE):
-                os.remove(INTEGRATION_TEST_LOG_FILE)
-        except (FileNotFoundError, PermissionError) as e:
-            logger.warning(f"Could not remove old log file {INTEGRATION_TEST_LOG_FILE}: {e}")
-
-        file_handler = logging.FileHandler(INTEGRATION_TEST_LOG_FILE)
-        file_handler.setLevel(logging.DEBUG) # Capture all debug messages in the file
-        formatter = logging.Formatter('%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(funcName)s - %(lineno)d - %(message)s')
-        file_handler.setFormatter(formatter)
-
-        # Add handler to the root logger to capture logs from all modules
-        root_logger = logging.getLogger()
-        root_logger.addHandler(file_handler)
-        # Ensure root logger's level is also DEBUG if we want file_handler to process DEBUG messages
-        if root_logger.getEffectiveLevel() > logging.DEBUG: # pragma: no cover (depends on initial config)
-             root_logger.setLevel(logging.DEBUG)
-
-        logger.info(f"File logging set up to {INTEGRATION_TEST_LOG_FILE}. Current root logger level: {logging.getLevelName(root_logger.getEffectiveLevel())}")
-    except Exception as e:
-        # Fallback to print if logger itself or file handling fails critically during setup
-        sys.stderr.write(f"[GameServerMain] CRITICAL ERROR setting up file logging to {INTEGRATION_TEST_LOG_FILE}: {e}\n")
-        # Also log via logging system if it's partially working
-        logging.critical(f"CRITICAL ERROR setting up file logging to {INTEGRATION_TEST_LOG_FILE}: {e}", exc_info=True)
-
 # Placeholder for metric functions (commented out, but structure preserved)
 # def update_metrics():
 #     pass
@@ -217,9 +186,6 @@ if __name__ == '__main__':
     # Any print statements for ULTRA_DEBUG can be removed or kept for initial process start indication.
     # sys.stdout.write("[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.\n") # Example of direct write
     # sys.stderr.write("Test stderr message\n") # For testing stderr capture
-
-    # Optionally, set up file logging (useful for tests or persistent logs)
-    # setup_file_logging() # Can be enabled if file logging is desired by default
 
     logger.info("Initializing game server application...")
 

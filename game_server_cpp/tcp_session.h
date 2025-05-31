@@ -15,15 +15,31 @@
 #include <amqp.h>  // For amqp_connection_state_t
 #include <amqp_framing.h> // For amqp_cstring_bytes, amqp_empty_bytes etc.
 
+// gRPC includes
+#include <grpcpp/grpcpp.h>
+// Adjust path as necessary. Assuming auth_server_cpp is sibling to game_server_cpp,
+// and grpc_generated is inside auth_server_cpp.
+// If they are compiled together by a higher-level CMake, the path might be simpler.
+// For now, using a relative path that might work if build system places headers correctly,
+// or if include paths are set up in CMake.
+#include "../../auth_server_cpp/grpc_generated/auth_service.grpc.pb.h"
+
+
 using boost::asio::ip::tcp;
 using nlohmann::json;
+
+// Forward declaration for AuthService for the Stub
+namespace auth {
+    class AuthService;
+}
 
 class GameTCPSession : public std::enable_shared_from_this<GameTCPSession> {
 public:
     GameTCPSession(tcp::socket socket,
-                   SessionManager* sm,         // Changed to pointer
-                   TankPool* tp,             // Changed to pointer
-                   amqp_connection_state_t rabbitmq_conn_state);
+                   SessionManager* sm,
+                   TankPool* tp,
+                   amqp_connection_state_t rabbitmq_conn_state,
+                   std::shared_ptr<grpc::Channel> grpc_auth_channel); // Added gRPC channel
 
     void start();
 
@@ -51,9 +67,10 @@ private:
     // Add more command handlers as needed: e.g., get_game_state, get_leaderboard
 
     tcp::socket socket_;
-    SessionManager* session_manager_; // Changed to pointer
-    TankPool* tank_pool_;             // Changed to pointer
+    SessionManager* session_manager_;
+    TankPool* tank_pool_;
     amqp_connection_state_t rabbitmq_conn_state_;
+    std::unique_ptr<auth::AuthService::Stub> auth_grpc_stub_; // gRPC stub for auth service
 
     boost::asio::streambuf read_buffer_;
     std::deque<std::string> write_msgs_; // Queue for messages to write
@@ -63,8 +80,6 @@ private:
     bool authenticated_ = false;
     std::string current_session_id_;    // Game session ID player is part of
     std::string assigned_tank_id_;      // Tank ID assigned to the player
-    // std::string player_id_; // Effectively replaced by username_
-    // std::string session_id_for_player_; // Replaced by current_session_id_
 };
 
 #endif // TCP_SESSION_H

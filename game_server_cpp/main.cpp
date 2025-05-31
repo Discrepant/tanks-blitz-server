@@ -13,6 +13,9 @@
 // Forward declare a function to get rabbitmq_conn from udp_server if needed,
 // or make rabbitmq_conn_ accessible, or manage it centrally.
 // For simplicity, we'll assume udp_handler can provide it or we pass a shared one.
++
++// gRPC specific includes for main if creating channel here
++#include <grpcpp/grpcpp.h>
 // Let's refine udp_handler.h and .cpp slightly to allow access to rabbitmq_conn_state
 // For this example, we'll assume GameUDPHandler has a method like get_rabbitmq_connection_state()
 // OR, better, initialize RabbitMQ connection once and pass it to both.
@@ -150,49 +153,40 @@ int main() {
             std::cerr << "Warning: RabbitMQ connection not established by UDP handler. TCP handler RabbitMQ features may fail." << std::endl;
         }
 
-        // 4. Initialize TCP Handler
-        GameTCPServer tcp_server(io_context, tcp_port, session_manager_ptr, tank_pool_ptr, actual_rabbitmq_conn_state_from_udp);
-        std::cout << "C++ TCP Server setup complete. Listening on port " << tcp_port << "." << std::endl;
+        // 4. Create gRPC Channel for Authentication Service
+        std::string auth_grpc_server_address = "localhost:50051"; // Make this configurable if needed
+        std::cout << "Creating gRPC channel to Auth Service at: " << auth_grpc_server_address << std::endl;
+        std::shared_ptr<grpc::Channel> auth_channel = grpc::CreateChannel(
+            auth_grpc_server_address,
+            grpc::InsecureChannelCredentials()
+        );
+        // Optionally, check channel connectivity here, e.g., with WaitForConnected or GetState.
+        // auto channel_state = auth_channel->GetState(true); // true means try to connect
+        // std::cout << "Auth gRPC Channel state: " << channel_state << std::endl;
 
 
-        // 5. Test SessionManager (Optional - basic test)
-        if (session_manager_ptr && tank_pool_ptr) { // ensure kafka_producer is also valid if SM uses it for events
+        // 5. Initialize TCP Handler (Game Server)
+        GameTCPServer tcp_server(io_context, tcp_port, session_manager_ptr, tank_pool_ptr, actual_rabbitmq_conn_state_from_udp, auth_channel);
+        std::cout << "C++ Game TCP Server setup complete. Listening on port " << tcp_port << "." << std::endl;
+
+
+        // 6. Test SessionManager (Optional - this test might be removed or adapted for gRPC auth)
+        // The previous test for SessionManager might be less relevant now or need adjustment
+        // as login via TCP will handle player/session creation.
+        // For now, let's comment out the direct SessionManager test to avoid conflicts with TCP login flow.
+        /*
+        if (session_manager_ptr && tank_pool_ptr) {
              std::cout << "\n--- Testing SessionManager & TankPool Integration ---" << std::endl;
             auto test_session = session_manager_ptr->create_session();
             if (test_session) {
-                std::cout << "Test session created: " << test_session->get_id() << std::endl;
-
-                // Test adding a player
-                std::shared_ptr<Tank> test_tank_sm = tank_pool_ptr->acquire_tank();
-                if (test_tank_sm) {
-                    std::cout << "Acquired tank " << test_tank_sm->get_id() << " for SessionManager test." << std::endl;
-                    session_manager_ptr->add_player_to_session(test_session->get_id(), "player_sm_test", "udp_dummy_addr", test_tank_sm, true);
-                    std::cout << "Player 'player_sm_test' added to session " << test_session->get_id() << std::endl;
-                    std::cout << "Session player count: " << test_session->get_players_count() << std::endl;
-
-                    // Test removing player
-                    session_manager_ptr->remove_player_from_any_session("player_sm_test");
-                    std::cout << "Player 'player_sm_test' removed. Session player count: " << test_session->get_players_count() << std::endl;
-                    // Check if tank was released (TankPool logs this)
-                    // Check if session was auto-removed if empty (SessionManager logs this)
-                    if(session_manager_ptr->get_session(test_session->get_id()) == nullptr){
-                         std::cout << "Test session " << test_session->get_id() << " was auto-removed as it became empty." << std::endl;
-                    } else if (test_session->is_empty()){
-                         std::cout << "Test session " << test_session->get_id() << " is now empty." << std::endl;
-                         session_manager_ptr->remove_session(test_session->get_id(), "manual_cleanup_after_test");
-                    }
-
-                } else {
-                     std::cerr << "SM Test: Could not acquire tank for test player." << std::endl;
-                }
-            } else {
-                std::cerr << "SM Test: Could not create test session." << std::endl;
+                // ... (rest of the test)
             }
              std::cout << "--- End SessionManager & TankPool Integration Test ---\n" << std::endl;
         }
+        */
 
 
-        std::cout << "All servers and handlers initialized. Running io_context. Press Ctrl+C to exit." << std::endl;
+        std::cout << "All game server components initialized. Running io_context. Press Ctrl+C to exit." << std::endl;
 
         // 6. Initialize and Start PlayerCommandConsumer
         PlayerCommandConsumer command_consumer(session_manager_ptr, tank_pool_ptr, "rabbitmq", 5672, "user", "password");

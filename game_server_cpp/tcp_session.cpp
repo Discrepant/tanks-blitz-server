@@ -2,14 +2,23 @@
 #include <boost/algorithm/string.hpp> // For string splitting
 
 GameTCPSession::GameTCPSession(tcp::socket socket,
-                               SessionManager* sm, // Changed to pointer
-                               TankPool* tp,       // Changed to pointer
-                               amqp_connection_state_t rabbitmq_conn_state)
+                               SessionManager* sm,
+                               TankPool* tp,
+                               amqp_connection_state_t rabbitmq_conn_state,
+                               std::shared_ptr<grpc::Channel> grpc_auth_channel) // Added gRPC channel
     : socket_(std::move(socket)),
-      session_manager_(sm),   // Store pointer
-      tank_pool_(tp),         // Store pointer
+      session_manager_(sm),
+      tank_pool_(tp),
       rabbitmq_conn_state_(rabbitmq_conn_state),
       authenticated_(false) {
+    if (grpc_auth_channel) { // Initialize gRPC stub
+        auth_grpc_stub_ = auth::AuthService::NewStub(grpc_auth_channel);
+        std::cout << "TCP Session: Auth gRPC Stub initialized." << std::endl;
+    } else {
+        std::cerr << "TCP Session FATAL: gRPC Auth channel is null. Authentication will fail." << std::endl;
+        // This session will be unable to authenticate users.
+        // Consider throwing an exception or marking the session as invalid.
+    }
     std::cout << "TCP Session created for " << socket_.remote_endpoint().address().to_string() << ":" << socket_.remote_endpoint().port() << std::endl;
 }
 
@@ -194,66 +203,79 @@ void GameTCPSession::handle_login(const std::vector<std::string>& args) {
     std::string password = args[1];
 
     // Mock authentication:
-    // In a real system, this would involve AuthClient/service
-    if ((provided_username == "player1" && password == "pass1") || (provided_username == "player2" && password == "pass2") || (provided_username == "test" && password == "test")) {
-        if (authenticated_ && username_ == provided_username) {
-            do_write("SERVER_ERROR LOGIN_FAILED Already logged in as " + username_ + "\n");
-            return;
-        }
-        if (authenticated_) { // Logged in as someone else? Unlikely with current flow but good check.
-             do_write("SERVER_ERROR LOGIN_FAILED Already logged in as different user. Please QUIT first.\n");
-            return;
-        }
+    // --- gRPC Authentication Logic ---
+    if (!auth_grpc_stub_) {
+        do_write("SERVER_ERROR LOGIN_FAILED Auth service not available.\n");
+        std::cerr << "Login attempt for " << provided_username << " but auth_grpc_stub_ is null." << std::endl;
+        return;
+    }
 
+    if (authenticated_ && username_ == provided_username) {
+        do_write("SERVER_ERROR LOGIN_FAILED Already logged in as " + username_ + "\n");
+        return;
+    }
+    if (authenticated_) {
+         do_write("SERVER_ERROR LOGIN_FAILED Already logged in as different user " + username_ + ". Please QUIT first.\n");
+        return;
+    }
 
-        username_ = provided_username;
+    auth::AuthRequest grpc_request;
+    grpc_request.set_username(provided_username);
+    grpc_request.set_password(password);
+
+    auth::AuthResponse grpc_response;
+    grpc::ClientContext context;
+    // Optional: Set a deadline for the gRPC call
+    // context.set_deadline(std::chrono::system_clock::now() + std::chrono::milliseconds(1000)); // 1 second timeout
+
+    grpc::Status status = auth_grpc_stub_->AuthenticateUser(&context, grpc_request, &grpc_response);
+
+    if (status.ok() && grpc_response.authenticated()) {
+        username_ = provided_username; // Or grpc_response.token() if it's a real session token
         authenticated_ = true;
-
-        std::cout << "Player " << username_ << " authenticated successfully via TCP." << std::endl;
+        std::cout << "Player " << username_ << " authenticated successfully via gRPC. Message: " << grpc_response.message() << std::endl;
 
         if (!tank_pool_ || !session_manager_) {
-            std::cerr << "Login for " << username_ << " failed: TankPool or SessionManager not initialized." << std::endl;
-            do_write("SERVER_ERROR LOGIN_FAILED Server configuration error.\n");
-            authenticated_ = false; // Rollback
-            username_.clear();
+            std::cerr << "Login for " << username_ << " successful, but TankPool or SessionManager not initialized. Cannot join game." << std::endl;
+            do_write("SERVER_ERROR LOGIN_SUCCESSFUL_BUT_GAME_UNAVAILABLE Server configuration error.\n");
+            // Note: User is authenticated but can't play. This state might need handling.
             return;
         }
 
         auto tank = tank_pool_->acquire_tank();
         if (tank) {
-            assigned_tank_id_ = tank->get_id(); // Use getter
+            assigned_tank_id_ = tank->get_id();
 
-            // Attempt to add to an existing session or create a new one.
-            // For simplicity, let's try to get a "default_tcp_session" or create one.
-            // Or, SessionManager could have a method like "find_or_create_available_session()".
-            // For now, let's use create_session() which makes a new one each time.
+            // Simplified: create a new session for each TCP player for now.
             auto game_session = session_manager_->create_session();
             if (!game_session) {
-                 std::cerr << "Login for " << username_ << " failed: Could not create/get game session." << std::endl;
-                tank_pool_->release_tank(assigned_tank_id_); // Release acquired tank
+                std::cerr << "Login for " << username_ << " failed post-auth: Could not create game session." << std::endl;
+                tank_pool_->release_tank(assigned_tank_id_);
                 assigned_tank_id_.clear();
-                authenticated_ = false;
+                authenticated_ = false; // Rollback authentication status as game entry failed
                 username_.clear();
-                do_write("SERVER_ERROR LOGIN_FAILED Server error creating session.\n");
+                do_write("SERVER_ERROR LOGIN_FAILURE Server error creating game session.\n");
                 return;
             }
             current_session_id_ = game_session->get_id();
 
             std::string client_addr_info = socket_.remote_endpoint().address().to_string() + ":" + std::to_string(socket_.remote_endpoint().port());
-            // Pass `false` for is_udp_player
-            session_manager_->add_player_to_session(current_session_id_, username_, client_addr_info, tank, false);
+            session_manager_->add_player_to_session(current_session_id_, username_, client_addr_info, tank, false /*is_udp_player=false*/);
 
-            do_write("SERVER_RESPONSE LOGIN_SUCCESS Welcome " + username_ + ". Token: " + username_ + "\n");
+            do_write("SERVER_RESPONSE LOGIN_SUCCESS " + grpc_response.message() + " Token: " + grpc_response.token() + "\n");
             do_write("SERVER: Player " + username_ + " joined game session " + current_session_id_ + " with tank " + assigned_tank_id_ + ".\n");
             do_write("SERVER: Tank state: " + tank->get_state().dump() + "\n");
-        } else {
-            authenticated_ = false; // Rollback auth if no tank
+
+        } else { // No tank available
+            authenticated_ = false; // Rollback authentication status
             username_.clear();
-            do_write("SERVER_ERROR LOGIN_FAILED No tanks available.\n");
-            std::cerr << "Login failed for " << provided_username << ": No tanks available." << std::endl;
+            do_write("SERVER_ERROR LOGIN_FAILURE No tanks available.\n");
+            std::cerr << "Login successful for " << provided_username << " but no tanks available." << std::endl;
         }
-    } else {
-        do_write("SERVER_ERROR LOGIN_FAILED Invalid credentials for username: " + provided_username + "\n");
+    } else { // gRPC call failed or authentication denied
+        std::string error_message = status.ok() ? grpc_response.message() : ("gRPC error (" + std::to_string(status.error_code()) + "): " + status.error_message());
+        do_write("SERVER_ERROR LOGIN_FAILED " + error_message + "\n");
+        std::cerr << "Login failed for " << provided_username << ". Reason: " << error_message << std::endl;
     }
 }
 

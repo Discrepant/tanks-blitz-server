@@ -34,6 +34,7 @@ public:
 
     void start();
     void stop();
+    bool is_running() const { return running_.load(); }
 
     // Deleted copy constructor and assignment operator
     PlayerCommandConsumer(const PlayerCommandConsumer&) = delete;

@@ -17,7 +17,7 @@ else()
 endif()
 
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET rabbitmq) # For CommandConsumer and handlers
+pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET librabbitmq) # For CommandConsumer and handlers
 if (NOT RabbitMQ_FOUND)
     message(FATAL_ERROR "GameServerCpp: RabbitMQ (librabbitmq-c) not found.")
 endif()

@@ -57,17 +57,7 @@ LABEL description="Runner stage for Tanks Blitz C++ services"
 ENV DEBIAN_FRONTEND=noninteractive
 
 # Install only runtime dependencies
-RUN apt-get update && \
-    apt-get install -y \
-    libboost-system1.74.0 \
-    # libboost-program-options1.74.0 \ # If used by apps
-    # nlohmann-json3-dev is header only, not needed for runtime unless packaged differently
-    librabbitmq4 \
-    librdkafka++1 \    # librdkafka++1 might depend on librdkafka1
-    libgrpc++1 \    # Meta-package for gRPC C++ runtime libraries.
-    libprotobuf23 \ # Runtime libraries for Protocol Buffers (version for Ubuntu 22.04).
-    libatomic1 \    # Atomic operations library, sometimes a gRPC dependency.
-    && rm -rf /var/lib/apt/lists/*
+RUN apt-get update &&     apt-get install -y     libboost-system1.74.0     librabbitmq4     librdkafka++1     libgrpc++1     libprotobuf23     libatomic1     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user and group
 RUN groupadd -r appgroup && useradd -r -g appgroup -s /sbin/nologin -c "Application User" appuser

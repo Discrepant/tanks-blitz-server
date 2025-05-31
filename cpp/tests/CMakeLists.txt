@@ -20,39 +20,41 @@ add_executable(game_tests
     test_tank_pool.cpp
     test_game_session.cpp
     test_session_manager.cpp
-    # Add other test_*.cpp files here as they are created
+    test_command_consumer.cpp   # Added
+    test_auth_tcp_session.cpp   # Added
+    test_game_udp_handler.cpp   # Added
+    test_game_tcp_session.cpp   # Added
 )
 
 # Link the test executable against Catch2 and the game logic library
 # game_logic_lib is defined in ../game_server_cpp/CMakeLists.txt
 # auth_grpc_codegen_lib is defined in ../protos/CMakeLists.txt
-# We need to ensure these targets are visible here.
-# The add_subdirectory calls in the root CMakeLists.txt should make them globally visible.
 target_link_libraries(game_tests
     PRIVATE
-    Catch2::Catch2WithMain # Catch2 v3 provides this target which includes its own main
-    game_logic_lib         # Link against our game logic
-    # If tests directly or indirectly need gRPC/Protobuf (e.g. KafkaProducerHandler uses nlohmann_json which might be linked by auth_grpc_codegen_lib)
-    # And if game_logic_lib does not publicly link everything it needs, we might need them here.
-    # For now, assume game_logic_lib handles its direct dependencies.
-    # We might need to link against common dependencies like nlohmann_json if not pulled transitively.
-    nlohmann_json::nlohmann_json # If Tank/TankPool use json and game_logic_lib doesn't export it
-    # We also need kafka, rabbitmq if used by any tested components (KafkaProducerHandler)
-    PkgConfig::RdKafka # For KafkaProducerHandler used in tests
-    # PkgConfig::RabbitMQ # Not directly used by Tank/TankPool tests
-    Threads::Threads # Often needed by async operations or libraries
+    Catch2::Catch2WithMain
+    game_logic_lib
+    auth_grpc_codegen_lib      # For gRPC stubs used in some tests
+    nlohmann_json::nlohmann_json
+    PkgConfig::RdKafka         # For KafkaProducerHandler in fixtures
+    PkgConfig::RabbitMQ        # For CommandConsumer and potentially handlers if tested deeply
+    Threads::Threads
+    Boost::system              # For Asio sockets in fixtures/tests
+    # gRPC and Protobuf libraries are linked via auth_grpc_codegen_lib
+    # If more direct gRPC usage (like creating channels in tests):
+    gRPC::grpc++_reflection # Optional, for server reflection, if needed
+    gRPC::grpc++            # Ensure this is linked if not transitively from auth_grpc_codegen_lib
+    protobuf::libprotobuf   # Ensure this is linked if not transitively
 )
 
 # Include directories for the tests
-# This ensures that test_tank.cpp can find "../game_server_cpp/tank.h", etc.
-# And also for Catch2 headers if not handled by the target.
 target_include_directories(game_tests
     PRIVATE
-    "${CMAKE_SOURCE_DIR}/game_server_cpp" # To find tank.h, etc. (assuming CMAKE_SOURCE_DIR is cpp/)
-    # Catch2::Catch2WithMain should handle its own include directories.
-    # If auth_grpc_codegen_lib headers were needed by game_logic_lib, they should be INTERFACE includes there.
-    # For example, if game_logic_lib included something from protos/generated:
-    # "${CMAKE_BINARY_DIR}/protos/generated"
+    "${CMAKE_SOURCE_DIR}/game_server_cpp" # To find *.h from game_server_cpp
+    "${CMAKE_SOURCE_DIR}/auth_server_cpp" # To find *.h from auth_server_cpp (e.g. auth_tcp_session.h)
+    # The include path for generated gRPC headers ("auth_service.grpc.pb.h")
+    # should come from the auth_grpc_codegen_lib target's PUBLIC include directories.
+    # If CMAKE_SOURCE_DIR is cpp/, then protos build dir is CMAKE_BINARY_DIR/protos/generated
+    # This should be handled by auth_grpc_codegen_lib's INTERFACE_INCLUDE_DIRECTORIES
 )
 
 # Add this test executable to CTest

@@ -24,10 +24,11 @@ class MockPlayer:
     Используется для имитации объекта игрока в тестах TCP-обработчика.
     Содержит основные атрибуты и асинхронный метод send_message.
     """
-    def __init__(self, writer, name="test_player", token="test_token"):
+    def __init__(self, writer, name="test_player", token="test_token", id="mock_player_id"): # Added id parameter
         self.writer = writer # Объект StreamWriter для отправки сообщений игроку
         self.name = name # Имя игрока
         self.token = token # Токен сессии игрока
+        self.id = id # ID игрока, добавлен для тестов
         self.address = ("127.0.0.1", 12345) # Пример адреса клиента
 
     async def send_message(self, message: str):

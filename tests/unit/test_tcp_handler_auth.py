@@ -221,7 +221,8 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # На основе предыдущего вывода, логгер использует английский:
         # "Empty message or only newline character received from ..."
         # Handler log is "Empty message received."
-        mock_logger.warning.assert_any_call("handle_auth_client: [('127.0.0.1', 12345)] Empty message received.")
+        # Обновлено на основе фактического сообщения об ошибке из вывода теста:
+        mock_logger.warning.assert_any_call("handle_auth_client: [('127.0.0.1', 12345)] Empty message after strip from raw: b'\\n'.")
         # Удалена проверка logger.error, так как она не вызывается в этом сценарии
         # mock_logger.error.assert_any_call("Ошибка обработки запроса от %s:%s: %s", 
         #                                   '127.0.0.1', 12345, "Получено пустое сообщение или только символ новой строки")

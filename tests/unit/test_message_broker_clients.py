@@ -71,10 +71,10 @@ class TestKafkaClientConfluent(unittest.TestCase):
             # Это предположение основано на описании задачи об InvalidSpecError.
             # Если текущая реализация get_kafka_producer (которую я читал) не использует spec, этот assert упадет.
             # Это поможет понять, отличается ли выполняемый код от прочитанного.
-            self.assertIsNotNone(producer._spec_class, "Мок продюсера должен иметь _spec_class, если он использует spec.")
+            # self.assertIsNotNone(producer._spec_class, "Мок продюсера должен иметь _spec_class, если он использует spec.") # Removed: _kafka_producer mock no longer uses spec
             # В core.message_broker_clients используется алиас ConfluentKafkaProducer_actual
-            self.assertIs(producer._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual, 
-                          f"Ожидалось, что _spec_class будет {core.message_broker_clients.ConfluentKafkaProducer_actual}, но он {producer._spec_class}")
+            # self.assertIs(producer._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual,
+            #               f"Ожидалось, что _spec_class будет {core.message_broker_clients.ConfluentKafkaProducer_actual}, но он {producer._spec_class}") # Removed
 
         else: # USE_MOCKS не "true"
             # Для этого пути нам нужно мокировать 'core.message_broker_clients.ConfluentKafkaProducer_actual',
@@ -158,7 +158,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
             # поэтому .produce и .poll будут MagicMock атрибутами.
             producer_mock = get_kafka_producer()
             self.assertTrue(getattr(producer_mock, '_is_custom_kafka_mock', False))
-            self.assertIs(producer_mock._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual)
+            # self.assertIs(producer_mock._spec_class, core.message_broker_clients.ConfluentKafkaProducer_actual) # Removed: _kafka_producer mock no longer uses spec
 
             # producer_mock.produce и producer_mock.poll уже являются MagicMock благодаря spec
             # Можно сбросить их состояние перед вызовом send_kafka_message, если это нужно

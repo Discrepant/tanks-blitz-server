@@ -39,10 +39,11 @@ services:
       RABBITMQ_DEFAULT_LISTENERS: "amqp://0.0.0.0:5672"
       RABBITMQ_DEFAULT_VHOST: "/"
     healthcheck:
-      test: ["CMD", "curl", "-f", "-u", "user:password", "http://localhost:15672/api/vhosts"]
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "check_running"]
       interval: 10s
       timeout: 5s
       retries: 10
+      start_period: 30s
 
   redis-service:
     image: redis:alpine

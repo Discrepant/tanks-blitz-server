@@ -11,43 +11,43 @@ def main():
     host = args.host
     port = args.port
 
-    sock = None  # Initialize sock to None
-    print(f"Attempting to create and bind a UDP socket to {host}:{port}...")
+    sock = None  # Инициализируем sock как None
+    print(f"Попытка создать и привязать UDP сокет к {host}:{port}...")
 
     try:
-        # Create a UDP socket
+        # Создаем UDP сокет
         sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-        print(f"  1. UDP socket created successfully.")
+        print(f"  1. UDP сокет успешно создан.")
 
-        # Try to bind the socket to the address and port
+        # Пытаемся привязать сокет к адресу и порту
         sock.bind((host, port))
-        print(f"  2. UDP socket successfully bound to {host}:{port}.")
-        print("\nSUCCESS: UDP socket was bound successfully. This means the port is likely available and your user has permission.")
-        print("If the game server still fails to bind, the issue might be specific to its implementation or another active process.")
+        print(f"  2. UDP сокет успешно привязан к {host}:{port}.")
+        print("\nУСПЕХ: UDP сокет был успешно привязан. Это означает, что порт, скорее всего, доступен, и у вашего пользователя есть разрешение.")
+        print("Если игровой сервер по-прежнему не может привязаться, проблема может быть специфична для его реализации или другого активного процесса.")
 
     except socket.error as e:
-        print(f"\nERROR: Could not bind to {host}:{port}")
-        if e.errno == socket.errno.EADDRINUSE: # Address already in use
-            print(f"  Reason: Address already in use. Another application might be using port {port}.")
-            print(f"  Suggestion: Check for applications using this port (e.g., using 'netstat -lunp | grep {port}' on Linux, or 'netstat -ano | findstr UDP | findstr {port}' on Windows).")
-        elif e.errno == socket.errno.EACCES: # Permission denied
-            print(f"  Reason: Permission denied. You might need root/administrator privileges to bind to this port or address (especially for ports < 1024).")
-            print(f"  Suggestion: Try running the script with 'sudo' (e.g., 'sudo python3 {sys.argv[0]} {host} {port}'). Use with caution, only if you understand the implications.")
+        print(f"\nОШИБКА: Не удалось привязаться к {host}:{port}")
+        if e.errno == socket.errno.EADDRINUSE: # Адрес уже используется
+            print(f"  Причина: Адрес уже используется. Другое приложение может использовать порт {port}.")
+            print(f"  Предложение: Проверьте приложения, использующие этот порт (например, с помощью 'netstat -lunp | grep {port}' в Linux или 'netstat -ano | findstr UDP | findstr {port}' в Windows).")
+        elif e.errno == socket.errno.EACCES: # Отказано в доступе
+            print(f"  Причина: Отказано в доступе. Вам могут потребоваться права root/администратора для привязки к этому порту или адресу (особенно для портов < 1024).")
+            print(f"  Предложение: Попробуйте запустить скрипт с 'sudo' (например, 'sudo python3 {sys.argv[0]} {host} {port}'). Используйте с осторожностью, только если вы понимаете последствия.")
         else:
-            print(f"  Reason: An unexpected socket error occurred: {e} (errno: {e.errno})")
-            print(f"  Suggestion: This could be a network configuration issue, firewall, or a more specific problem.")
-    except OverflowError as e: # Port number might be out of range
-        print(f"\nERROR: Invalid port number {port}. Port must be 0-65535.")
-        print(f"  Details: {e}")
+            print(f"  Причина: Произошла непредвиденная ошибка сокета: {e} (errno: {e.errno})")
+            print(f"  Предложение: Это может быть проблема конфигурации сети, брандмауэра или более специфическая проблема.")
+    except OverflowError as e: # Номер порта может быть вне допустимого диапазона
+        print(f"\nОШИБКА: Недопустимый номер порта {port}. Порт должен быть в диапазоне 0-65535.")
+        print(f"  Подробности: {e}")
     except Exception as e:
-        print(f"\nERROR: An unexpected error occurred: {e}")
-        print(f"  Type: {type(e).__name__}")
+        print(f"\nОШИБКА: Произошла непредвиденная ошибка: {e}")
+        print(f"  Тип: {type(e).__name__}")
     finally:
         if sock:
             sock.close()
-            print(f"\n  3. UDP socket closed.")
+            print(f"\n  3. UDP сокет закрыт.")
         else:
-            print(f"\n  Socket was not created or an error occurred before it could be closed.")
+            print(f"\n  Сокет не был создан или произошла ошибка до того, как его можно было закрыть.")
 
 if __name__ == "__main__":
     main()

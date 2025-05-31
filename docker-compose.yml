@@ -1,5 +1,4 @@
 # docker-compose.yml (в корне проекта)
-version: '3.8' # Specify docker-compose version
 
 networks:
   tanks_blitz_net:

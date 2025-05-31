@@ -4,6 +4,7 @@ import sys # Ensure sys is imported first if using sys.stderr
 
 import asyncio
 import logging
+import socket
 import os
 import tempfile # For setup_file_logging
 import functools # For functools.partial in TCP server setup
@@ -84,17 +85,57 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
         udp_port = default_udp_port
 
     transport_udp = None # Initialize to ensure it's defined for finally block
-    try:
-        logger.info(f"Attempting to bind UDP server to {udp_host}:{udp_port}...")
-        transport_udp, protocol_udp = await loop.create_datagram_endpoint(
-            lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
-            local_addr=(udp_host, udp_port)
-        )
-        logger.info(f"Game UDP server started successfully and listening on {transport_udp.get_extra_info('sockname')}.")
-    except OSError as e:
-        logger.critical(f"Could not start Game UDP server on {udp_host}:{udp_port}: {e}", exc_info=True)
-        # This error will propagate to asyncio.run and be handled in __main__
-        raise # Re-raise to stop server startup if UDP fails
+    protocol_udp = None # Initialize protocol_udp as well
+
+    max_retries = 5
+    retry_delay = 2  # seconds
+    udp_sock = None # Initialize udp_sock outside the try block for access in except/finally if needed
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: Creating and configuring UDP socket for {udp_host}:{udp_port}...")
+            udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+
+            udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: SO_REUSEADDR set for UDP socket.")
+
+            if sys.platform == "win32": # pragma: no cover
+                udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                logger.info(f"Attempt {attempt + 1}/{max_retries}: SO_EXCLUSIVEADDRUSE set for UDP socket on Windows.")
+
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: Binding UDP socket to {udp_host}:{udp_port}...")
+            udp_sock.bind((udp_host, udp_port))
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: UDP socket bound successfully to {udp_host}:{udp_port}.")
+
+            logger.info(f"Attempt {attempt + 1}/{max_retries}: Creating datagram endpoint...")
+            transport_udp, protocol_udp = await loop.create_datagram_endpoint(
+                lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
+                sock=udp_sock  # Use the pre-configured and bound socket
+            )
+            logger.info(f"Game UDP server started successfully on attempt {attempt + 1}/{max_retries}, listening on {transport_udp.get_extra_info('sockname')}.")
+            break  # Exit loop on success
+
+        except OSError as e:
+            logger.warning(f"Attempt {attempt + 1}/{max_retries} failed to start UDP server on {udp_host}:{udp_port}: {e}")
+            if udp_sock:
+                udp_sock.close()
+                logger.debug(f"Attempt {attempt + 1}/{max_retries}: Closed UDP socket after error.")
+
+            if attempt == max_retries - 1:
+                logger.critical(f"All {max_retries} attempts to start UDP server on {udp_host}:{udp_port} failed. Last error: {e}", exc_info=True)
+                raise  # Re-raise the last exception
+            else:
+                logger.info(f"Retrying UDP server setup for {udp_host}:{udp_port} in {retry_delay} seconds...")
+                await asyncio.sleep(retry_delay)
+        except Exception as e_general: # Catch any other unexpected error during setup
+            logger.critical(f"Unexpected error during UDP setup attempt {attempt + 1}/{max_retries} for {udp_host}:{udp_port}: {e_general}", exc_info=True)
+            if udp_sock:
+                udp_sock.close() # Ensure socket is closed on other exceptions too
+            raise # Re-raise to stop server startup
+
+    if not transport_udp: # This check is more of a safeguard
+        logger.critical(f"UDP server setup failed for {udp_host}:{udp_port} after all retries. Transport is None.") # pragma: no cover
+        raise RuntimeError(f"UDP server could not be initialized for {udp_host}:{udp_port}.") # pragma: no cover
 
     # TCP Server and AuthClient Setup
     game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
@@ -231,4 +272,3 @@ if __name__ == '__main__':
     # This print should ideally not be reached if server runs indefinitely via asyncio.Event().wait()
     # unless Event is set or an error occurs that bypasses sys.exit.
     logger.info("Game server application main block finished.")
-```

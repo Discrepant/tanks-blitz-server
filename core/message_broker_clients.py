@@ -99,15 +99,16 @@ def get_kafka_producer():
     global _kafka_producer
     if os.getenv("USE_MOCKS") == "true":
         # Если используется режим моков
-        if not (isinstance(_kafka_producer, MagicMock) and hasattr(_kafka_producer, '_is_custom_kafka_mock') and _kafka_producer._spec_class == ConfluentKafkaProducer_actual):
-            # Если _kafka_producer еще не является нашим кастомным моком со правильным spec, создаем его.
-            # Используем spec=ConfluentKafkaProducer_actual, чтобы мок имел тот же интерфейс, что и реальный Producer.
-            _kafka_producer = MagicMock(spec=ConfluentKafkaProducer_actual, name="GlobalMockKafkaProducer")
-            # .produce и .flush будут автоматически созданы MagicMock из spec, если они есть в Producer.
-            # Настроим .flush отдельно, если нужно специфичное поведение, например, return_value.
-            _kafka_producer.flush.return_value = 0 # flush возвращает количество сообщений в очереди
-            _kafka_producer._is_custom_kafka_mock = True # Убеждаемся, что эта строка находится здесь и применяется только к этому моку.
-            logger.info("Глобальный _kafka_producer инициализирован в режиме MOCK (из get_kafka_producer).") # Added clarity
+        # Упрощенная проверка: если _kafka_producer не является нашим кастомным моком, создаем его.
+        if _kafka_producer is None or not getattr(_kafka_producer, '_is_custom_kafka_mock', False):
+            # Создаем MagicMock без spec_set, чтобы можно было свободно назначать атрибуты.
+            _kafka_producer = MagicMock(name="GlobalMockKafkaProducer")
+            # Явно определяем методы flush, produce и poll на мок-объекте _kafka_producer.
+            _kafka_producer.flush = MagicMock(return_value=0, name="MockedFlushMethod")
+            _kafka_producer.produce = MagicMock(name="MockedProduceMethod")
+            _kafka_producer.poll = MagicMock(return_value=0, name="MockedPollMethod")
+            _kafka_producer._is_custom_kafka_mock = True
+            logger.info("Глобальный _kafka_producer инициализирован в режиме MOCK (из get_kafka_producer) с явными методами flush, produce, poll.")
         return _kafka_producer
 
     if _kafka_producer is None:

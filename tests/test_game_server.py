@@ -313,6 +313,8 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         with patch('game_server.tcp_handler.Player', autospec=True) as MockPlayerConstructor:
             mock_player_instance = MockPlayerConstructor.return_value # Это будет мок объекта Player
             mock_player_instance.name = "testuser" # Устанавливаем имя для логов и сообщений
+            mock_player_instance.id = "player_login_id_1" # Устанавливаем ID для мок-объекта
+            mock_player_instance.writer = writer # Явно присваиваем writer мок-объекту
             # Мокируем метод send_message для созданного экземпляра Player, если он будет вызываться
             mock_player_instance.send_message = AsyncMock()
 
@@ -397,6 +399,7 @@ class TestGameTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Создаем мок-объект игрока, который будет "создан" после логина
         mock_created_player = AsyncMock(spec=Player) # Используем AsyncMock, если Player имеет async методы
         mock_created_player.name = "gooduser"
+        mock_created_player.id = "player_commands_id_1" # Устанавливаем ID для мок-объекта
         mock_created_player.writer = writer # Важно, чтобы у мока игрока был ассоциированный writer
 
         with patch('game_server.tcp_handler.Player', return_value=mock_created_player) as MockPlayerConstructor:

@@ -100,8 +100,11 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
             logger.info(f"Attempt {attempt + 1}/{max_retries}: SO_REUSEADDR set for UDP socket.")
 
             if sys.platform == "win32": # pragma: no cover
-                udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
-                logger.info(f"Attempt {attempt + 1}/{max_retries}: SO_EXCLUSIVEADDRUSE set for UDP socket on Windows.")
+                try:
+                    udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_EXCLUSIVEADDRUSE, 1)
+                    logger.info(f"Attempt {attempt + 1}/{max_retries}: Successfully set SO_EXCLUSIVEADDRUSE for UDP socket on Windows.")
+                except OSError as e_exclusive:
+                    logger.warning(f"Attempt {attempt + 1}/{max_retries}: Failed to set SO_EXCLUSIVEADDRUSE for UDP socket on Windows: {e_exclusive}. Proceeding without it.")
 
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Binding UDP socket to {udp_host}:{udp_port}...")
             udp_sock.bind((udp_host, udp_port))

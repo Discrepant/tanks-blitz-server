@@ -336,4 +336,3 @@ if __name__ == '__main__':
 
     # Этот print не должен быть достигнут, если сервер работает в asyncio.Event().wait()
     # logging.info("[GAME_SERVER_MAIN_DEBUG] Reached end of if __name__ == '__main__'.")
-```

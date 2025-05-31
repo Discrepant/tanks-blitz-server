@@ -63,7 +63,7 @@ RUN apt-get update && \
     # libboost-program-options1.74.0 \ # If used by apps
     # nlohmann-json3-dev is header only, not needed for runtime unless packaged differently
     librabbitmq4 \
-    librdkafka++1 \ # librdkafka++1 might depend on librdkafka1
+    librdkafka++1 \    # librdkafka++1 might depend on librdkafka1
     libgrpc++1 \    # Meta-package for gRPC C++ runtime libraries.
     libprotobuf23 \ # Runtime libraries for Protocol Buffers (version for Ubuntu 22.04).
     libatomic1 \    # Atomic operations library, sometimes a gRPC dependency.

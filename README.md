@@ -1,564 +1,236 @@
-# Серверная архитектура Tanks Blitz (Прототип)
+# Серверная архитектура Tanks Blitz (Прототип - Гибрид Python/C++)
 
-Этот проект представляет собой прототип серверной архитектуры для многопользовательской игры Tanks Blitz, разработанный на Python.
-Он включает компоненты для аутентификации, игровой логики, обработки команд через брокеры сообщений, масштабирования, мониторинга и резервного копирования.
+Этот проект представляет собой прототип серверной архитектуры для многопользовательской игры Tanks Blitz. Изначально разработанный на Python, проект был частично переписан на C++ для ключевых, производительно-критичных компонентов.
+Он включает компоненты для аутентификации (C++ TCP сервер с Python gRPC сервисом), игровой логики (C++), обработки команд и событий через брокеры сообщений (C++ клиенты для Kafka, RabbitMQ), масштабирования, мониторинга и резервного копирования.
 
 ## Обзор проекта
 
-Цель проекта - продемонстрировать построение серверной части для MMO-игры с учетом современных практик и технологий, таких как:
+Цель проекта - продемонстрировать построение серверной части для MMO-игры с учетом современных практик и технологий. Ключевые аспекты:
+- **Гибридный подход:** Python используется для быстрого прототипирования и некоторых сервисов (например, gRPC сервис аутентификации, использующий существующую Python логику), в то время как C++ используется для высокопроизводительных компонентов (игровой сервер, TCP сервер аутентификации, обработчики сообщений).
 - Разделение сервисов (аутентификация, игра)
-- Асинхронное программирование и обработка событий
-- Брокеры сообщений (Kafka, RabbitMQ) для асинхронных задач и логирования
-- Паттерны проектирования (Singleton, Object Pool)
+- Асинхронное программирование и обработка событий (Boost.Asio в C++, `asyncio` в Python)
+- Брокеры сообщений (Kafka, RabbitMQ) для асинхронных задач и логирования (C++ клиенты)
+- Паттерны проектирования (Singleton, Object Pool в C++)
 - Контейнеризация (Docker)
-- Оркестрация (Kubernetes)
+- Оркестрация (Kubernetes - концептуально)
 - Мониторинг (Prometheus, Grafana)
-- Защита от DDoS (Nginx)
-- Резервное копирование (Redis)
+- Защита от DDoS (Nginx - концептуально)
 
 ## Архитектура
 
 Система состоит из следующих основных компонентов:
 
 ### 1. Клиент Игры
-(Не входит в этот репозиторий) - Предполагается, что это игровое приложение, с которым взаимодействуют пользователи.
+(Не входит в этот репозиторий)
 
 ### 2. Nginx (Входная точка/Балансировщик/Защита от DDoS)
-*   **Роль:** Принимает весь входящий трафик от клиентов, выполняет SSL-терминирование (если настроено), распределяет нагрузку на соответствующие серверы и может обеспечивать базовую защиту от DDoS-атак.
-*   **Проксирование TCP (Auth Server):** Nginx прослушивает определенный TCP-порт (например, `8888`) и перенаправляет трафик на Сервер Аутентификации.
-    *   Пример конфигурации (в `stream` блоке `nginx.conf`):
-        ```nginx
-        upstream auth_servers {
-            server auth_server_host:auth_server_port; # Например, 127.0.0.1:8888 или k8s_service_name:port
-            # server auth_server_replica_2:port; # Для масштабирования
-        }
+*   **Роль:** Принимает весь входящий трафик.
+*   **Проксирование TCP (Auth Server C++):** Nginx прослушивает порт (например, `9000`) и перенаправляет трафик на C++ Сервер Аутентификации.
+*   **Проксирование UDP/TCP (Game Server C++):** Nginx прослушивает порты (например, UDP `8889`, TCP `8888`) и перенаправляет трафик на C++ Игровой Сервер.
 
-        server {
-            listen 8888; # Порт, который слушает Nginx для клиентов
-            proxy_pass auth_servers;
-            proxy_connect_timeout 1s;
-            # Другие директивы proxy_*
-        }
-        ```
-*   **Проксирование UDP (Game Server):** Nginx прослушивает определенный UDP-порт (например, `9999`) и перенаправляет трафик на Игровой Сервер.
-    *   Пример конфигурации (аналогично TCP, но в `stream` блоке для UDP, Nginx должен быть скомпилирован с `--with-stream_udp_module`):
-        ```nginx
-        upstream game_servers_udp {
-            server game_server_host:game_server_udp_port; # Например, 127.0.0.1:9999 или k8s_service_name:port
-        }
+### 3. Сервер Аутентификации (Auth Server - C++ TCP + Python gRPC)
+*   **Роль:** Отвечает за обработку запросов на регистрацию и аутентификацию.
+*   **C++ TCP Сервер (`auth_server_app`):**
+    *   Прослушивает TCP порт (например, `9000`) для JSON-запросов от клиентов.
+    *   Действует как gRPC клиент к Python `AuthService`.
+    *   Принимает JSON `{"action": "login/register", "username": "...", "password": "..."}`.
+    *   Транслирует эти запросы в gRPC вызовы к Python сервису.
+    *   Возвращает ответ от gRPC сервиса клиенту в формате JSON.
+*   **Python gRPC Сервис (`auth_grpc_server.py`):**
+    *   Прослушивает gRPC порт (например, `localhost:50051`).
+    *   Использует существующую Python логику (`user_service.py`) для взаимодействия с Redis (где хранятся учетные данные пользователей).
+    *   Отправляет события аудита в Kafka (топик `auth_events`).
+*   **Хранение данных:** Учетные данные пользователей хранятся в Redis, управляемом `auth_server/user_service.py`.
+*   **Технологии:** C++ (Boost.Asio, gRPC клиент), Python (`grpcio`, `asyncio`, Redis клиент, Kafka клиент).
 
-        server {
-            listen 9999 udp; # Порт, который слушает Nginx для клиентов (UDP)
-            proxy_pass game_servers_udp;
-            # Другие директивы proxy_* для UDP
-        }
-        ```
-*   **Развертывание:** Обычно разворачивается как Ingress-контроллер в Kubernetes или как отдельный сервис. Конфигурационный файл: `nginx.conf`.
-
-### 3. Сервер Аутентификации (Auth Server)
-*   **Роль:** Отвечает за регистрацию новых пользователей и аутентификацию существующих.
-*   **Протокол:** TCP, сообщения в формате JSON.
-*   **Процесс регистрации:**
-    1.  Клиент отправляет запрос на регистрацию, например: `{"command": "register", "username": "user1", "password": "password123"}`.
-    2.  Сервер проверяет, не занято ли имя пользователя.
-    3.  Если имя свободно, сервер сохраняет учетные данные (в данном прототипе используется mock-база данных `MOCK_USERS_DB` в `auth_server/auth_logic.py`). В реальной системе это была бы полноценная база данных.
-    4.  Отправляет клиенту ответ: `{"status": "ok", "message": "User registered successfully"}` или `{"status": "error", "message": "Username already taken"}`.
-*   **Процесс аутентификации:**
-    1.  Клиент отправляет запрос на аутентификацию: `{"command": "login", "username": "user1", "password": "password123"}`.
-    2.  Сервер проверяет учетные данные пользователя.
-    3.  В случае успеха, сервер может генерировать сессионный токен (в данном прототипе это не реализовано, но это стандартная практика, например, JWT).
-    4.  Отправляет клиенту ответ: `{"status": "ok", "message": "Login successful"}` (и токен, если используется) или `{"status": "error", "message": "Invalid credentials"}`.
-*   **Хранение данных:** Временно в `auth_server.auth_logic.MOCK_USERS_DB`. В продакшене это была бы PostgreSQL или другая СУБД.
-*   **Формат токенов:** Не используется в текущем прототипе. При внедрении рекомендуется использовать JWT (JSON Web Tokens).
-*   **События в Kafka:** Отправляет события аудита (успешный вход, неудачная попытка, регистрация) в топик `auth_events` в Kafka.
-*   **Технологии:** Python, `asyncio`, Kafka-клиент.
-*   **Метрики:** Экспортирует метрики для Prometheus на порт `8000` (настраивается переменной `AUTH_PROMETHEUS_PORT`).
-
-### 4. Игровой Сервер (Game Server)
-*   **Роль:** Обрабатывает основную игровую логику, управляет игровыми сессиями, состоянием игроков (танков) и взаимодействием между ними.
-*   **Протоколы:**
-    *   **UDP:** Для основных игровых команд, требующих низкой задержки (движение, состояние). Сообщения в формате JSON.
-    *   **TCP:** Для управляющих команд, где важна надежность (например, инициация выстрела, если это требует подтверждения или сложной логики). Сообщения в формате JSON.
-*   **Управление сессиями (`SessionManager`):**
-    *   `SessionManager` (реализован как Singleton) отвечает за создание, отслеживание и завершение игровых сессий (комнат).
-    *   Новая сессия может быть создана, например, по событию от матчмейкера.
-    *   Хранит информацию об активных сессиях и игроках в них.
+### 4. Игровой Сервер (Game Server - C++)
+*   **Роль:** Обрабатывает основную игровую логику, управляет игровыми сессиями, состоянием игроков (танков) и взаимодействием между ними. Исполняемый файл: `game_server_app`.
+*   **Протоколы:** UDP (основные команды) и TCP (управляющие команды, аутентифицированные сессии). Сообщения в JSON.
+*   **Управление сессиями (`SessionManager` C++):** Создание, отслеживание, завершение игровых сессий.
 *   **Логика обработки игровых команд:**
-    1.  Команды от клиентов (например, движение, выстрел) поступают на `udp_handler.py` или `tcp_handler.py`.
-    2.  Обработчики валидируют команду и публикуют ее в очередь `player_commands` в RabbitMQ.
-    3.  `PlayerCommandConsumer` (в `game_server/command_consumer.py`) извлекает команду из RabbitMQ.
-    4.  Consumer делегирует выполнение команды соответствующему объекту `Tank` внутри его игровой сессии (`GameRoom`).
-*   **Взаимодействие с `TankPool`:**
-    *   `TankPool` (реализован как Object Pool) управляет объектами танков.
-    *   При присоединении игрока к сессии или создании нового танка, объект танка запрашивается из пула.
-    *   Когда танк уничтожен или игрок покидает сессию, объект танка возвращается в пул для повторного использования. Это помогает снизить накладные расходы на создание и удаление объектов.
-*   **Формат основных игровых сообщений (примеры):**
-    *   **Движение (от клиента серверу, UDP):** `{"command": "move", "player_id": "player123", "direction": "forward", "timestamp": 1678886400.123}`
-    *   **Обновление состояния (от сервера клиентам, UDP):** `{"event": "state_update", "player_id": "player123", "position": {"x": 10, "y": 25}, "health": 80, "timestamp": 1678886400.234}`
-    *   **Выстрел (от клиента серверу, TCP/UDP):** `{"command": "shoot", "player_id": "player123", "target_id": "player456", "timestamp": 1678886401.345}`
-    *   **Результат выстрела (от сервера клиентам, UDP):** `{"event": "shot_fired", "shooter_id": "player123", "target_id": "player456", "damage_done": 20, "timestamp": 1678886401.456}`
-*   **События в Kafka:** Отправляет детальные события о ходе игры (движение, урон, уничтожение танка и т.д.) в соответствующие топики Kafka.
-*   **Технологии:** Python, `asyncio`, Kafka-клиент, Pika (RabbitMQ-клиент).
-*   **Метрики:** Экспортирует метрики для Prometheus на порт `8001` (настраивается переменной `GAME_PROMETHEUS_PORT`).
+    1.  Команды от клиентов поступают на `GameUDPHandler` или `GameTCPSession` (C++).
+    2.  `GameTCPSession` использует Python gRPC сервис аутентификации для команды `LOGIN`.
+    3.  Обработчики публикуют команды (move, shoot) в очередь `player_commands` в RabbitMQ.
+    4.  `PlayerCommandConsumer` (C++) извлекает команды из RabbitMQ и делегирует их объектам `Tank` в их `GameSession`.
+*   **`TankPool` (C++):** Управляет объектами танков.
+*   **События в Kafka (C++):** Отправляет детальные события о ходе игры (движение, урон и т.д.) в Kafka.
+*   **Технологии:** C++ (Boost.Asio, librabbitmq-c, librdkafka++).
 
 ### 5. Kafka (Брокер сообщений)
-*   **Роль:** Используется для сбора, хранения и потоковой обработки событий от всех компонентов системы. Служит как система логирования для аудита, аналитики, мониторинга и потенциальной последующей асинхронной обработки данных.
-*   **Топики и примеры сообщений:**
-    *   `player_sessions_history`: Записывает события, связанные с жизненным циклом игровых сессий.
-        *   Пример сообщения: `{"event_type": "session_created", "session_id": "sess_abc123", "timestamp": "2023-03-15T10:00:00Z", "created_by": "matchmaker"}`
-        *   Пример сообщения: `{"event_type": "player_joined_session", "session_id": "sess_abc123", "player_id": "player456", "timestamp": "2023-03-15T10:01:00Z"}`
-    *   `tank_coordinates_history`: Хранит историю изменения координат танков.
-        *   Пример сообщения: `{"player_id": "player789", "session_id": "sess_xyz789", "tank_id": "tank_a", "coordinates": {"x": 15.5, "y": 42.0, "z": 0.0}, "timestamp": "2023-03-15T10:05:30.123Z"}`
-    *   `game_events`: Логирует ключевые игровые события.
-        *   Пример сообщения (выстрел): `{"event_type": "tank_shot", "shooter_id": "player1", "target_id": "player2", "weapon_type": "cannon_75mm", "timestamp": "2023-03-15T10:10:15Z"}`
-        *   Пример сообщения (получение урона): `{"event_type": "tank_took_damage", "player_id": "player2", "damage_amount": 30, "source_player_id": "player1", "health_remaining": 70, "timestamp": "2023-03-15T10:10:15.500Z"}`
-    *   `auth_events`: Записывает события аутентификации.
-        *   Пример сообщения (успешный вход): `{"event_type": "user_logged_in", "username": "user1", "ip_address": "192.168.1.100", "timestamp": "2023-03-15T09:55:00Z"}`
-        *   Пример сообщения (неудачный вход): `{"event_type": "user_login_failed", "username": "user2", "reason": "invalid_password", "ip_address": "192.168.1.101", "timestamp": "2023-03-15T09:56:00Z"}`
+*   **Роль:** Сбор, хранение, потоковая обработка событий от C++ и Python компонентов.
+*   **Топики:** `player_sessions_history`, `tank_coordinates_history`, `game_events`, `auth_events`.
 
 ### 6. RabbitMQ (Брокер сообщений)
-*   **Роль:** Используется для асинхронной обработки команд, где не требуется немедленный ответ, и для передачи событий, требующих немедленной реакции от других сервисов (например, матчмейкинг). Помогает разгрузить основные потоки обработки серверов.
-*   **Очереди и примеры сообщений:**
-    *   `player_commands`: Очередь для команд от игроков, которые обрабатываются Игровым Сервером.
-        *   Пример сообщения (движение): `{"command_type": "move", "player_id": "player123", "details": {"direction": "forward", "speed": 0.5}, "timestamp": "2023-03-15T10:02:00Z"}`
-        *   Пример сообщения (выстрел): `{"command_type": "shoot", "player_id": "player789", "details": {"target_id": "enemy_tank_01"}, "timestamp": "2023-03-15T10:03:00Z"}`
-    *   `matchmaking_events`: Очередь для событий от системы матчмейкинга.
-        *   Пример сообщения: `{"event_type": "new_match_created", "match_id": "match_xyz456", "players": ["player1", "player2", "player3", "player4"], "map_id": "map_desert", "game_mode": "capture_the_flag", "timestamp": "2023-03-15T09:50:00Z"}`
+*   **Роль:** Асинхронная обработка команд (`player_commands` от C++ обработчиков к C++ консьюмеру).
 
 ### 7. Redis
-*   **Роль:** Используется для кэширования часто запрашиваемых данных и хранения временных данных сессий для быстрого доступа.
-*   **Данные для кэширования/хранения:**
-    *   **Сессионные токены игроков:** Если бы использовались токены, Redis был бы хорошим местом для их хранения (связка токен -> user_id, время жизни токена).
-    *   **Краткосрочные состояния игроков:** Например, временные баффы/дебаффы, которые не требуют немедленной записи в основную БД.
-    *   **Кэш профилей игроков:** Часто запрашиваемая информация о профиле игрока для снижения нагрузки на основную БД.
-    *   **Списки лидеров (Leaderboards):** Если бы в игре были таблицы лидеров, Redis Sorted Sets отлично бы подошли для их реализации.
-    *   В текущем прототипе активное использование Redis не детализировано, но он заложен в архитектуру для этих целей.
+*   **Роль:** Хранение учетных данных пользователей (через Python `user_service.py`). Может использоваться для кэширования и сессий C++ серверами при необходимости.
 
-### 8. Prometheus
-*   **Роль:** Система мониторинга и оповещения. Собирает метрики с различных сервисов (Auth Server, Game Server, Nginx и др.) через их HTTP эндпоинты (`/metrics`).
-*   **Конфигурация:** `prometheus.yml` (пример находится в `monitoring/prometheus.yml`) определяет, какие эндпоинты опрашивать.
-
-### 9. Grafana
-*   **Роль:** Платформа для визуализации и анализа метрик, собранных Prometheus. Позволяет создавать дашборды для отслеживания состояния системы в реальном времени.
-*   **Конфигурация:** Подключается к Prometheus как к источнику данных. Дашборды настраиваются через веб-интерфейс Grafana.
-
-### 10. База данных (PostgreSQL - концептуально)
-*   **Роль:** Долгосрочное хранение данных игроков, информации о матчах, игровых ассетов и т.д. В данном прототипе не реализована, но предполагается ее наличие в полноценной системе.
-
-## Обновленный Поток Команд и Событий
-(Этот раздел остается в основном без изменений, так как он уже хорошо описывает поток с Kafka и RabbitMQ)
+### 8. Prometheus / Grafana
+(Без изменений в их роли, собирают метрики с Python и потенциально C++ сервисов)
 
 ## Структура директорий
 
-Проект имеет следующую структуру:
-
--   `auth_server/`: Исходный код Сервера Аутентификации.
-    -   `main.py`: Точка входа для запуска сервера.
-    -   `auth_logic.py`: Логика регистрации и аутентификации.
-    -   `tcp_handler.py`: Обработчик TCP-соединений и JSON-запросов.
--   `game_server/`: Исходный код Игрового Сервера.
-    -   `main.py`: Точка входа для запуска сервера.
-    -   `game_logic.py`: Основная игровая логика, управление комнатами и танками.
-    -   `session_manager.py`: Управление игровыми сессиями.
-    -   `tank.py`: Класс, представляющий танк игрока.
-    -   `tank_pool.py`: Пул объектов танков.
-    *   `udp_handler.py`, `tcp_handler.py`: Обработчики входящих команд от клиентов.
-    *   `command_consumer.py`: Потребители сообщений из RabbitMQ (`PlayerCommandConsumer`, `MatchmakingEventConsumer`).
--   `core/`: Общие модули, используемые различными компонентами проекта.
-    -   `message_broker_clients.py`: Клиенты для взаимодействия с Kafka и RabbitMQ.
-    -   `prometheus_client.py`: Утилиты для экспорта метрик в Prometheus.
-    -   `redis_client.py`: Клиент для взаимодействия с Redis.
-    -   `patterns.py`: Реализации паттернов проектирования (Singleton, ObjectPool).
--   `tests/`: Автоматические тесты.
-    -   `unit/`: Юнит-тесты для отдельных модулей и классов (`pytest` или `unittest`).
-    -   `integration/`: Интеграционные тесты для проверки взаимодействия между сервисами.
-    -   `load/`: Нагрузочные тесты (например, с использованием `locust`).
--   `deployment/`: Файлы конфигурации для развертывания.
-    -   `docker-compose.yml`: Конфигурация для запуска проекта с помощью Docker Compose.
-    -   `kubernetes/`: (Опционально) Манифесты Kubernetes для развертывания в кластере.
--   `monitoring/`: Файлы конфигурации для систем мониторинга.
-    -   `prometheus.yml`: Конфигурация Prometheus.
-    -   `grafana/`: (Опционально) Конфигурации дашбордов Grafana.
--   `scripts/`: Вспомогательные скрипты (например, для запуска, сборки, очистки).
--   `requirements.txt`: Список зависимостей Python.
+-   `cpp/`: Корневая директория для всего C++ кода.
+    -   `CMakeLists.txt`: Главный CMake-файл для C++ проектов.
+    -   `protos/`: Определения `.proto` для gRPC сервисов.
+        -   `auth_service.proto`: Определение gRPC сервиса аутентификации.
+        -   `CMakeLists.txt`: CMake для генерации кода из `.proto` в библиотеку `auth_grpc_codegen_lib`.
+    -   `game_server_cpp/`: Исходный код C++ Игрового Сервера (`game_server_app`).
+        -   `CMakeLists.txt`: CMake для сборки игрового сервера и библиотеки `game_logic_lib`.
+        -   `*.h`, `*.cpp`: Файлы для UDP/TCP обработчиков, игровых сессий, управления танками, Kafka/RabbitMQ взаимодействия.
+    -   `auth_server_cpp/`: Исходный код C++ TCP Сервера Аутентификации (`auth_server_app`).
+        -   `CMakeLists.txt`: CMake для сборки сервера аутентификации.
+        -   `*.h`, `*.cpp`: Файлы TCP сервера, сессий, gRPC клиента к Python сервису аутентификации.
+        -   `grpc_generated/`: (Устарело, генерация теперь централизована в `cpp/protos/`)
+    -   `tests/`: Юнит-тесты для C++ компонентов (используя Catch2).
+        -   `CMakeLists.txt`: CMake для сборки и запуска тестов.
+        -   `main_test.cpp`: Главный файл для запуска тестов Catch2.
+        -   `test_*.cpp`: Файлы с тестами.
+-   `auth_server/`: Исходный код Python Сервиса Аутентификации.
+    -   `auth_grpc_server.py`: Python gRPC сервер, реализующий `AuthService`.
+    -   `user_service.py`: Логика взаимодействия с Redis для данных пользователей (используется `auth_grpc_server.py`).
+    -   `auth_logic.py`: (Может быть устаревшим, если вся логика в `user_service.py`).
+    -   `grpc_generated/`: Сгенерированные Python gRPC файлы из `auth_service.proto`.
+-   `game_server/`: (Большая часть логики перенесена в C++) Содержит устаревший Python код игрового сервера. Может использоваться для вспомогательных скриптов или оставшихся Python утилит.
+-   `core/`: Общие Python модули.
+-   `tests/`: Автоматические тесты для Python компонентов (юнит, интеграционные, нагрузочные).
+-   `deployment/`, `monitoring/`, `scripts/`: Без существенных изменений.
+-   `requirements.txt`: Список зависимостей Python (включая `grpcio`, `grpcio-tools`).
 -   `README.md`: Этот файл.
 
 ## Требования
 
+### Python Разработка
 -   Python 3.9+
+-   См. `requirements.txt` (включает `grpcio`, `grpcio-tools`, `redis`, `kafka-python`, `pika`, `prometheus_client`).
+
+### C++ Разработка
+-   C++17 компилятор (GCC, Clang).
+-   CMake (версия 3.16+ рекомендуется).
+-   Boost библиотеки (System, Asio - версия 1.71+).
+-   nlohmann/json (версия 3.x, header-only или системная установка).
+-   librabbitmq-c (библиотека и заголовки для разработки).
+-   librdkafka++ (библиотека и заголовки для разработки).
+-   gRPC (библиотеки C++ и заголовки для разработки, включая gRPC C++ plugin для protoc).
+-   Protocol Buffers (библиотека libprotobuf и заголовки, protobuf-compiler).
+-   Catch2 (версия 3.x, для юнит-тестов).
+
+### Общие
 -   Docker
--   `docker-compose` (или `docker compose` v2+)
--   `kubectl` (если используется Kubernetes)
--   `locust` (для нагрузочных тестов)
--   `netcat` (`nc`) или `telnet` (для ручного тестирования TCP-сервисов)
+-   `docker-compose`
 -   Git
 
 ## Настройка и запуск
 
-### 1. Клонирование репозитория
+### 1. Клонирование и зависимости Python
+(Без изменений: клонировать, создать venv, `pip install -r requirements.txt`)
+
+### 2. Зависимости C++
+Установите все C++ зависимости, перечисленные выше, используя менеджер пакетов вашей системы (например, `apt-get` для Debian/Ubuntu, `brew` для macOS). Пример для Ubuntu:
 ```bash
-git clone https://<URL_вашего_репозитория>.git # Замените на реальный URL
-cd <имя_папки_репозитория>
+sudo apt-get update
+sudo apt-get install -y build-essential cmake libboost-system-dev libboost-program-options-dev \
+    nlohmann-json3-dev librabbitmq-dev librdkafka-dev \
+    libgrpc++-dev libprotobuf-dev protobuf-compiler grpc_cpp_plugin \
+    catch2 # (или установить вручную/через CMake FetchContent)
+# Для Boost.Asio может потребоваться libboost-dev или установка из исходников для header-only версии.
+# Убедитесь, что версии совместимы.
 ```
 
-### 2. Установка зависимостей Python
-Рекомендуется использовать виртуальное окружение:
+### 3. Сборка C++ Компонентов
+Из корневой директории проекта:
 ```bash
-python -m venv venv
-# Windows
-venv\Scripts\activate
-# Linux / macOS
-source venv/bin/activate
-
-pip install -r requirements.txt
+cd cpp
+mkdir build
+cd build
+cmake ..
+make -j$(nproc)  # или просто 'make'
 ```
-
-### 3. Настройка Docker
-*   **Windows:**
-    *   Скачайте и установите Docker Desktop с [официального сайта](https://www.docker.com/products/docker-desktop).
-    *   Рекомендуется использовать бэкенд WSL2 для лучшей производительности.
-*   **Linux:**
-    *   Следуйте [официальной инструкции](https://docs.docker.com/engine/install/) для вашего дистрибутива.
-    *   Установите `docker-compose` (или используйте `docker compose` если доступно).
-*   **macOS:**
-    *   Скачайте и установите Docker Desktop с [официального сайта](https://www.docker.com/products/docker-desktop).
+Исполняемые файлы будут находиться в `cpp/build/game_server_cpp/game_server_app` и `cpp/build/auth_server_cpp/auth_server_app`.
 
 ### 4. Переменные окружения
-Проект использует переменные окружения для конфигурации. Основные переменные:
+(Раздел остается актуальным, но хосты и порты для C++ серверов теперь другие)
+-   `AUTH_SERVER_CPP_PORT` (например, `9000`) для C++ Auth TCP Server.
+-   `AUTH_GRPC_PYTHON_PORT` (например, `50051`) для Python gRPC Auth Service.
+-   `GAME_SERVER_CPP_TCP_PORT` (например, `8888`).
+-   `GAME_SERVER_CPP_UDP_PORT` (например, `8889`).
 
-| Переменная                  | Описание                                                                 | Значение по умолчанию (если есть) | Пример для Docker Compose | Пример для локального запуска |
-| --------------------------- | ------------------------------------------------------------------------ | ----------------------------------- | ------------------------- | ----------------------------- |
-| `KAFKA_BOOTSTRAP_SERVERS`   | Адреса брокеров Kafka.                                                   | `localhost:9092`                    | `kafka:9092`              | `localhost:29092`             |
-| `RABBITMQ_HOST`             | Хост RabbitMQ.                                                           | `localhost`                         | `rabbitmq`                | `localhost`                   |
-| `RABBITMQ_PORT`             | Порт RabbitMQ.                                                           | `5672`                              | `5672`                    | `5672`                        |
-| `RABBITMQ_USER`             | Пользователь RabbitMQ.                                                   | `user`                              | `user`                    | `user`                        |
-| `RABBITMQ_PASSWORD`         | Пароль RabbitMQ.                                                         | `password`                          | `password`                | `password`                    |
-| `REDIS_HOST`                | Хост Redis.                                                              | `localhost`                         | `redis-service`           | `localhost`                   |
-| `REDIS_PORT`                | Порт Redis.                                                              | `6379`                              | `6379`                    | `6379`                        |
-| `AUTH_SERVER_HOST`          | Хост, который слушает сервер аутентификации (по умолчанию `0.0.0.0`). Также хост, к которому Game Server подключается для аутентификации (по умолчанию `localhost` в Game Server). | `0.0.0.0` (слушает), `localhost` (подключается Game Server) | `auth_server` (слушает), `auth_server` (подключается Game Server) | `0.0.0.0` (слушает), `localhost` (подключается Game Server) |
-| `AUTH_SERVER_PORT`          | Порт, который слушает сервер аутентификации. Game Server использует эту переменную для подключения к Auth Server. | `8888`                              | `8888`                    | `8888`                        |
-| `AUTH_PROMETHEUS_PORT`      | Порт метрик Prometheus для сервера аутентификации.                       | `8000`                              | `8000`                    | `8000`                        |
-| `GAME_SERVER_HOST`          | Хост игрового сервера (для TCP).                                         | `0.0.0.0`                           | `0.0.0.0`                 | `localhost`                   |
-| `GAME_SERVER_TCP_PORT`      | TCP порт игрового сервера.                                               | `8889`                              | `8889`                    | `8889`                        |
-| `GAME_SERVER_UDP_PORT`      | UDP порт игрового сервера.                                               | `29998`                             | `29998`                   | `29998`                       |
-| `GAME_PROMETHEUS_PORT`      | Порт метрик Prometheus для игрового сервера.                             | `8001`                              | `8001`                    | `8001`                        |
-| `USE_MOCKS`                 | Использовать ли моки для внешних сервисов (`true` или `false`).          | `false`                             | -                         | `false` (для тестов `true`)   |
-| `LOG_LEVEL`                 | Уровень логирования (DEBUG, INFO, WARNING, ERROR).                       | `INFO`                              | `INFO`                    | `INFO`                        |
-| `INTEGRATION_TEST_LOG_FILE` | Ранее использовался для лог-файла интеграционных тестов Game Server. Файловое логирование было удалено. | Удалено                             | N/A                       | N/A                           |
+### 5. Запуск
 
-**Примечание по `GAME_SERVER_UDP_PORT`**: Значение по умолчанию было изменено на `29998` в `game_server/main.py` для попытки избежать потенциальных конфликтов портов в различных окружениях.
+#### Docker Compose (Требует обновления `docker-compose.yml` для C++)
+Этот раздел требует значительного обновления для включения сборки C++ образов и их запуска. **Текущий `docker-compose.yml` устарел.**
 
-**Способы установки переменных окружения:**
+#### Локальный запуск (для разработки и отладки)
+Предполагается, что Kafka, RabbitMQ, Redis запущены (например, через Docker).
 
-*   **Файл `.env`:** Создайте файл `.env` в корневой директории проекта. `docker-compose` автоматически подхватит его. Для локального запуска можно использовать библиотеки типа `python-dotenv`.
-    Пример `.env` файла:
-    ```env
-    KAFKA_BOOTSTRAP_SERVERS=localhost:29092
-    RABBITMQ_HOST=localhost
-    # ... другие переменные
-    ```
-*   **Системные переменные:**
-    *   **Linux / macOS (bash/zsh):**
-        ```bash
-        export KAFKA_BOOTSTRAP_SERVERS="localhost:29092"
-        export RABBITMQ_HOST="localhost"
-        # Для сохранения между сессиями добавьте в ~/.bashrc или ~/.zshrc
-        ```
-    *   **Windows (PowerShell):**
-        ```powershell
-        $env:KAFKA_BOOTSTRAP_SERVERS="localhost:29092"
-        $env:RABBITMQ_HOST="localhost"
-        # Для сохранения: [System.Environment]::SetEnvironmentVariable("KAFKA_BOOTSTRAP_SERVERS", "localhost:29092", "User")
-        ```
-    *   **Windows (CMD):**
-        ```cmd
-        set KAFKA_BOOTSTRAP_SERVERS=localhost:29092
-        set RABBITMQ_HOST=localhost
-        # Для сохранения: setx KAFKA_BOOTSTRAP_SERVERS "localhost:29092"
-        ```
-
-### 5. Запуск с Docker Compose (Рекомендуемый способ)
-Файл `docker-compose.yml` настроен для запуска всех сервисов, включая Kafka, RabbitMQ и Redis.
-
-1.  **Сборка и запуск контейнеров:**
+1.  **Запустите Python gRPC Auth Service:**
     ```bash
-    docker compose up -d --build
-    # или для старых версий:
-    # docker-compose up -d --build
+    # Из корневой директории проекта, в активном venv
+    export AUTH_GRPC_PYTHON_PORT=50051 # Установите порт, если нужно
+    export REDIS_HOST=localhost REDIS_PORT=6379 # и другие для user_service
+    python -m auth_server.auth_grpc_server
     ```
-2.  **Просмотр логов:**
+
+2.  **Запустите C++ Auth TCP Server (`auth_server_app`):**
+    В новом терминале:
     ```bash
-    docker compose logs -f auth_server game_server # или имя другого сервиса
+    # Из cpp/build/auth_server_cpp/
+    ./auth_server_app <tcp_listen_port> <python_grpc_service_address>
+    # Пример:
+    ./auth_server_app 9000 localhost:50051
     ```
-3.  **Остановка контейнеров:**
+
+3.  **Запустите C++ Game Server (`game_server_app`):**
+    В новом терминале:
     ```bash
-    docker compose down
+    # Из cpp/build/game_server_cpp/
+    # main.cpp для game_server_app должен быть обновлен для приема конфигурации
+    # (порты, адреса RabbitMQ/Kafka, адрес Auth gRPC сервиса) через переменные окружения или аргументы командной строки.
+    # Пример (концептуальный, main.cpp нужно доработать для такой конфигурации):
+    export GAME_TCP_PORT=8888 GAME_UDP_PORT=8889 \
+           RABBITMQ_HOST=localhost KAFKA_BOOTSTRAP_SERVERS=localhost:29092 \
+           AUTH_GRPC_SERVICE_ADDRESS=localhost:50051
+    ./game_server_app
     ```
-    Для остановки и удаления volumes (данных Kafka, Redis): `docker compose down -v`
-
-**Доступные сервисы (при использовании Docker Compose):**
-*   Auth Server (TCP): `localhost:8888`
-*   Game Server (TCP): `localhost:8889`
-*   Game Server (UDP): `localhost:9999`
-*   Kafka: `localhost:29092` (с хоста), `kafka:9092` (внутри Docker сети)
-*   RabbitMQ Management UI: `http://localhost:15672` (логин/пароль по умолчанию: `user`/`password` или те, что заданы в `RABBITMQ_USER`/`RABBITMQ_PASSWORD`)
-*   Prometheus: `http://localhost:9090`
-*   Grafana: `http://localhost:3000`
-
-### 6. Локальный запуск серверов (для разработки и отладки)
-Этот способ требует ручного запуска Kafka, RabbitMQ и Redis (например, через Docker Compose, отдельные установки или облачные сервисы).
-
-1.  **Запустите брокеры сообщений и Redis:**
-    Если у вас есть Docker, самый простой способ - использовать `docker-compose.yml` только для них:
-    ```bash
-    docker compose up -d zookeeper kafka rabbitmq redis-service
-    ```
-    Убедитесь, что переменные окружения (см. пункт 4) установлены на `localhost` с соответствующими портами (`localhost:29092` для Kafka, `localhost:5672` для RabbitMQ, `localhost:6379` для Redis).
-
-2.  **Запуск Сервера Аутентификации:**
-    Откройте новый терминал, активируйте виртуальное окружение и запустите:
-    ```bash
-    python -m auth_server.main
-    ```
-    Сервер будет доступен по TCP на `localhost:8888`. Метрики Prometheus: `http://localhost:8000/metrics`.
-
-3.  **Запуск Игрового Сервера:**
-    Откройте еще один терминал, активируйте виртуальное окружение и запустите:
-    ```bash
-    python -m game_server.main
-    ```
-    Сервер будет доступен по UDP на `localhost:9999` (или порт из `GAME_SERVER_UDP_PORT`) и TCP на `localhost:8889` (или порт из `GAME_SERVER_TCP_PORT`).
-    Game Server будет пытаться подключиться к Auth Server по адресу, указанному в `AUTH_SERVER_HOST` и `AUTH_SERVER_PORT`.
-    Метрики Prometheus для Game Server: `http://localhost:8001/metrics` (или порт из `GAME_PROMETHEUS_PORT`).
-
-    **Примеры запуска с указанием портов и хостов:**
-
-    ```bash
-    # Запуск Auth Server на порту 8890
-    AUTH_SERVER_PORT=8890 python -m auth_server.main
-
-    # Запуск Game Server:
-    # - TCP порт 8891
-    # - UDP порт 9991
-    # - Подключается к Auth Server на localhost:8890
-    GAME_SERVER_TCP_PORT=8891 GAME_SERVER_UDP_PORT=9991 \
-    AUTH_SERVER_HOST=localhost AUTH_SERVER_PORT=8890 \
-    python -m game_server.main
-    ```
+    *Порядок запуска важен: брокеры -> Python gRPC Auth Service -> C++ Auth TCP Server -> C++ Game Server.*
 
 ## Тестирование
 
-Проект включает юнит-тесты, интеграционные тесты и основу для нагрузочных тестов.
+### Python Тесты
+(Раздел остается актуальным для существующих Python тестов)
 
-### Общие советы по запуску тестов:
-*   Убедитесь, что все зависимости для разработки установлены (обычно включаются в `requirements.txt` или отдельный `requirements-dev.txt`).
-*   Запускайте тесты из корневой директории проекта.
-*   Активируйте виртуальное окружение перед запуском.
+### C++ Юнит Тесты
+Юнит-тесты для C++ компонентов используют Catch2.
 
-### 1. Юнит-тесты
-Юнит-тесты проверяют отдельные модули и функции в изоляции. Они находятся в директории `tests/unit/`.
+1.  **Сборка тестов:**
+    Тесты собираются вместе с C++ компонентами при выполнении `cmake .. && make` в директории `cpp/build/`.
+    Исполняемый файл тестов: `cpp/build/tests/game_tests`.
 
-*   **Запуск всех юнит-тестов (используя `pytest`):**
+2.  **Запуск C++ тестов:**
+    Из директории `cpp/build/`:
     ```bash
-    python -m pytest tests/unit/ -v -s
+    ctest -V  # -V для подробного вывода
     ```
-    *   `-v`: подробный вывод.
-    *   `-s`: показывать вывод print() из тестов (полезно для отладки).
-*   **Запуск всех юнит-тестов (используя `unittest` discovery):**
+    Или запустить исполняемый файл напрямую:
     ```bash
-    python -m unittest discover tests/unit
+    ./tests/game_tests [catch2_options]
     ```
-*   **Запуск тестов в конкретном файле:**
-    ```bash
-    python -m pytest tests/unit/test_auth_logic.py
-    # или
-    python -m unittest tests/unit/test_auth_logic.py
-    ```
-*   **Запуск конкретного тестового класса или метода (с `pytest`):**
-    ```bash
-    python -m pytest tests/unit/test_auth_logic.py::TestAuthLogic::test_registration_success
-    ```
+    **Важно:** Некоторые C++ тесты (например, `test_auth_tcp_session.cpp`, `test_game_tcp_session.cpp` для логина) могут требовать запущенного Python gRPC Auth Service (`auth_server.auth_grpc_server`) на `localhost:50051`.
 
-### 2. Интеграционные тесты
-Интеграционные тесты (`tests/integration/test_integration.py`) проверяют взаимодействие между различными компонентами системы, такими как `auth_server` и `game_server`.
-
-*   **Запуск интеграционных тестов:**
-    ```bash
-    python -m unittest tests/integration/test_integration.py
-    # или если тесты написаны с использованием pytest:
-    # python -m pytest tests/integration/
-    ```
-    Интеграционные тесты запускают Auth Server и Game Server как подпроцессы. Эти подпроцессы теперь корректно учитывают переменные окружения для конфигурации портов (например, `AUTH_SERVER_PORT` для Auth Server, `GAME_SERVER_TCP_PORT` для Game Server) и адреса Auth Server (`AUTH_SERVER_HOST`, `AUTH_SERVER_PORT`), к которому должен подключаться Game Server в тестах.
-    Если в вашем окружении установлены эти переменные (например, `AUTH_SERVER_PORT`), тестовые серверы попытаются использовать их. Для предсказуемого поведения тестов рекомендуется либо сбрасывать эти переменные перед запуском тестов, либо явно устанавливать их в нужные значения для тестового окружения (например, в скрипте запуска тестов или непосредственно перед командой `python -m unittest ...`).
-
-**Режим мокирования (`USE_MOCKS=true`):**
-*   По умолчанию, интеграционные тесты (`tests/integration/test_integration.py`) запускают серверы в режиме мокирования. Это достигается установкой переменной окружения `USE_MOCKS=true` для подпроцессов серверов, запускаемых тестами.
-*   В этом режиме клиенты для Kafka, RabbitMQ и Redis (`core/message_broker_clients.py`, `core/redis_client.py`) используют `unittest.mock.MagicMock` и не пытаются подключиться к реальным сервисам. Это позволяет запускать тесты без развернутой инфраструктуры.
-
-**Тестирование с реальными сервисами:**
-1.  Убедитесь, что Kafka, RabbitMQ, Redis запущены (например, через `docker compose up -d kafka rabbitmq redis-service`).
-2.  Установите переменные окружения для подключения к этим сервисам (например, `KAFKA_BOOTSTRAP_SERVERS=localhost:29092`, `RABBITMQ_HOST=localhost` и т.д.).
-3.  Либо модифицируйте `tests/integration/test_integration.py`, чтобы он не устанавливал `USE_MOCKS=true`, либо установите `USE_MOCKS=false` как переменную окружения перед запуском тестов:
-    ```bash
-    USE_MOCKS=false python -m unittest tests/integration/test_integration.py
-    ```
-
-### 3. Нагрузочные тесты (Locust)
-Проект может включать тесты производительности с использованием Locust. Файлы конфигурации Locust обычно находятся в `tests/load/`.
-
-*   **Запуск Locust:**
-    1.  Убедитесь, что серверы (Auth, Game) запущены (локально или в Docker).
-    2.  Перейдите в директорию с locust-файлом, например `tests/load/`.
-    3.  Запустите Locust:
-        ```bash
-        locust -f your_locust_file.py --host=http://localhost:8089 # Укажите хост вашего веб-интерфейса или API
-        ```
-        (Для TCP/UDP сервисов Locust требует кастомных клиентов).
-    4.  Откройте веб-интерфейс Locust (обычно `http://localhost:8089`) и настройте параметры нагрузки.
-
-### Интерпретация результатов тестов:
-*   **Успешное прохождение:** Все тесты отмечены как "OK" или "PASSED". Это означает, что проверенные функции и компоненты работают в соответствии с ожиданиями в условиях теста.
-*   **Падение тестов (FAIL/ERROR):**
-    *   **Сообщение об ошибке:** Внимательно прочитайте сообщение об ошибке и трейсбек. Они часто указывают на причину проблемы (например, `AssertionError` означает, что результат не совпал с ожидаемым; `TypeError`, `ValueError` указывают на проблемы с данными или типами).
-    *   **Логи:** Проверьте логи, выведенные во время теста (особенно если запускали с `-s` для pytest или настроили логирование). Они могут содержать дополнительную информацию.
-    *   **Контекст:** Поймите, какой именно тест упал и что он проверял. Это поможет локализовать проблему.
-    *   **Воспроизводимость:** Попробуйте запустить упавший тест изолированно.
-
-### Известные проблемы с тестами и их диагностика:
-*   **Проблема:** "Game Server Integration Tests: ...TypeError: argument of type 'int' is not iterable... `self.players` attribute is incorrectly an integer `0` instead of a dictionary `{}`..."
-    *   **Статус:** Эта проблема была упомянута ранее. Если она все еще актуальна:
-    *   **Диагностика:**
-        1.  **Очистка кэша Python:** Удалите директории `__pycache__` и файлы `.pyc` во всем проекте:
-            ```bash
-            find . | grep -E "(__pycache__|\.pyc$)" | xargs rm -rf
-            ```
-        2.  **Проверка версии кода:** Убедитесь, что тестовый скрипт действительно запускает последнюю версию `game_server/game_logic.py`. Можно добавить логирование в начало файла `game_logic.py` или в конструктор `GameRoom`, чтобы видеть, когда он импортируется/инициализируется.
-        3.  **Изолированный запуск:** Попробуйте написать минимальный скрипт, который импортирует и использует `GameRoom` так же, как это делается в тесте, но вне тестового фреймворка, чтобы проверить, возникает ли проблема.
-        4.  **Отладка:** Используйте отладчик (`pdb` или отладчик вашей IDE) для пошагового выполнения кода в тесте и проверки значения `self.players` в момент перед возникновением ошибки.
-
-*   **Особенности мокирования асинхронного кода и зависимостей при инициализации:**
-    *   Разделы "Особенности мокирования асинхронного кода" и "Особенности мокирования зависимостей при инициализации объекта (в setUp)" из предыдущей версии README остаются актуальными и содержат полезные советы.
-
-*   **Важно при отладке тестов:**
-    *   **Очистка кэша pytest:** Удалите папку `.pytest_cache`.
-    *   **Актуальность кода:** Убедитесь, что вы тестируете актуальную версию кода.
-    *   **Настройка логирования:** Включите подробное логирование в тестах или глобально для лучшего понимания происходящего:
-        ```python
-        import logging
-        logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(name)s - %(module)s - %(message)s')
-        ```
-
-### Настройка тестового окружения (дополнение)
-
-1.  **Убедитесь, что все зависимости для разработки установлены.** Если используется Poetry, выполните:
-    ```bash
-    poetry install --with dev
-    ```
-    Если используется `requirements.txt`, убедитесь, что у вас есть файл `requirements-dev.txt` (или аналогичный) и установите зависимости из него:
-    ```bash
-    pip install -r requirements-dev.txt
-    ```
-    (Примечание: если `requirements-dev.txt` нет, основные зависимости для тестов, такие как `pytest` и `pytest-asyncio`, должны быть включены в основной `requirements.txt` или установлены вручную).
-
-2.  **Для асинхронных тестов используется `pytest-asyncio`.** Он должен установиться вместе с остальными dev-зависимостями. Если асинхронные тесты не запускаются или пропускаются, убедитесь, что `pytest-asyncio` установлен корректно. Вы можете проверить это и установить его при необходимости (рекомендуется последняя версия):
-    ```bash
-    pip show pytest-asyncio
-    pip install pytest-asyncio
-    ```
-    При возникновении проблем с распознаванием плагина `pytest-asyncio` (например, если тесты пропускаются с `PytestUnhandledCoroutineWarning`), попробуйте следующие шаги:
-    - Удалите существующую версию: `pip uninstall -y pytest-asyncio`
-    - Установите последнюю версию: `pip install pytest-asyncio`
-    - Очистите кэш pytest: `rm -rf .pytest_cache tests/unit/.pytest_cache` (если папки существуют).
-    - Убедитесь, что в `pyproject.toml` (если используется) есть корректные настройки для `pytest-asyncio`, например:
-      ```toml
-      [tool.pytest.ini_options]
-      asyncio_mode = "auto" 
-      # или strict / auto в зависимости от ваших нужд
-      # asyncio_default_fixture_loop_scope = "function" 
-      # (Эта опция может быть не нужна с последними версиями)
-      ```
-
-### Запуск тестов (дополнение)
-
-Для запуска всех юнит-тестов из корня проекта рекомендуется использовать:
-
-```bash
-python -m pytest tests/unit/ -v -s
-```
-
-### Примечание по мокированию (дополнение)
-Для некоторых юнит-тестов (например, для клиентов брокеров сообщений Kafka и RabbitMQ, клиента Redis) используется переменная окружения `USE_MOCKS="true"`. Это позволяет запускать тесты без реального подключения к этим сервисам. Большинство тестовых конфигураций настроены на автоматическое использование моков. Если вы столкнулись с ошибками подключения во время тестов, убедитесь, что `USE_MOCKS` правильно обрабатывается или установлен для соответствующего тестового запуска.
-
-### Диагностика проблем при запуске тестов
-
-*   **Коды завершения серверов**: Скрипты `game_server/main.py` и `auth_server/main.py` теперь настроены на завершение с ненулевым кодом выхода (`sys.exit(1)`) при возникновении критических ошибок во время их инициализации (например, ошибки привязки порта). Это должно более точно отражаться в логах выполнения тестов (например, в pytest).
-
-*   **Логирование stdout/stderr подпроцессов серверов**: При запуске интеграционных тестов (`tests/test_integration.py`), стандартный вывод (`stdout`) и стандартный вывод ошибок (`stderr`) для процессов `auth_server` и `game_server` перенаправляются в следующие файлы в корневой директории проекта:
-    *   `auth_server_stdout.log`
-    *   `auth_server_stderr.log`
-    *   `game_server_stdout.log`
-    *   `game_server_stderr.log`
-    Эти файлы следует проверять в первую очередь, если возникают ошибки на этапе `setUpClass` в тестах, так как они содержат консольный вывод запущенных серверов. Содержимое этих файлов также дублируется в основной лог тестов после завершения `tearDownClass` или при ошибке в `setUpClass`.
-
-*   **Проблема с UDP-сокетом в Windows при интеграционных тестах**:
-    *   Наблюдается специфическая проблема в окружении Windows при запуске интеграционных тестов: процесс `game_server` может немедленно завершаться с ошибкой `OSError: [WinError 10048] Address already in use` при попытке привязки UDP-сокета (например, к порту 29998 через `loop.create_datagram_endpoint`).
-    *   Эта ошибка может возникать даже если:
-        *   Предварительная проверка утилитой `netstat` показывает, что порт свободен.
-        *   Тестовый скрипт `check_udp_bind.py` (использующий стандартный модуль `socket`) успешно выполняет привязку к этому же порту (`0.0.0.0:29998`).
-    *   Это указывает на возможную проблему взаимодействия `asyncio` с некоторыми конфигурациями Windows при запуске `game_server.main` как подпроцесса из тестов, либо на особенности высвобождения сокетов в Windows, которые могут затрагивать быстро перезапускаемые тесты.
-    *   Для временного обхода этой проблемы или для тестирования только TCP-части, UDP-сервер в `game_server/main.py` можно временно закомментировать.
-
-*   **Изолированный UDP Тест**: Для проверки базовой возможности биндинга UDP-порта в системе, независимо от основного кода проекта, можно использовать скрипт `check_udp_bind.py`.
+## Удаление или Обновление Устаревшей Информации
+-   Инструкции по запуску Python серверов (`auth_server/main.py`, `game_server/main.py`) как основных игровых сервисов теперь устарели. `auth_server/main.py` заменен на `auth_grpc_server.py` в связке с C++ TCP сервером. `game_server/main.py` полностью заменен C++ реализацией.
+-   Старая архитектура, описывающая полностью Python-based серверы, должна быть обновлена.
 
 ## Участие в разработке (Contributing)
-
-Мы приветствуем ваш вклад в развитие проекта! Чтобы сделать процесс максимально гладким, пожалуйста, следуйте этим рекомендациям:
-
-1.  **Форкните репозиторий:** Создайте форк проекта на свой GitHub аккаунт.
-2.  **Создайте ветку:** Для каждой новой фичи или исправления ошибки создавайте отдельную ветку в вашем форке:
-    ```bash
-    git checkout -b feature/новая-фича-Х
-    # или
-    git checkout -b bugfix/исправление-ошибки-Y
-    ```
-3.  **Напишите код:** Внесите необходимые изменения.
-    *   **Стиль кода:** Пожалуйста, следуйте стилю кода **PEP 8**. Используйте линтеры, такие как Flake8 или Black, для автоматической проверки и форматирования.
-    *   **Комментарии:** Добавляйте комментарии к коду там, где это необходимо для понимания логики.
-4.  **Напишите тесты:** Для любого нового функционала или исправления ошибки должны быть добавлены или обновлены соответствующие юнит-тесты и, если применимо, интеграционные тесты. Убедитесь, что все тесты проходят успешно.
-5.  **Сделайте коммит:** Пишите понятные сообщения коммитов.
-    ```bash
-    git add .
-    git commit -m "feat: Реализована новая фича X"
-    # или
-    git commit -m "fix: Исправлена ошибка Y в компоненте Z"
-    ```
-6.  **Синхронизируйте с основной веткой:** Перед созданием Pull Request обновите вашу ветку из основной ветки репозитория:
-    ```bash
-    git fetch upstream # (если upstream - это оригинальный репозиторий)
-    git rebase upstream/main # (или develop, в зависимости от основной ветки)
-    ```
+(Раздел остается актуальным)
 
 ## Логирование
-В проекте используется стандартный модуль `logging` Python.
-*   **Уровень логирования:** Может быть настроен через переменную окружения `LOG_LEVEL` (например, `DEBUG`, `INFO`, `WARNING`).
-7.  **Создайте Pull Request (PR):** Отправьте PR из вашей ветки в основную ветку оригинального репозитория.
-    *   Дайте подробное описание внесенных изменений в PR.
-    *   Если ваш PR исправляет существующий Issue, укажите его номер (например, `Closes #123`).
-8.  **Обсуждение и ревью:** Будьте готовы к обсуждению вашего кода и возможному запросу на доработки в процессе код-ревью.
-
-### Сообщение об ошибках
-*   Если вы нашли ошибку, пожалуйста, проверьте существующие Issues, возможно, о ней уже сообщили.
-*   Если нет, создайте новый Issue, предоставив как можно больше информации:
-    *   Описание ошибки и шаги для ее воспроизведения.
-    *   Ожидаемое поведение и фактическое поведение.
-    *   Версии используемого ПО (Python, Docker, ОС и т.д.).
-    *   Логи ошибок и скриншоты (если применимо).
+(Раздел остается актуальным, но теперь относится и к C++ логам, и к Python)
 
 ## Дальнейшие улучшения и TODO
-(Этот раздел остается для будущих идей и задач)
-*   Интеграция с системой матчмейкинга для отправки событий `new_match_created` в RabbitMQ.
-*   Разработка клиентов или сервисов, которые будут читать из Kafka для аналитики, мониторинга аномалий, и т.д.
-*   Реализация полноценного хранения данных с PostgreSQL.
-*   Добавление SSL/TLS шифрования для всех внешних коммуникаций.
-*   Более продвинутая защита от DDoS.
-```
+-   **Обновить `docker-compose.yml`** для сборки и запуска C++ сервисов вместе с Python gRPC сервисом и остальной инфраструктурой.
+-   Создать Dockerfile для C++ приложений.
+-   Реализовать передачу конфигурации в C++ приложения через переменные окружения или файлы конфигурации (вместо жестко закодированных значений или простых аргументов `main`).
+-   Расширить C++ юнит-тесты, особенно для проверки взаимодействия с внешними сервисами с использованием моков (gRPC, RabbitMQ, Kafka).
+-   Интегрировать C++ сервисы с Prometheus для сбора метрик.

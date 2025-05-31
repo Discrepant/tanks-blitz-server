@@ -1,0 +1,24 @@
+syntax = "proto3";
+
+package auth;
+
+// Request message for authentication and registration
+message AuthRequest {
+  string username = 1;
+  string password = 2;
+}
+
+// Response message for authentication and registration
+message AuthResponse {
+  bool authenticated = 1;
+  string message = 2;
+  string token = 3; // e.g., session token, can be username for now
+}
+
+// Definition of the authentication service
+service AuthService {
+  // Authenticates a user
+  rpc AuthenticateUser(AuthRequest) returns (AuthResponse);
+  // Registers a new user
+  rpc RegisterUser(AuthRequest) returns (AuthResponse);
+}

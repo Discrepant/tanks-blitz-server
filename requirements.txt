@@ -7,7 +7,7 @@ pytest-asyncio
 locust
 confluent-kafka>=2.4.0
 pika==1.3.2
-protobuf>=6.30.0
+protobuf==5.29.5
 grpcio==1.71.0
 grpcio-tools==1.71.0
 grpcio-status==1.71.0

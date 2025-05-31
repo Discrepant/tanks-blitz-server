@@ -2,8 +2,10 @@ cmake_minimum_required(VERSION 3.16)
 project(AuthGrpcCodegen CXX)
 
 # Find necessary packages for codegen
-find_package(Protobuf CONFIG REQUIRED)
-find_package(gRPC CONFIG REQUIRED)
+find_package(Protobuf REQUIRED)
+find_package(PkgConfig REQUIRED)
+pkg_search_module(PC_GRPC REQUIRED grpc++) # Явно ищем grpc++ через pkg-config
+# find_package(gRPC REQUIRED) # Удаляем, так как используем pkg-config напрямую
 
 # Define the location of .proto file
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/auth_service.proto")
@@ -58,18 +60,18 @@ add_library(auth_grpc_codegen_lib STATIC
 # and for targets that link against it (INTERFACE).
 target_include_directories(auth_grpc_codegen_lib
     PUBLIC
-        ${PROTO_GEN_DIR} # So consumers can find the generated headers
-        ${Protobuf_INCLUDE_DIRS} # Consumers might need protobuf headers
-        ${gRPC_INCLUDE_DIRS}     # Consumers might need gRPC headers
+        ${PROTO_GEN_DIR}
+        ${Protobuf_INCLUDE_DIRS}
+        ${PC_GRPC_INCLUDE_DIRS}     # Используем переменную от pkg_search_module
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR} # If any local includes were needed by generated code (unlikely for .proto)
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
 # Link the codegen library against gRPC and Protobuf libraries
 # This ensures that when other targets link auth_grpc_codegen_lib, they get these dependencies.
 target_link_libraries(auth_grpc_codegen_lib
-    PUBLIC # Or INTERFACE if this lib only exports headers and relies on consumers to link these
-        gRPC::grpc++ # Or specific gRPC components if find_package(gRPC) provides them differently
+    PUBLIC
+        ${PC_GRPC_LIBRARIES}    # Используем переменную от pkg_search_module
         protobuf::libprotobuf
 )
 

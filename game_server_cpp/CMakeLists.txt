@@ -22,8 +22,8 @@ else()
 endif()
 
 # Find RabbitMQ (librabbitmq-c)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET rabbitmq)
+find_package(PkgConfig REQUIRED) # This line is KEPT because RdKafka uses it.
+pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET librabbitmq)
 if (RabbitMQ_FOUND)
     message(STATUS "Found RabbitMQ: ${RabbitMQ_LIBRARIES}")
     message(STATUS "RabbitMQ include dirs: ${RabbitMQ_INCLUDE_DIRS}")
@@ -32,6 +32,7 @@ else()
 endif()
 
 # Find RdKafka (librdkafka++)
+# find_package(PkgConfig REQUIRED) # This is now redundant as the one above is active
 pkg_check_modules(RdKafka REQUIRED IMPORTED_TARGET rdkafka++)
 if (RdKafka_FOUND)
     message(STATUS "Found RdKafka: ${RdKafka_LIBRARIES}")

@@ -12,6 +12,7 @@ RUN apt-get update && \
     apt-get install -y \
     build-essential \
     cmake \
+    pkg-config \
     git \
     # Boost (system is often a meta-package, program_options if needed by main, asio is often header-only with newer boost)
     libboost-system-dev \
@@ -27,7 +28,7 @@ RUN apt-get update && \
     libgrpc++-dev \
     libprotobuf-dev \
     protobuf-compiler \
-    grpc_cpp_plugin \
+    protobuf-compiler-grpc \
     # Catch2 for tests (optional in builder if tests are run outside or in a different stage)
     # catch2 \
     && rm -rf /var/lib/apt/lists/*
@@ -42,9 +43,10 @@ COPY . ./
 # If Dockerfile is in project root and context is project root, then COPY ./cpp ./cpp
 
 # Configure and build C++ applications
-RUN mkdir -p ./build_release && \
+RUN rm -rf ./build_release && \
+    mkdir -p ./build_release && \
     cd ./build_release && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    cmake ../cpp -DCMAKE_BUILD_TYPE=Release && \
     # make -j$(nproc) game_server_app auth_server_app test_runner # Add test_runner if tests are built too
     make -j$(nproc) game_server_app auth_server_app
 
@@ -62,10 +64,7 @@ RUN apt-get update && \
     libboost-system1.74.0 \
     # libboost-program-options1.74.0 \ # If used by apps
     # nlohmann-json3-dev is header only, not needed for runtime unless packaged differently
-    librabbitmq4 \
-    librdkafka++1 libgrpc++1 \    # Meta-package for gRPC C++ runtime libraries.
-    libprotobuf23 \ # Runtime libraries for Protocol Buffers (version for Ubuntu 22.04).
-    libatomic1 \    # Atomic operations library, sometimes a gRPC dependency.
+    librabbitmq4 librdkafka++1 libgrpc++1 libprotobuf23 libatomic1 \
     && rm -rf /var/lib/apt/lists/*
 
 # Create a non-root user and group

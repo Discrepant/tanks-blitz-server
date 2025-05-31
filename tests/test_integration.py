@@ -187,9 +187,9 @@ class TestServerIntegration(unittest.IsolatedAsyncioTestCase):
         env["AUTH_SERVER_PORT"] = str(AUTH_PORT)
         env["GAME_SERVER_TCP_HOST"] = HOST
         env["GAME_SERVER_TCP_PORT"] = str(GAME_PORT)
-        env["GAME_SERVER_UDP_PORT"] = "9999"
+        env["GAME_SERVER_UDP_PORT"] = "29998" # Consistent with game_server/main.py default
         
-        logger.info(f"setUpClass: Переменные окружения для запуска серверов: PYTHONPATH={env.get('PYTHONPATH')}, USE_MOCKS={env.get('USE_MOCKS')}")
+        logger.info(f"setUpClass: Переменные окружения для запуска серверов: PYTHONPATH={env.get('PYTHONPATH')}, USE_MOCKS={env.get('USE_MOCKS')}, AUTH_PORT={env.get('AUTH_SERVER_PORT')}, GAME_TCP_PORT={env.get('GAME_SERVER_TCP_PORT')}, GAME_UDP_PORT={env.get('GAME_SERVER_UDP_PORT')}")
 
         # --- Auth Server Setup ---
         logger.info(f"setUpClass: Открытие файлов логов для Auth Server: {cls.AUTH_SERVER_STDOUT_LOG}, {cls.AUTH_SERVER_STDERR_LOG}")

@@ -220,17 +220,37 @@ async def handle_game_client(reader: asyncio.StreamReader, writer: asyncio.Strea
             except Exception as we:
                 logger.error(f"TCPHandler [{addr}]: Failed to send critical error message to client: {we}", exc_info=True)
     finally:
-        logger.info(f"TCPHandler [{addr}]: Finishing processing. Player: {player.name if player else 'N/A'}.")
-        if player: # Если объект игрока был создан
-            logger.info(f"Removing player {player.name} from game room {game_room}.")
-            await game_room.remove_player(player) # Удаляем игрока из игровой комнаты
+        logger.info(f"TCPHandler [{addr}]: Starting finally block. Player: {player.name if player else 'N/A'}.")
         
-        # Закрываем writer, если он еще не закрыт
-        if writer and not writer.is_closing():
-            logger.debug(f"Ensuring writer for {addr} is closed in finally block.")
+        if player:
+            player_addr_info_finally = 'N/A (writer closed or None)'
+            if player.writer and not player.writer.is_closing(): # Check if writer is usable for get_extra_info
+                try:
+                    player_addr_info_finally = str(player.writer.get_extra_info('peername'))
+                except Exception:  # pragma: no cover
+                    player_addr_info_finally = 'N/A (error getting peername)'
+            logger.info(f"TCP_HANDLER_FINALLY: Player {player.name} (ID: {player.id}, Addr: {player_addr_info_finally}). Attempting to remove from game room.")
+            await game_room.remove_player(player)
+        else:
+            # Use addr directly if player object does not exist
+            logger.info(f"TCP_HANDLER_FINALLY: No player object to remove (likely connection error before login). Original Addr: {addr}")
+
+        if player and player.writer:
+            if not player.writer.is_closing():
+                logger.info(f"TCP_HANDLER_FINALLY: Player {player.name} (ID: {player.id}). Closing writer in finally block.")
+                player.writer.close()
+                try:
+                    await player.writer.wait_closed()
+                except Exception as e_close:
+                    logger.error(f"TCP_HANDLER_FINALLY: Player {player.name} (ID: {player.id}). Error waiting for writer to close: {e_close}", exc_info=True)
+            else:
+                logger.info(f"TCP_HANDLER_FINALLY: Player {player.name} (ID: {player.id}). Writer was already closing in finally block.")
+        elif writer and not writer.is_closing(): # Fallback if player or player.writer is None, but original writer exists
+            logger.info(f"TCP_HANDLER_FINALLY: Original writer for {addr} exists. Closing it.")
             writer.close()
             try:
-                await writer.wait_closed() # Ожидаем полного закрытия
+                await writer.wait_closed()
             except Exception as e_close:
-                logger.error(f"Error waiting for writer to close for {addr}: {e_close}", exc_info=True)
-        logger.info(f"Connection with {addr} (player: {player.name if player else 'N/A'}) fully closed.")
+                logger.error(f"TCP_HANDLER_FINALLY: Error waiting for original writer for {addr} to close: {e_close}", exc_info=True)
+
+        logger.info(f"TCPHandler [{addr}]: Connection fully closed. Player: {player.name if player else 'N/A'}.")

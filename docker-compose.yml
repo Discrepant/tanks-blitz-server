@@ -31,15 +31,6 @@ services:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:19092,PLAINTEXT_HOST://localhost:29092
-      # Note: KAFKA_ADVERTISED_LISTENERS uses 19092 for internal for historical reasons,
-      # but new C++ services will use kafka:9092. Ensure consistency or update Kafka config if needed.
-      # For simplicity, let's assume kafka:19092 is the primary internal advertised listener.
-      # If C++ services use kafka:9092, then KAFKA_ADVERTISED_LISTENERS should also list PLAINTEXT://kafka:9092
-      # Let's correct this to:
-      # KAFKA_ADVERTISED_LISTENERS: PLAINTEXT_INTERNAL://kafka:19092,PLAINTEXT_HOST://localhost:29092
-      # KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT_INTERNAL:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      # KAFKA_LISTENERS: PLAINTEXT_INTERNAL://0.0.0.0:19092,PLAINTEXT_HOST://0.0.0.0:29092
       # For now, simplifying to use 9092 consistently internally.
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
       KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092 # Corrected for clarity

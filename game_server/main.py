@@ -95,7 +95,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
         try:
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Creating and configuring UDP socket for {udp_host}:{udp_port}...")
             udp_sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
-            
+
             udp_sock.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
             logger.info(f"Attempt {attempt + 1}/{max_retries}: SO_REUSEADDR set for UDP socket.")
 
@@ -105,7 +105,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
                     logger.info(f"Attempt {attempt + 1}/{max_retries}: Successfully set SO_EXCLUSIVEADDRUSE for UDP socket on Windows.")
                 except OSError as e_exclusive:
                     logger.warning(f"Attempt {attempt + 1}/{max_retries}: Failed to set SO_EXCLUSIVEADDRUSE for UDP socket on Windows: {e_exclusive}. Proceeding without it.")
-            
+
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Binding UDP socket to {udp_host}:{udp_port}...")
             udp_sock.bind((udp_host, udp_port))
             logger.info(f"Attempt {attempt + 1}/{max_retries}: UDP socket bound successfully to {udp_host}:{udp_port}.")
@@ -123,7 +123,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
             if udp_sock:
                 udp_sock.close()
                 logger.debug(f"Attempt {attempt + 1}/{max_retries}: Closed UDP socket after error.")
-            
+
             if attempt == max_retries - 1:
                 logger.critical(f"All {max_retries} attempts to start UDP server on {udp_host}:{udp_port} failed. Last error: {e}", exc_info=True)
                 raise  # Re-raise the last exception

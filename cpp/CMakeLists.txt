@@ -15,6 +15,8 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Useful for some tools like clangd
 # Add subdirectories
 # The 'protos' subdirectory will define a target for gRPC/Protobuf code generation.
 # This target can then be linked by other subprojects.
+find_package(Protobuf REQUIRED)
+find_package(gRPC REQUIRED)
 add_subdirectory(protos)
 add_subdirectory(game_server_cpp)
 add_subdirectory(auth_server_cpp)

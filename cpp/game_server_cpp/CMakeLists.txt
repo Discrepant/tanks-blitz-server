@@ -3,7 +3,7 @@
 # CMAKE_CXX_STANDARD is set in the root CMakeLists.txt
 
 # Find direct dependencies for the game_logic_lib
-find_package(Boost 1.71.0 REQUIRED COMPONENTS system)
+find_package(Boost 1.71.0 REQUIRED COMPONENTS system asio)
 message(STATUS "GameServerCpp: Found Boost version: ${Boost_VERSION_STRING}")
 
 find_package(nlohmann_json 3.2.0 QUIET)
@@ -16,16 +16,13 @@ else()
     message(STATUS "GameServerCpp: Found nlohmann_json version ${nlohmann_json_VERSION}")
 endif()
 
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET librabbitmq) # For CommandConsumer and handlers
-if (NOT RabbitMQ_FOUND)
-    message(FATAL_ERROR "GameServerCpp: RabbitMQ (librabbitmq-c) not found.")
-endif()
+find_package(RabbitMQC REQUIRED)
+# Add any necessary checks for RabbitMQC_FOUND if needed, similar to Boost/nlohmann_json
+# message(STATUS "GameServerCpp: Found RabbitMQC version ${RabbitMQC_VERSION}") # If available
 
-pkg_check_modules(RdKafka REQUIRED IMPORTED_TARGET rdkafka++) # For KafkaProducerHandler
-if (NOT RdKafka_FOUND)
-    message(FATAL_ERROR "GameServerCpp: RdKafka (librdkafka++) not found.")
-endif()
+find_package(RdKafka REQUIRED)
+# Add any necessary checks for RdKafka_FOUND if needed
+# message(STATUS "GameServerCpp: Found RdKafka version ${RdKafka_VERSION}") # If available
 
 find_package(Threads REQUIRED) # For ASIO, gRPC, Kafka, RabbitMQ callbacks etc.
 
@@ -42,11 +39,10 @@ add_library(game_logic_lib STATIC
 
 # Dependencies for game_logic_lib
 target_link_libraries(game_logic_lib PRIVATE
-    PkgConfig::RdKafka
-    PkgConfig::RabbitMQ # If command_consumer is part of this lib
+    librdkafka::librdkafka
     Threads::Threads
     nlohmann_json::nlohmann_json # If used in .cpp files, not just headers
-    Boost::system
+    Boost::asio
 )
 
 target_include_directories(game_logic_lib PUBLIC
@@ -66,13 +62,14 @@ add_executable(game_server_app
 # Link game_server_app against its constituent libraries and dependencies
 target_link_libraries(game_server_app PRIVATE
     game_logic_lib        # Core logic
-    auth_grpc_codegen_lib # For gRPC stubs (defined in protos/CMakeLists.txt)
-    Boost::system         # For ASIO
+    proto_lib # For gRPC stubs (defined in protos/CMakeLists.txt)
+    Boost::asio         # For ASIO
+    librdkafka::librdkafka
+    librabbitmq::librabbitmq
     Threads::Threads
     nlohmann_json::nlohmann_json # For JSON processing in handlers
-    PkgConfig::RabbitMQ   # For UDP/TCP handlers if they use RabbitMQ directly
-    # gRPC::grpc++ and protobuf::libprotobuf are transitive dependencies from auth_grpc_codegen_lib
-    # but if GameTCPSession uses gRPC types directly and auth_grpc_codegen_lib doesn't
+    # gRPC::grpc++ and protobuf::libprotobuf are transitive dependencies from proto_lib
+    # but if GameTCPSession uses gRPC types directly and proto_lib doesn't
     # export gRPC::grpc++ as INTERFACE or PUBLIC, we might need to link it here too.
     # Assuming auth_grpc_codegen_lib correctly exports gRPC & Protobuf linkage.
 )

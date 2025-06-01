@@ -2,7 +2,7 @@
 # Project and C++ standard are set in the root CMakeLists.txt (cpp/CMakeLists.txt)
 
 # Find Boost (for Asio - system component often needed)
-find_package(Boost 1.71.0 REQUIRED COMPONENTS system)
+find_package(Boost 1.71.0 REQUIRED COMPONENTS system asio)
 if(NOT Boost_FOUND)
     message(FATAL_ERROR "AuthServerCpp: Boost not found.")
 else()
@@ -40,10 +40,11 @@ add_executable(auth_server_app
 # Link libraries
 target_link_libraries(auth_server_app
     PRIVATE
-    Boost::system         # For Boost.Asio (or Boost::asio if your Boost version requires it as a target)
+    proto_lib
+    Boost::asio
+    gRPC::grpc++
     Threads::Threads
     nlohmann_json::nlohmann_json
-    auth_grpc_codegen_lib # This links the generated gRPC/Protobuf code and its dependencies (gRPC++, Protobuf)
 )
 
 # Include directories

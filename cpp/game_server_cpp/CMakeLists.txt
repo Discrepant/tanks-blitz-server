@@ -9,7 +9,6 @@ else()
 endif()
 
 # CMAKE_CXX_STANDARD is set in the root CMakeLists.txt
-find_package(PkgConfig REQUIRED)
 
 # Find direct dependencies for the game_logic_lib
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
@@ -37,6 +36,7 @@ if(MY_USING_VCPKG)
     message(FATAL_ERROR "GameServerCpp: RdKafka::rdkafka++ target not found via vcpkg. Ensure rdkafka[cpp] is installed.")
   endif()
 else()
+  find_package(PkgConfig REQUIRED)
   # Существующая логика с find_package QUIET и откатом к pkg-config
   message(STATUS "GameServerCpp: Not using vcpkg. Attempting find_package/pkg-config for RdKafka.")
   find_package(RdKafka CONFIG QUIET)
@@ -113,6 +113,7 @@ if(MY_USING_VCPKG)
   endif()
 
 else() # NOT MY_USING_VCPKG
+  find_package(PkgConfig REQUIRED)
   # Существующая логика с find_package QUIET и откатом к pkg-config
   message(STATUS "GameServerCpp: Not using vcpkg. Attempting find_package/pkg-config for RabbitMQ-C.")
   find_package(rabbitmq-c CONFIG QUIET)

@@ -6,11 +6,8 @@ project(GameLogicTests CXX)
 # Find essential dependencies also needed for tests
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
 find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
-find_package(PkgConfig REQUIRED)
-
-pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET librabbitmq)
-pkg_check_modules(RdKafka REQUIRED IMPORTED_TARGET rdkafka++) # Using rdkafka++ for C++ bindings
-
+find_package(librabbitmq REQUIRED)
+find_package(RdKafka REQUIRED)
 find_package(Threads REQUIRED)
 
 # Protobuf and gRPC (even if linked via a library, finding them ensures targets are available)
@@ -48,20 +45,19 @@ target_link_libraries(game_tests
     PRIVATE
     Catch2::Catch2WithMain       # Provided by find_package(Catch2)
     game_logic_lib
-    auth_grpc_codegen_lib      # This should bring its own gRPC/Protobuf linkage
+    proto_lib      # Changed from auth_grpc_codegen_lib
 
-    # Explicitly link what's directly used by tests, if not covered by game_logic_lib or auth_grpc_codegen_lib
+    # Explicitly link what's directly used by tests, if not covered by game_logic_lib or proto_lib
     Boost::system              # Provided by find_package(Boost)
     nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
-    PkgConfig::RabbitMQ        # Provided by pkg_check_modules(RabbitMQ)
-    PkgConfig::RdKafka         # Provided by pkg_check_modules(RdKafka)
+    librabbitmq::librabbitmq   # Changed from PkgConfig::RabbitMQ
+    librdkafka::librdkafka     # Changed from PkgConfig::RdKafka
     Threads::Threads           # Provided by find_package(Threads)
 
     # It's good practice to also link gRPC and Protobuf if tests use them directly,
-    # even if auth_grpc_codegen_lib also links them.
-    # These should be found from /usr/local.
-    gRPC::grpc++               # Provided by find_package(gRPC)
-    protobuf::libprotobuf      # Provided by find_package(Protobuf)
+    # even if proto_lib also links them.
+    gRPC::grpc++_unsecure      # Changed from gRPC::grpc++
+    Protobuf::libprotobuf      # Changed from protobuf::libprotobuf
     # gRPC::grpc++_reflection  # Only if reflection is directly used in tests
 )
 

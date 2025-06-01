@@ -21,7 +21,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         REQUIRE(tank.get_state()["position"]["x"] == 10);
         REQUIRE(tank.get_state()["position"]["y"] == 20);
         REQUIRE_FALSE(tank.is_active()); // Tanks are inactive by default
-        REQUIRE(tank.get_state()["is_active"] == false);
+        REQUIRE(tank.get_state()["active"] == false);
     }
 
     SECTION("Tank Activation and Deactivation") {
@@ -30,7 +30,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
 
         tank.set_active(true);
         REQUIRE(tank.is_active());
-        REQUIRE(tank.get_state()["is_active"] == true);
+        REQUIRE(tank.get_state()["active"] == true);
 
         // Setting active to true again should not change anything
         tank.set_active(true);
@@ -38,7 +38,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
 
         tank.set_active(false);
         REQUIRE_FALSE(tank.is_active());
-        REQUIRE(tank.get_state()["is_active"] == false);
+        REQUIRE(tank.get_state()["active"] == false);
 
         // Setting active to false again should not change anything
         tank.set_active(false);
@@ -56,7 +56,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         REQUIRE(tank.get_state()["position"]["x"] == 1);
         REQUIRE(tank.get_state()["position"]["y"] == 2);
         REQUIRE_FALSE(tank.is_active()); // Reset should deactivate
-        REQUIRE(tank.get_state()["is_active"] == false);
+        REQUIRE(tank.get_state()["active"] == false);
 
         // Reset to default values
         tank.set_active(true);
@@ -128,10 +128,10 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         REQUIRE(state["position"]["x"] == 7);
         REQUIRE(state["position"]["y"] == 17);
         REQUIRE(state["health"] == 77);
-        REQUIRE(state["is_active"] == false);
+        REQUIRE(state["active"] == false);
 
         tank.set_active(true);
         state = tank.get_state();
-        REQUIRE(state["is_active"] == true);
+        REQUIRE(state["active"] == true);
     }
 }

@@ -7,7 +7,7 @@ set(PROTO_FILES
 set(PROTOBUF_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 # Включите библиотеки Protobuf и gRPC
-find_package(Protobuf CONFIG REQUIRED)
+# find_package(Protobuf CONFIG REQUIRED) # Protobuf should be found by protobuf_generate_cpp or inherited
 find_package(gRPC CONFIG REQUIRED) # This should define gRPC_GRPC_CPP_PLUGIN_EXECUTABLE
 
 # Генерация Protobuf кода

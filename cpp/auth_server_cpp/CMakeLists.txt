@@ -2,7 +2,7 @@
 # Project and C++ standard are set in the root CMakeLists.txt (cpp/CMakeLists.txt)
 
 # Find Boost (for Asio - system component often needed)
-find_package(Boost 1.71.0 REQUIRED COMPONENTS system asio)
+find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
 if(NOT Boost_FOUND)
     message(FATAL_ERROR "AuthServerCpp: Boost not found.")
 else()
@@ -29,22 +29,41 @@ endif()
 # Direct find_package calls for gRPC and Protobuf here are typically not needed
 # if auth_grpc_codegen_lib correctly uses PUBLIC/INTERFACE for its dependencies.
 
+add_library(auth_logic_lib STATIC
+    auth_tcp_server.cpp
+    auth_tcp_session.cpp
+)
+
+target_link_libraries(auth_logic_lib PRIVATE
+    proto_lib # For gRPC stubs used by auth_tcp_session
+    Boost::headers
+    Boost::system
+    gRPC::grpc++_unsecure # For auth_tcp_session using gRPC
+    Threads::Threads
+    nlohmann_json::nlohmann_json
+)
+
+target_include_directories(auth_logic_lib PUBLIC
+    ${CMAKE_CURRENT_SOURCE_DIR}
+)
+
 # Add executable
 add_executable(auth_server_app
     main_auth.cpp
-    auth_tcp_server.cpp
-    auth_tcp_session.cpp
-    # The .pb.cc and .grpc.pb.cc files are compiled as part of auth_grpc_codegen_lib
+    # auth_tcp_server.cpp # Now in auth_logic_lib
+    # auth_tcp_session.cpp # Now in auth_logic_lib
 )
 
 # Link libraries
 target_link_libraries(auth_server_app
     PRIVATE
-    proto_lib
-    Boost::asio
-    gRPC::grpc++_unsecure
-    Threads::Threads
-    nlohmann_json::nlohmann_json
+    auth_logic_lib # Link the new library
+    # proto_lib # Linked by auth_logic_lib
+    # Boost::headers # Linked by auth_logic_lib
+    # Boost::system  # Linked by auth_logic_lib
+    # gRPC::grpc++_unsecure # Linked by auth_logic_lib
+    Threads::Threads # main_auth.cpp might still need threads directly
+    # nlohmann_json::nlohmann_json # Linked by auth_logic_lib
 )
 
 # Include directories

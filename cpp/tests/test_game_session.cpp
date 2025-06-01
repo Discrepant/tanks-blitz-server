@@ -81,11 +81,13 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         REQUIRE(session.get_tanks_state().is_array());
         REQUIRE(session.get_tanks_state().empty());
 
-        auto tank1_rc = std::make_shared<Tank>("tank_gs_rc_s1", &gs_test_kafka_producer_session, {{"x",1},{"y",1}}, 100);
+        nlohmann::json pos1 = {{"x", 1}, {"y", 1}};
+        auto tank1_rc = std::make_shared<Tank>("tank_gs_rc_s1", &gs_test_kafka_producer_session, pos1, 100);
         tank1_rc->set_active(true);
         session.add_player("playerA_rc", "addrA_rc", tank1_rc, true);
 
-        auto tank2_rc = std::make_shared<Tank>("tank_gs_rc_s2", &gs_test_kafka_producer_session, {{"x",2},{"y",2}}, 90);
+        nlohmann::json pos2 = {{"x", 2}, {"y", 2}};
+        auto tank2_rc = std::make_shared<Tank>("tank_gs_rc_s2", &gs_test_kafka_producer_session, pos2, 90);
         tank2_rc->set_active(true);
         session.add_player("playerB_rc", "addrB_rc", tank2_rc, true);
 

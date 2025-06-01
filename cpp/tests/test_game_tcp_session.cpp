@@ -56,6 +56,13 @@ struct GameTCPSessionTestFixture {
         //    session->close_session("fixture_teardown");
         // }
     }
+
+    // Helper function, now part of the fixture
+    void perform_login(const std::string& user = "player1", const std::string& pass = "pass1") {
+        session->process_command("LOGIN " + user + " " + pass);
+        // Assume login is successful for subsequent tests.
+        // A getter session->is_authenticated() would be good here.
+    }
 };
 
 TEST_CASE_METHOD(GameTCPSessionTestFixture, "GameTCPSession::process_command Tests", "[game_tcp_session]") {
@@ -94,13 +101,6 @@ TEST_CASE_METHOD(GameTCPSessionTestFixture, "GameTCPSession::process_command Tes
         // Expected: UNAUTHORIZED message sent.
         REQUIRE_NOTHROW(session->process_command("PLAYERS"));
         // Expected: UNAUTHORIZED message sent.
-    }
-
-    // Simulate successful login to test authenticated commands
-    void perform_login(const std::string& user = "player1", const std::string& pass = "pass1") {
-        session->process_command("LOGIN " + user + " " + pass);
-        // Assume login is successful for subsequent tests.
-        // A getter session->is_authenticated() would be good here.
     }
 
     SECTION("Process 'MOVE' command - Authenticated") {

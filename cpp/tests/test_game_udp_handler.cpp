@@ -45,7 +45,7 @@ struct GameUDPHandlerTestFixture {
         );
 
         // Create a dummy sender endpoint
-        dummy_sender_endpoint = udp::endpoint(boost::asio::ip::make_address_v4("127.0.0.1"), 12345);
+        dummy_sender_endpoint = udp::endpoint(boost::asio::ip::address_v4::from_string("127.0.0.1"), 12345);
     }
 
     ~GameUDPHandlerTestFixture() {

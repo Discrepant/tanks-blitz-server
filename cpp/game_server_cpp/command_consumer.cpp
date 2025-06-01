@@ -1,3 +1,6 @@
+#ifdef _WIN32
+#include <winsock2.h>
+#endif
 #include "command_consumer.h"
 #include "session_manager.h" // To interact with sessions
 #include "tank_pool.h"       // To interact with tanks (though mostly via session)

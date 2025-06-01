@@ -223,8 +223,8 @@ class TestRedisClient(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(result, "Метод ping должен вернуть False при ошибке.")
         # Проверяем, что в логах есть ожидаемое сообщение
         self.assertTrue(
-            any("Ошибка при проверке соединения с Redis (ping): Connection error" in message for message in cm.output),
-            "Сообщение об ошибке 'Ошибка при проверке соединения с Redis (ping): Connection error' не найдено в логах."
+            any("Error pinging Redis: Connection error" in message for message in cm.output),
+            "Error message 'Error pinging Redis: Connection error' not found in logs."
         )
 
 

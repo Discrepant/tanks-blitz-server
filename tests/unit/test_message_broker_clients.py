@@ -257,7 +257,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         with patch('core.message_broker_clients.logger') as mock_logger: # Мокируем логгер
             delivery_report(None, mock_msg) # err равен None при успехе
             mock_logger.debug.assert_called_once_with(
-                f"Сообщение доставлено в топик my_topic раздел 0 смещение 100"
+                f"Message delivered to topic my_topic partition 0 offset 100"
             )
 
     def test_delivery_report_failure_direct_call(self):
@@ -272,7 +272,7 @@ class TestKafkaClientConfluent(unittest.TestCase):
         with patch('core.message_broker_clients.logger') as mock_logger:
             delivery_report(err_message, mock_msg) # err не None при ошибке
             mock_logger.error.assert_called_once_with(
-                f"Ошибка доставки сообщения в топик my_topic раздел 1: {err_message}"
+                f"Message delivery failed for topic my_topic partition 1: {err_message}"
             )
 
 if __name__ == '__main__':

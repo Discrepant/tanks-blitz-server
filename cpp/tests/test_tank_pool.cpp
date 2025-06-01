@@ -49,7 +49,7 @@ TEST_CASE("TankPool Tests", "[tank_pool]") {
         std::shared_ptr<Tank> t1 = tank_pool->acquire_tank();
         REQUIRE(t1 != nullptr);
         REQUIRE(t1->is_active() == true);
-        REQUIRE(t1->get_state()["is_active"] == true);
+        REQUIRE(t1->get_state()["active"] == true);
         std::string t1_id = t1->get_id();
 
         std::shared_ptr<Tank> t2 = tank_pool->acquire_tank();

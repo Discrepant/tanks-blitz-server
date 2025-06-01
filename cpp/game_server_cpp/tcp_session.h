@@ -20,7 +20,7 @@
 // This assumes a specific project structure where auth_server_cpp is a sibling to game_server_cpp,
 // and protos target generates files accessible via this relative path.
 // This will be resolved by CMake include directories.
-#include "../../auth_server_cpp/grpc_generated/auth_service.grpc.pb.h"
+#include "auth_service.grpc.pb.h"
 
 // Forward declarations from our own project
 class SessionManager;

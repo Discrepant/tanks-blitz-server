@@ -31,16 +31,16 @@ GameTCPServer::GameTCPServer(boost::asio::io_context& io_context,
 
 void GameTCPServer::do_accept() {
     // Create a new socket for the next incoming connection.
-    auto new_socket = std::make_shared<tcp::socket>(acceptor_.get_executor().context());
+    auto new_socket = std::make_shared<tcp::socket>(acceptor_.get_executor());
 
     acceptor_.async_accept(*new_socket,
         [this, new_socket](const boost::system::error_code& error) {
             // Create a new session object, passing all necessary dependencies.
             auto new_session = std::make_shared<GameTCPSession>(std::move(*new_socket),
-                                                                session_manager_,
-                                                                tank_pool_,
-                                                                rmq_conn_state_,
-                                                                grpc_auth_channel_);
+                                                                this->session_manager_,
+                                                                this->tank_pool_,
+                                                                this->rmq_conn_state_,
+                                                                this->grpc_auth_channel_);
             handle_accept(new_session, error);
         });
 }

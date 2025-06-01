@@ -102,6 +102,7 @@ void KafkaProducerHandler::send_message(const std::string& topic_name, const nlo
         message_str.length(),            // Payload length
         nullptr,                         // No key
         0,                               // Key length (if key was provided)
+        0ll,                             // Timestamp (0 for current time or let broker decide)
         nullptr                          // Opaque value for delivery report
     );
 

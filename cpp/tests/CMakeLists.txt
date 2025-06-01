@@ -3,10 +3,25 @@ project(GameLogicTests CXX)
 
 # CMAKE_CXX_STANDARD is inherited from the root CMakeLists.txt
 
+# Find essential dependencies also needed for tests
+find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
+find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
+find_package(PkgConfig REQUIRED)
+
+pkg_check_modules(RabbitMQ REQUIRED IMPORTED_TARGET librabbitmq)
+pkg_check_modules(RdKafka REQUIRED IMPORTED_TARGET rdkafka++) # Using rdkafka++ for C++ bindings
+
+find_package(Threads REQUIRED)
+
+# Protobuf and gRPC (even if linked via a library, finding them ensures targets are available)
+# We expect these to be found from /usr/local as we built them from source
+find_package(Protobuf CONFIG REQUIRED)
+find_package(gRPC CONFIG REQUIRED COMPONENTS grpc++) # Or just grpc++ if that's the component name
+
 # Find Catch2
 # This requires Catch2 to be installed in a way CMake can find it (e.g., system-wide, or CMAKE_PREFIX_PATH set)
 # For Catch2 v3.x, it's often found as a CMake config package.
-find_package(Catch2 3 REQUIRED)
+find_package(Catch2 3 REQUIRED) # This line is already there
 if(NOT Catch2_FOUND)
     message(FATAL_ERROR "Catch2 version 3 or later not found. Please install Catch2 development files.")
 else()
@@ -31,19 +46,23 @@ add_executable(game_tests
 # auth_grpc_codegen_lib is defined in ../protos/CMakeLists.txt
 target_link_libraries(game_tests
     PRIVATE
-    Catch2::Catch2WithMain
+    Catch2::Catch2WithMain       # Provided by find_package(Catch2)
     game_logic_lib
-    auth_grpc_codegen_lib      # For gRPC stubs used in some tests
-    nlohmann_json::nlohmann_json
-    PkgConfig::RdKafka         # For KafkaProducerHandler in fixtures
-    PkgConfig::RabbitMQ        # For CommandConsumer and potentially handlers if tested deeply
-    Threads::Threads
-    Boost::system              # For Asio sockets in fixtures/tests
-    # gRPC and Protobuf libraries are linked via auth_grpc_codegen_lib
-    # If more direct gRPC usage (like creating channels in tests):
-    gRPC::grpc++_reflection # Optional, for server reflection, if needed
-    gRPC::grpc++            # Ensure this is linked if not transitively from auth_grpc_codegen_lib
-    protobuf::libprotobuf   # Ensure this is linked if not transitively
+    auth_grpc_codegen_lib      # This should bring its own gRPC/Protobuf linkage
+
+    # Explicitly link what's directly used by tests, if not covered by game_logic_lib or auth_grpc_codegen_lib
+    Boost::system              # Provided by find_package(Boost)
+    nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
+    PkgConfig::RabbitMQ        # Provided by pkg_check_modules(RabbitMQ)
+    PkgConfig::RdKafka         # Provided by pkg_check_modules(RdKafka)
+    Threads::Threads           # Provided by find_package(Threads)
+
+    # It's good practice to also link gRPC and Protobuf if tests use them directly,
+    # even if auth_grpc_codegen_lib also links them.
+    # These should be found from /usr/local.
+    gRPC::grpc++               # Provided by find_package(gRPC)
+    protobuf::libprotobuf      # Provided by find_package(Protobuf)
+    # gRPC::grpc++_reflection  # Only if reflection is directly used in tests
 )
 
 # Include directories for the tests

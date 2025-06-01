@@ -30,7 +30,7 @@ AuthTcpServer::AuthTcpServer(boost::asio::io_context& io_context,
 
 void AuthTcpServer::do_accept() {
     // Create a new socket for the next incoming connection.
-    auto new_socket = std::make_shared<tcp::socket>(acceptor_.get_executor().context());
+    auto new_socket = std::make_shared<tcp::socket>(acceptor_.get_executor());
 
     acceptor_.async_accept(*new_socket,
         [this, new_socket](const boost::system::error_code& error) {

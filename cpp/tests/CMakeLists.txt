@@ -1,8 +1,17 @@
 cmake_minimum_required(VERSION 3.16)
+
+if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
+    set(MY_USING_VCPKG TRUE)
+    message(STATUS "Tests: MY_USING_VCPKG set to TRUE (VCPKG_TARGET_TRIPLET is '${VCPKG_TARGET_TRIPLET}')")
+else()
+    set(MY_USING_VCPKG FALSE)
+    message(STATUS "Tests: MY_USING_VCPKG set to FALSE (VCPKG_TARGET_TRIPLET is not defined or empty)")
+endif()
+
 project(GameLogicTests CXX)
 
 # CMAKE_CXX_STANDARD is inherited from the root CMakeLists.txt
-find_package(PkgConfig REQUIRED)
+# find_package(PkgConfig REQUIRED) # No longer directly calling pkg_check_modules here
 
 # Find essential dependencies also needed for tests
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary

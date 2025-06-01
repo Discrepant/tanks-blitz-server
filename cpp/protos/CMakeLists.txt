@@ -22,8 +22,8 @@ grpc_generate_cpp(GRPC_SRCS GRPC_HDRS ${PROTO_FILES} PLUGIN_EXT ".grpc") # Added
 add_library(proto_lib STATIC
     ${PROTO_SRCS}
     ${GRPC_SRCS}
-    # Headers are typically not listed in add_library unless they are non-generated and need to be part of the target's "sources" for IDEs.
-    # For generated headers, target_include_directories is the standard way to make them available.
+    ${PROTO_HDRS}
+    ${GRPC_HDRS}
 )
 
 target_include_directories(proto_lib PUBLIC
@@ -32,5 +32,7 @@ target_include_directories(proto_lib PUBLIC
 
 target_link_libraries(proto_lib PRIVATE
     Protobuf::libprotobuf
-    gRPC::grpc++
+    gRPC::grpc++_unsecure
 )
+
+message(STATUS "Configured proto_lib target with unsecure gRPC.")

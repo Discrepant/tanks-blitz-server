@@ -4,6 +4,8 @@ project(AuthGrpcCodegen CXX)
 # Find necessary packages for codegen
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED COMPONENTS grpc++)
+find_package(gRPC REQUIRED)
+include_directories(${gRPC_INCLUDE_DIRS})
 
 # Define the location of .proto file
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/auth_service.proto")

@@ -33,6 +33,9 @@ public:
                    const std::string& rabbitmq_vhost = "/");
     ~GameUDPHandler();
 
+    bool is_rmq_connected() const { return rmq_connected_; }
+    amqp_connection_state_t get_rmq_connection_state() const { return rmq_conn_state_; }
+
     // Call to start listening if not done in constructor, or for clarity.
     // If constructor calls internal_start_receive, this might not be needed publicly.
     // void start_listening();

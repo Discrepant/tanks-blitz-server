@@ -116,8 +116,8 @@ int main(int argc, char* argv[]) {
                                   config.rmq_host, config.rmq_port, config.rmq_user, config.rmq_pass);
 
         amqp_connection_state_t rmq_conn_state_for_tcp = nullptr;
-        if (udp_server.is_rabbitmq_connected()) {
-            rmq_conn_state_for_tcp = udp_server.get_rabbitmq_connection_state();
+        if (udp_server.is_rmq_connected()) {
+            rmq_conn_state_for_tcp = udp_server.get_rmq_connection_state();
             std::cout << "RabbitMQ connection state obtained from UDP handler for TCP server use." << std::endl;
         } else {
             std::cerr << "Warning: UDP Handler's RabbitMQ connection failed. TCP handler RabbitMQ features might also fail or use separate connection." << std::endl;

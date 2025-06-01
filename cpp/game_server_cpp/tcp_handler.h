@@ -1,6 +1,7 @@
 #ifndef GAME_TCP_HANDLER_H // Renamed from TCP_HANDLER_H to avoid potential conflicts if an old one existed
 #define GAME_TCP_HANDLER_H
 
+#include <amqp.h>  // For amqp_connection_state_t and other AMQP types
 #include <boost/asio.hpp>
 #include <vector>   // Though not directly used in this header, often useful for server logic
 #include <memory>   // For std::shared_ptr
@@ -10,7 +11,7 @@ class GameTCPSession; // Defined in tcp_session.h
 class SessionManager;
 class TankPool;
 namespace grpc { class Channel; } // Forward declare grpc::Channel
-struct amqp_connection_state; // Forward declare AMQP connection state struct (pointer type is amqp_connection_state_t)
+// struct amqp_connection_state; // Forward declare AMQP connection state struct (pointer type is amqp_connection_state_t)
 
 
 using boost::asio::ip::tcp;

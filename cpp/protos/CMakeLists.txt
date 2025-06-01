@@ -2,8 +2,8 @@ cmake_minimum_required(VERSION 3.16)
 project(AuthGrpcCodegen CXX)
 
 # Find necessary packages for codegen
-find_package(Protobuf CONFIG REQUIRED)
-find_package(gRPC CONFIG REQUIRED)
+find_package(Protobuf REQUIRED)
+find_package(gRPC CONFIG REQUIRED COMPONENTS grpc++)
 
 # Define the location of .proto file
 set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/auth_service.proto")
@@ -11,11 +11,6 @@ set(PROTO_FILE "${CMAKE_CURRENT_SOURCE_DIR}/auth_service.proto")
 # Set the output directory for generated files within the build directory for this subproject
 set(PROTO_GEN_DIR "${CMAKE_CURRENT_BINARY_DIR}/generated")
 file(MAKE_DIRECTORY ${PROTO_GEN_DIR}) # Ensure directory exists
-
-# Generate Protobuf and gRPC C++ sources
-# Using protobuf_generate_cpp and grpc_generate_cpp (older CMake syntax)
-# or protobuf_generate (newer CMake, requires Protobuf_PROTOC_EXECUTABLE etc to be found)
-# Let's try with the explicit commands first, as they are often more direct.
 
 # Ensure protoc executable is found
 if(NOT Protobuf_PROTOC_EXECUTABLE)
@@ -47,30 +42,24 @@ add_custom_command(
     COMMENT "Generating C++ sources from auth_service.proto"
 )
 
-# Add a library target for the generated code
-# This library will be linked by other projects (game_server_cpp_app, auth_server_cpp_app)
 add_library(auth_grpc_codegen_lib STATIC
     ${PROTO_SRCS}
     ${GRPC_SRCS}
 )
 
-# Specify include directories for this library itself (for compiling generated sources)
-# and for targets that link against it (INTERFACE).
 target_include_directories(auth_grpc_codegen_lib
     PUBLIC
-        ${PROTO_GEN_DIR} # So consumers can find the generated headers
-        ${Protobuf_INCLUDE_DIRS} # Consumers might need protobuf headers
-        ${gRPC_INCLUDE_DIRS}     # Consumers might need gRPC headers
+        ${PROTO_GEN_DIR}
+        ${Protobuf_INCLUDE_DIRS}
+        ${gRPC_INCLUDE_DIRS}
     PRIVATE
-        ${CMAKE_CURRENT_SOURCE_DIR} # If any local includes were needed by generated code (unlikely for .proto)
+        ${CMAKE_CURRENT_SOURCE_DIR}
 )
 
-# Link the codegen library against gRPC and Protobuf libraries
-# This ensures that when other targets link auth_grpc_codegen_lib, they get these dependencies.
 target_link_libraries(auth_grpc_codegen_lib
-    PUBLIC # Or INTERFACE if this lib only exports headers and relies on consumers to link these
-        gRPC::grpc++ # Or specific gRPC components if find_package(gRPC) provides them differently
-        protobuf::libprotobuf
+    PUBLIC
+        gRPC::grpc++
+        ${Protobuf_LIBRARIES}
 )
 
 message(STATUS "Configured auth_grpc_codegen_lib target. Generated files will be in ${PROTO_GEN_DIR}")

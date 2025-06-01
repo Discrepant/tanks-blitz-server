@@ -12,7 +12,9 @@ RUN apt-get update && \
     apt-get install -y \
     build-essential \
     cmake \
+    cmake-data \
     git \
+    pkg-config \
     # Boost (system is often a meta-package, program_options if needed by main, asio is often header-only with newer boost)
     libboost-system-dev \
     libboost-program-options-dev \
@@ -22,15 +24,67 @@ RUN apt-get update && \
     librabbitmq-dev \
     # RdKafka C++ client
     librdkafka-dev \
-    # gRPC and Protocol Buffers
-    libgrpc-dev \
-    libgrpc++-dev \
-    libprotobuf-dev \
-    protobuf-compiler \
-    grpc_cpp_plugin \
+    libc-ares-dev \
+    zlib1g-dev \
+    # We will build protobuf and grpc from source
+    # libgrpc-dev \
+    # libgrpc++-dev \
+    # libprotobuf-dev \
+    # protobuf-compiler \
+    # protobuf-compiler-grpc \
     # Catch2 for tests (optional in builder if tests are run outside or in a different stage)
     # catch2 \
     && rm -rf /var/lib/apt/lists/*
+
+# --- Build and install Protobuf v3.21.12 ---
+ENV PROTOBUF_VERSION=v3.21.12
+RUN git clone --depth 1 --branch ${PROTOBUF_VERSION} https://github.com/protocolbuffers/protobuf.git /tmp/protobuf && \
+    cd /tmp/protobuf && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -Dprotobuf_BUILD_TESTS=OFF \
+          ../cmake && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf /tmp/protobuf
+
+# --- Build and install gRPC v1.48.1 ---
+ENV GRPC_VERSION=v1.48.1
+RUN git clone --depth 1 --branch ${GRPC_VERSION} --recurse-submodules https://github.com/grpc/grpc.git /tmp/grpc && \
+    cd /tmp/grpc && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DgRPC_INSTALL=ON \
+          -DgRPC_BUILD_TESTS=OFF \
+          -DgRPC_PROTOBUF_PROVIDER=package \
+          -DgRPC_ZLIB_PROVIDER=package \
+          -DgRPC_CARES_PROVIDER=package \
+          -DgRPC_SSL_PROVIDER=package \
+          .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf /tmp/grpc
+
+# --- Build and install Catch2 v3.5.2 ---
+ENV CATCH2_VERSION=v3.5.2
+RUN git clone --depth 1 --branch ${CATCH2_VERSION} https://github.com/catchorg/Catch2.git /tmp/Catch2 && \
+    cd /tmp/Catch2 && \
+    mkdir build && cd build && \
+    cmake -DCMAKE_BUILD_TYPE=Release \
+          -DCMAKE_INSTALL_PREFIX=/usr/local \
+          -DCATCH_BUILD_TESTING=OFF \
+          .. && \
+    make -j$(nproc) && \
+    make install && \
+    ldconfig && \
+    cd / && \
+    rm -rf /tmp/Catch2
 
 # Set working directory in the builder stage
 WORKDIR /opt/build
@@ -41,10 +95,15 @@ WORKDIR /opt/build
 COPY . ./
 # If Dockerfile is in project root and context is project root, then COPY ./cpp ./cpp
 
+# Add find commands to locate gRPC CMake config files
+RUN echo "=== STARTING GRPC FILE SEARCH ===" && \
+    (find /usr -name "*gRPCConfig.cmake*" -o -name "*grpc-config.cmake*" -print && echo "FIND COMMAND SEARCHED SUCCESSFULLY") || echo "FIND COMMAND FINISHED - POTENTIALLY NO FILES FOUND OR ERROR DURING FIND" && \
+    echo "=== GRPC FILE SEARCH COMPLETE ==="
+
 # Configure and build C++ applications
 RUN mkdir -p ./build_release && \
     cd ./build_release && \
-    cmake .. -DCMAKE_BUILD_TYPE=Release && \
+    cmake ../cpp -DCMAKE_BUILD_TYPE=Release && \
     # make -j$(nproc) game_server_app auth_server_app test_runner # Add test_runner if tests are built too
     make -j$(nproc) game_server_app auth_server_app
 

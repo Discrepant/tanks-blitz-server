@@ -6,8 +6,8 @@ project(GameLogicTests CXX)
 # Find essential dependencies also needed for tests
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
 find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
-find_package(librabbitmq REQUIRED)
-find_package(RdKafka REQUIRED)
+find_package(rabbitmq-c CONFIG REQUIRED)
+find_package(RdKafka CONFIG REQUIRED)
 find_package(Threads REQUIRED)
 
 # Protobuf and gRPC (even if linked via a library, finding them ensures targets are available)
@@ -50,14 +50,14 @@ target_link_libraries(game_tests
     # Explicitly link what's directly used by tests, if not covered by game_logic_lib or proto_lib
     Boost::system              # Provided by find_package(Boost)
     nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
-    librabbitmq::librabbitmq   # Changed from PkgConfig::RabbitMQ
-    librdkafka::librdkafka     # Changed from PkgConfig::RdKafka
+    rabbitmq::rabbitmq         # Changed
+    RdKafka::rdkafka           # Changed from librdkafka::librdkafka
     Threads::Threads           # Provided by find_package(Threads)
 
     # It's good practice to also link gRPC and Protobuf if tests use them directly,
     # even if proto_lib also links them.
     gRPC::grpc++_unsecure      # Changed from gRPC::grpc++
-    Protobuf::libprotobuf      # Changed from protobuf::libprotobuf
+    protobuf::libprotobuf      # Changed from Protobuf::libprotobuf
     # gRPC::grpc++_reflection  # Only if reflection is directly used in tests
 )
 

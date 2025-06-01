@@ -5,6 +5,18 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
 set(CMAKE_CXX_EXTENSIONS OFF) # Disable compiler-specific extensions like -std=gnu++17
 
+if(MSVC OR (CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
+    # Define _WIN32_WINNT to target Windows 10 (0x0A00) or higher.
+    # This helps with libraries like Boost.Asio and avoids warnings.
+    # For Windows 7, use 0x0601. For Windows 8, use 0x0602. For Windows 8.1, use 0x0603.
+    add_compile_definitions(_WIN32_WINNT=0x0A00)
+    message(STATUS "Setting _WIN32_WINNT to 0x0A00 (Windows 10)")
+elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_ID MATCHES "Intel")
+    # For Intel compiler on Windows, the definition might be different or handled by environment
+    add_compile_definitions(_WIN32_WINNT=0x0A00) # Assuming similar for Intel C++ on Windows
+    message(STATUS "Setting _WIN32_WINNT to 0x0A00 (Windows 10) for Intel Compiler")
+endif()
+
 # Common settings - can be expanded
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Useful for some tools like clangd
 

@@ -1,3 +1,4 @@
+#include <memory>
 #include "catch2/catch_all.hpp"
 #include "../game_server_cpp/game_session.h"
 #include "../game_server_cpp/tank.h" // For creating Tank instances

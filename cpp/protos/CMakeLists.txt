@@ -7,7 +7,7 @@ set(PROTO_FILES
 set(PROTOBUF_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR})
 
 # Включите библиотеки Protobuf и gRPC
-find_package(Protobuf REQUIRED)
+find_package(Protobuf CONFIG REQUIRED)
 find_package(gRPC CONFIG REQUIRED) # This should define gRPC_GRPC_CPP_PLUGIN_EXECUTABLE
 
 # Генерация Protobuf кода
@@ -21,11 +21,28 @@ protobuf_generate_cpp(PROTO_SRCS PROTO_HDRS ${PROTO_FILES})
 set(GRPC_SRCS ${PROTOBUF_OUTPUT_DIR}/auth_service.grpc.pb.cc)
 set(GRPC_HDRS ${PROTOBUF_OUTPUT_DIR}/auth_service.grpc.pb.h)
 
+# Find the gRPC C++ plugin executable
+find_program(GRPC_CPP_PLUGIN_EXECUTABLE_PATH
+    NAMES grpc_cpp_plugin.exe grpc_cpp_plugin protoc-gen-grpc.exe protoc-gen-grpc
+    HINTS
+        "C:/Users/Hoshi/vcpkg/installed/x64-windows/tools/grpc" # User's direct path
+        "${CMAKE_TOOLCHAIN_FILE_DIR}/../../installed/${VCPKG_TARGET_TRIPLET}/tools/grpc" # Relative to vcpkg.cmake
+        "$ENV{VCPKG_ROOT}/installed/${VCPKG_TARGET_TRIPLET}/tools/grpc" # Via VCPKG_ROOT env var
+    # PATHS # Adding system paths explicitly can be broad; relying on HINTS and CMake's default search after HINTS
+)
+
+if(NOT GRPC_CPP_PLUGIN_EXECUTABLE_PATH)
+    message(FATAL_ERROR "gRPC C++ plugin (e.g., grpc_cpp_plugin.exe) not found.     Please ensure it is installed correctly by vcpkg (in tools/grpc) or is in your system PATH.     HINTS for find_program included 'C:/Users/Hoshi/vcpkg/installed/x64-windows/tools/grpc'.")
+else()
+    message(STATUS "Found gRPC C++ plugin at: ${GRPC_CPP_PLUGIN_EXECUTABLE_PATH}")
+endif()
+
 add_custom_command(
     OUTPUT ${GRPC_SRCS} ${GRPC_HDRS}
     COMMAND ${Protobuf_PROTOC_EXECUTABLE}
-    ARGS --grpc_out=${PROTOBUF_OUTPUT_DIR}
-         --plugin=protoc-gen-grpc=${gRPC_GRPC_CPP_PLUGIN_EXECUTABLE}
+    ARGS --proto_path=${CMAKE_CURRENT_SOURCE_DIR} # Added this line
+         --grpc_out=${PROTOBUF_OUTPUT_DIR}
+         --plugin=protoc-gen-grpc=${GRPC_CPP_PLUGIN_EXECUTABLE_PATH}
          ${PROTO_FILES} # This is ${CMAKE_CURRENT_SOURCE_DIR}/auth_service.proto
     DEPENDS ${PROTO_FILES}
     COMMENT "Generating gRPC code from auth_service.proto"
@@ -41,7 +58,7 @@ add_library(proto_lib STATIC
 )
 
 target_link_libraries(proto_lib PRIVATE
-    Protobuf::libprotobuf
+    protobuf::libprotobuf
     gRPC::grpc++_unsecure
 )
 

@@ -42,7 +42,7 @@ target_link_libraries(auth_server_app
     PRIVATE
     proto_lib
     Boost::asio
-    gRPC::grpc++
+    gRPC::grpc++_unsecure
     Threads::Threads
     nlohmann_json::nlohmann_json
 )

@@ -17,30 +17,102 @@ else()
     message(STATUS "GameServerCpp: Found nlohmann_json version ${nlohmann_json_VERSION}")
 endif()
 
-pkg_check_modules(RdKafkaCpp REQUIRED IMPORTED_TARGET rdkafka++) # Use rdkafka++
-if(TARGET RdKafkaCpp::rdkafka++)
-    message(STATUS "GameServerCpp: Found RdKafka via pkg-config (IMPORTED_TARGET for rdkafka++)")
-elseif(RdKafkaCpp_FOUND)
-    message(STATUS "GameServerCpp: Found RdKafka via pkg-config (variables for rdkafka++). Creating INTERFACE target RdKafka::rdkafka++.")
-    # Manually create an interface library if IMPORTED_TARGET is not created by pkg_check_modules
-    add_library(RdKafka::rdkafka++ INTERFACE IMPORTED GLOBAL) # GLOBAL so tests can find it
-    target_include_directories(RdKafka::rdkafka++ INTERFACE ${RdKafkaCpp_INCLUDE_DIRS})
-    set_property(TARGET RdKafka::rdkafka++ PROPERTY INTERFACE_LINK_LIBRARIES "${RdKafkaCpp_LIBRARIES}")
-else()
-    message(FATAL_ERROR "GameServerCpp: rdkafka++ not found using pkg-config.")
+# Try to find RdKafka using CMake's find_package (vcpkg or system FindRdKafka.cmake)
+find_package(RdKafka CONFIG QUIET)
+if(NOT RdKafka_FOUND)
+  find_package(RdKafka QUIET) # Try basic module mode
 endif()
-# message(STATUS "GameServerCpp: Found RdKafka version ${RdKafkaCpp_VERSION}") # If available
 
-pkg_check_modules(RabbitMQC REQUIRED IMPORTED_TARGET librabbitmq) # Changed to librabbitmq
-if(NOT TARGET RabbitMQC::librabbitmq AND RabbitMQC_FOUND) # Adjusted target name check
-    message(STATUS "GameServerCpp: Found librabbitmq via pkg-config (variables). Creating INTERFACE target.")
-    add_library(RabbitMQC::librabbitmq INTERFACE IMPORTED GLOBAL) # Adjusted target name, added GLOBAL
-    set_property(TARGET RabbitMQC::librabbitmq PROPERTY INTERFACE_INCLUDE_DIRECTORIES "${RabbitMQC_INCLUDE_DIRS}") # Adjusted target name
-    set_property(TARGET RabbitMQC::librabbitmq PROPERTY INTERFACE_LINK_LIBRARIES "${RabbitMQC_LIBRARIES}") # Adjusted target name
-elseif(TARGET RabbitMQC::librabbitmq) # Adjusted target name check
-    message(STATUS "GameServerCpp: Found librabbitmq via pkg-config (IMPORTED_TARGET).")
+if(RdKafka_FOUND AND TARGET RdKafka::rdkafka++)
+  message(STATUS "GameServerCpp: Found RdKafka using find_package (target RdKafka::rdkafka++ exists).")
+elseif(RdKafka_FOUND AND TARGET RdKafka::rdkafka) # Check if only C library target found
+  message(STATUS "GameServerCpp: Found RdKafka using find_package (target RdKafka::rdkafka exists, C++ target missing).")
+  # Potentially try to use this if C++ bindings are header-only on top of C lib, or flag as error/warning.
+  # For now, assume RdKafka::rdkafka++ is required.
+  # set(RdKafka_FOUND_CPP_BINDINGS FALSE) # Custom flag - This logic path means C++ target wasn't found by find_package
 else()
-    message(FATAL_ERROR "GameServerCpp: librabbitmq not found using pkg-config.")
+  # set(RdKafka_FOUND_CPP_BINDINGS FALSE) # Custom flag - This logic path means C++ target wasn't found by find_package
+endif()
+
+# If RdKafka_FOUND is true here, it means find_package found something.
+# We rely on (TARGET RdKafka::rdkafka++) to be the ultimate check.
+if(NOT (RdKafka_FOUND AND TARGET RdKafka::rdkafka++))
+  message(STATUS "GameServerCpp: RdKafka C++ bindings not found via find_package. Attempting pkg-config.")
+  # find_package(PkgConfig QUIET) # Already at the top
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_RdKafkaCpp QUIET rdkafka++) # No IMPORTED_TARGET here, just get vars
+    if(PC_RdKafkaCpp_FOUND)
+      message(STATUS "GameServerCpp: Found RdKafka (rdkafka++) via pkg-config. Version: ${PC_RdKafkaCpp_VERSION}")
+      if(NOT TARGET RdKafka::rdkafka++) # Only if not already defined by find_package
+          add_library(RdKafka::rdkafka++ INTERFACE IMPORTED GLOBAL)
+          target_include_directories(RdKafka::rdkafka++ INTERFACE ${PC_RdKafkaCpp_INCLUDE_DIRS})
+          target_link_libraries(RdKafka::rdkafka++ INTERFACE ${PC_RdKafkaCpp_LIBRARIES})
+          message(STATUS "GameServerCpp: Created RdKafka::rdkafka++ from pkg-config variables.")
+      endif()
+      set(RdKafka_FOUND TRUE) # Mark as found
+    else()
+      message(STATUS "GameServerCpp: RdKafka (rdkafka++) not found via pkg-config.")
+    endif()
+  else()
+    message(STATUS "GameServerCpp: PkgConfig not found, cannot use it for RdKafka.")
+  endif()
+endif()
+
+if(NOT RdKafka_FOUND OR NOT TARGET RdKafka::rdkafka++)
+  message(FATAL_ERROR "GameServerCpp: Failed to find RdKafka C++ library (rdkafka++).")
+endif()
+
+# Try to find RabbitMQ-C using CMake's find_package (vcpkg or system FindRabbitMQC.cmake)
+find_package(rabbitmq-c CONFIG QUIET) # Common name for vcpkg
+if(NOT rabbitmq-c_FOUND)
+  find_package(RabbitMQC QUIET) # Alternative common name for Find modules
+endif()
+
+# Rename variables for consistency if found by a specific name
+if(rabbitmq-c_FOUND AND NOT RabbitMQC_FOUND)
+  set(RabbitMQC_FOUND ${rabbitmq-c_FOUND})
+  set(RabbitMQC_INCLUDE_DIRS ${rabbitmq-c_INCLUDE_DIRS})
+  set(RabbitMQC_LIBRARIES ${rabbitmq-c_LIBRARIES})
+  # Vcpkg typically creates an imported target like unofficial-rabbitmq-c::rabbitmq-c or similar
+  # We need to ensure a consistent target like RabbitMQC::rabbitmq-c
+  # For now, assume if found, a suitable target like RabbitMQC::RabbitMQC or unofficial-rabbitmq-c::rabbitmq-c exists.
+  # This part might need adjustment based on actual target names from vcpkg.
+  # Let's assume vcpkg creates RabbitMQC::rabbitmq-c
+  if(TARGET unofficial-rabbitmq-c::rabbitmq-c AND NOT TARGET RabbitMQC::rabbitmq-c)
+      add_library(RabbitMQC::rabbitmq-c ALIAS unofficial-rabbitmq-c::rabbitmq-c)
+  endif()
+  # If find_package(rabbitmq-c) found it and created a target like rabbitmq-c::rabbitmq-c
+  if(TARGET rabbitmq-c::rabbitmq-c AND NOT TARGET RabbitMQC::rabbitmq-c)
+      add_library(RabbitMQC::rabbitmq-c ALIAS rabbitmq-c::rabbitmq-c)
+  endif()
+endif()
+
+if(RabbitMQC_FOUND AND TARGET RabbitMQC::rabbitmq-c) # Or whatever target vcpkg/find module provides
+    message(STATUS "GameServerCpp: Found RabbitMQ-C using find_package.")
+else()
+  message(STATUS "GameServerCpp: RabbitMQ-C not found via find_package. Attempting pkg-config.")
+  # find_package(PkgConfig QUIET) # Already at the top
+  if(PKG_CONFIG_FOUND)
+    pkg_check_modules(PC_RabbitMQC QUIET librabbitmq) # No IMPORTED_TARGET here
+    if(PC_RabbitMQC_FOUND)
+      message(STATUS "GameServerCpp: Found RabbitMQ-C (librabbitmq) via pkg-config. Version: ${PC_RabbitMQC_VERSION}")
+      if(NOT TARGET RabbitMQC::rabbitmq-c) # Create a consistent target name
+          add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
+          target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_INCLUDE_DIRS})
+          target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_LIBRARIES})
+          message(STATUS "GameServerCpp: Created RabbitMQC::rabbitmq-c from pkg-config variables.")
+      endif()
+      set(RabbitMQC_FOUND TRUE) # Mark as found
+    else()
+      message(STATUS "GameServerCpp: RabbitMQ-C (librabbitmq) not found via pkg-config.")
+    endif()
+  else()
+    message(STATUS "GameServerCpp: PkgConfig not found, cannot use it for RabbitMQ-C.")
+  endif()
+endif()
+
+if(NOT RabbitMQC_FOUND OR NOT TARGET RabbitMQC::rabbitmq-c)
+  message(FATAL_ERROR "GameServerCpp: Failed to find RabbitMQ-C library.")
 endif()
 
 find_package(Threads REQUIRED) # For ASIO, gRPC, Kafka, RabbitMQ callbacks etc.
@@ -66,7 +138,7 @@ target_link_libraries(game_logic_lib PRIVATE
     nlohmann_json::nlohmann_json # If used in .cpp files, not just headers
     Boost::headers # For Asio includes
     Boost::system  # Asio might depend on system
-    RabbitMQC::librabbitmq # Added RabbitMQ link for command_consumer, udp_handler etc.
+    RabbitMQC::rabbitmq-c # Use consistent target name
     proto_lib              # For tcp_session using gRPC stubs
 )
 
@@ -92,7 +164,7 @@ target_link_libraries(game_server_app PRIVATE
     # Boost::headers      # Linked by game_logic_lib
     # Boost::system       # Linked by game_logic_lib
     # RdKafka::rdkafka++  # Linked by game_logic_lib
-    # RabbitMQC::librabbitmq # Linked by game_logic_lib
+    # RabbitMQC::rabbitmq-c # Linked by game_logic_lib (Corrected target name)
     Threads::Threads # main.cpp might still need threads directly
     # nlohmann_json::nlohmann_json # Linked by game_logic_lib
 )

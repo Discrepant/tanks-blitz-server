@@ -43,29 +43,29 @@ class AuthServiceServicer(auth_service_pb2_grpc.AuthServiceServicer):
     async def RegisterUser(self, request, context):
         logging.info(f"RegisterUser called for username: {request.username}")
         # For now, registration is not fully implemented with user_service,
-        // so we return a mock success or "not implemented".
+        # so we return a mock success or "not implemented".
         # Let's try to use the user_service.create_user if it matches the required flow.
         # user_service.create_user is async and takes (username, password_hash)
         # We'd need to hash the password here. For simplicity, let's mock it as not implemented.
 
         # If you wanted to implement it:
-        # from passlib.hash import pbkdf2_sha256
-        # password_hash = pbkdf2_sha256.hash(request.password)
-        # success, message = await self.user_service.create_user(request.username, password_hash)
-        # if success:
-        #     logging.info(f"User {request.username} registered successfully.")
-        #     return auth_service_pb2.AuthResponse(authenticated=False, message="Registration successful. Please login.", token="")
-        # else:
-        #     logging.warning(f"Registration failed for user {request.username}: {message}")
-        #     return auth_service_pb2.AuthResponse(authenticated=False, message=f"Registration failed: {message}", token="")
+        from passlib.hash import pbkdf2_sha256
+        password_hash = pbkdf2_sha256.hash(request.password)
+        success, message = await self.user_service.create_user(request.username, password_hash)
+        if success:
+            logging.info(f"User {request.username} registered successfully.")
+            return auth_service_pb2.AuthResponse(authenticated=False, message="Registration successful. Please login.", token="")
+        else:
+            logging.warning(f"Registration failed for user {request.username}: {message}")
+            return auth_service_pb2.AuthResponse(authenticated=False, message=f"Registration failed: {message}", token="")
 
-        message = "Registration is not implemented yet on this server."
-        logging.info(message)
-        return auth_service_pb2.AuthResponse(
-            authenticated=False,
-            message=message,
-            token=""
-        )
+        # message = "Registration is not implemented yet on this server."
+        # logging.info(message)
+        # return auth_service_pb2.AuthResponse(
+        #     authenticated=False,
+        #     message=message,
+        #     token=""
+        # )
 
 async def serve():
     # Initialize Redis client (and potentially other services user_service depends on)

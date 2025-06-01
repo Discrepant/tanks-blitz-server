@@ -1,6 +1,12 @@
 #!/bin/bash
 set -e # Выход при ошибке
 
+echo "Setting PYTHONPATH"
+export PYTHONPATH=$PYTHONPATH:.
+
+echo "Installing dependencies..."
+pip install -r requirements.txt
+
 echo "Running Unit Tests..."
 # Для текущей структуры, где auth_server и game_server - пакеты в корне:
 pytest -v tests/unit/

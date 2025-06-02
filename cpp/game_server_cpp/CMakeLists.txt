@@ -14,7 +14,6 @@ if(NOT MY_USING_VCPKG)
 endif()
 
 # Find direct dependencies for the game_logic_lib
-cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
 message(STATUS "GameServerCpp: Found Boost version: ${Boost_VERSION_STRING}")
 
@@ -56,6 +55,8 @@ else()
       pkg_check_modules(PC_RdKafkaCpp QUIET rdkafka++) # Get variables
       if(PC_RdKafkaCpp_FOUND)
         message(STATUS "GameServerCpp: Found RdKafka (rdkafka++) via pkg-config. Version: ${PC_RdKafkaCpp_VERSION}")
+        message(STATUS "GameServerCpp: DEBUG PC_RdKafkaCpp_INCLUDE_DIRS = ${PC_RdKafkaCpp_INCLUDE_DIRS}")
+        message(STATUS "GameServerCpp: DEBUG PC_RdKafkaCpp_LIBRARIES = ${PC_RdKafkaCpp_LIBRARIES}")
         if(NOT TARGET RdKafka::rdkafka++) # If not found by find_package above
           add_library(RdKafka::rdkafka++ INTERFACE IMPORTED GLOBAL)
           target_include_directories(RdKafka::rdkafka++ INTERFACE ${PC_RdKafkaCpp_INCLUDE_DIRS})
@@ -144,6 +145,8 @@ else() # NOT MY_USING_VCPKG
       pkg_check_modules(PC_RabbitMQC QUIET librabbitmq) # Get variables
       if(PC_RabbitMQC_FOUND)
         message(STATUS "GameServerCpp: Found RabbitMQ-C (librabbitmq) via pkg-config. Version: ${PC_RabbitMQC_VERSION}")
+        message(STATUS "GameServerCpp: DEBUG PC_RabbitMQC_INCLUDE_DIRS = ${PC_RabbitMQC_INCLUDE_DIRS}")
+        message(STATUS "GameServerCpp: DEBUG PC_RabbitMQC_LIBRARIES = ${PC_RabbitMQC_LIBRARIES}")
         if(NOT TARGET RabbitMQC::rabbitmq-c) # If not found by find_package above
             add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
             target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_INCLUDE_DIRS})
@@ -196,7 +199,9 @@ target_link_libraries(game_logic_lib
 )
 
 target_include_directories(game_logic_lib PUBLIC
-    ${CMAKE_CURRENT_SOURCE_DIR} # So game_server_app can include headers from here
+    ${CMAKE_CURRENT_SOURCE_DIR}
+    $<$<AND:$<STREQUAL:${MY_USING_VCPKG},FALSE>,$<BOOL:PC_RabbitMQC_FOUND>>:${PC_RabbitMQC_INCLUDE_DIRS}>
+    $<$<AND:$<STREQUAL:${MY_USING_VCPKG},FALSE>,$<BOOL:PC_RdKafkaCpp_FOUND>>:${PC_RdKafkaCpp_INCLUDE_DIRS}>
 )
 
 
@@ -224,7 +229,11 @@ target_link_libraries(game_server_app PRIVATE
 
 target_include_directories(game_server_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} # To find its own headers like udp_handler.h etc.
-    ${RabbitMQC_INCLUDE_DIRS} # Explicitly add RabbitMQC include dirs
+    # Conditionally add pkg-config include dirs for RabbitMQC if not using vcpkg and found
+    $<$<AND:$<STREQUAL:${MY_USING_VCPKG},FALSE>,$<BOOL:PC_RabbitMQC_FOUND>>:${PC_RabbitMQC_INCLUDE_DIRS}>
+    # Similarly for RdKafka - though its INTERFACE target should handle this.
+    # This is more of a safeguard or for direct includes in main.cpp if any.
+    $<$<AND:$<STREQUAL:${MY_USING_VCPKG},FALSE>,$<BOOL:PC_RdKafkaCpp_FOUND>>:${PC_RdKafkaCpp_INCLUDE_DIRS}>
 )
 
 install(TARGETS game_server_app DESTINATION bin)

@@ -11,10 +11,9 @@ ENV DEBIAN_FRONTEND=noninteractive
 RUN apt-get update && \
     apt-get install -y \
     build-essential \
-    cmake \
-    cmake-data \
     git \
     pkg-config \
+    wget \
     # Boost (system is often a meta-package, program_options if needed by main, asio is often header-only with newer boost)
     libboost-system-dev \
     libboost-program-options-dev \
@@ -35,6 +34,22 @@ RUN apt-get update && \
     # Catch2 for tests (optional in builder if tests are run outside or in a different stage)
     # catch2 \
     && rm -rf /var/lib/apt/lists/*
+
+# Attempt to remove any system-installed CMake to avoid conflicts
+RUN apt-get remove --purge -y cmake cmake-data || true
+
+# --- Install CMake v3.29.2 ---
+ENV CMAKE_VERSION=3.29.2
+ENV CMAKE_TAR=cmake-${CMAKE_VERSION}-linux-x86_64.tar.gz
+ENV CMAKE_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION}/${CMAKE_TAR}
+RUN wget ${CMAKE_URL} -O /tmp/${CMAKE_TAR} && \
+    tar -xzf /tmp/${CMAKE_TAR} -C /opt && \
+    rm /tmp/${CMAKE_TAR} && \
+    ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/cmake /usr/local/bin/cmake && \
+    ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/ctest /usr/local/bin/ctest && \
+    ln -s /opt/cmake-${CMAKE_VERSION}-linux-x86_64/bin/cpack /usr/local/bin/cpack
+# Verify CMake installation
+RUN cmake --version
 
 # --- Build and install Protobuf v3.21.12 ---
 ENV PROTOBUF_VERSION=v3.21.12
@@ -103,8 +118,10 @@ RUN echo "=== STARTING GRPC FILE SEARCH ===" && \
 # Configure and build C++ applications
 RUN mkdir -p ./build_release && \
     cd ./build_release && \
-    cmake ../cpp -DCMAKE_BUILD_TYPE=Release && \
-    # make -j$(nproc) game_server_app auth_server_app test_runner # Add test_runner if tests are built too
+    echo "Confirming CMake version before configuring project:" && \
+    cmake --version && \
+    echo "Using CMake from /usr/local/bin/cmake for project configuration:" && \
+    /usr/local/bin/cmake ../cpp -DCMAKE_BUILD_TYPE=Release && \
     make -j$(nproc) game_server_app auth_server_app
 
 # Stage 2: Runner

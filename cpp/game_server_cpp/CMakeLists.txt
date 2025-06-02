@@ -9,6 +9,9 @@ else()
 endif()
 
 # CMAKE_CXX_STANDARD is set in the root CMakeLists.txt
+if(NOT MY_USING_VCPKG)
+  find_package(PkgConfig REQUIRED)
+endif()
 
 # Find direct dependencies for the game_logic_lib
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
@@ -36,7 +39,6 @@ if(MY_USING_VCPKG)
     message(FATAL_ERROR "GameServerCpp: RdKafka::rdkafka++ target not found via vcpkg. Ensure rdkafka[cpp] is installed.")
   endif()
 else()
-  find_package(PkgConfig REQUIRED)
   # Существующая логика с find_package QUIET и откатом к pkg-config
   message(STATUS "GameServerCpp: Not using vcpkg. Attempting find_package/pkg-config for RdKafka.")
   find_package(RdKafka CONFIG QUIET)
@@ -77,43 +79,66 @@ endif() # MY_USING_VCPKG
 
 if(MY_USING_VCPKG)
   message(STATUS "GameServerCpp: Attempting to find RabbitMQ-C via vcpkg (CONFIG mode).")
-  # Vcpkg might use 'rabbitmq-c' or 'unofficial-rabbitmq-c' as package name
-  # And target might be unofficial-rabbitmq-c::rabbitmq-c or rabbitmq-c::rabbitmq-c
+
   find_package(rabbitmq-c CONFIG QUIET)
   if (NOT rabbitmq-c_FOUND)
-      find_package(unofficial-rabbitmq-c CONFIG REQUIRED) # Try this if the other is not found
-      if (NOT TARGET unofficial-rabbitmq-c::rabbitmq-c)
-          message(FATAL_ERROR "GameServerCpp: unofficial-rabbitmq-c::rabbitmq-c target not found via vcpkg.")
-      else()
-          message(STATUS "GameServerCpp: Found unofficial-rabbitmq-c::rabbitmq-c via vcpkg.")
-          if(NOT TARGET RabbitMQC::rabbitmq-c)
-            add_library(RabbitMQC::rabbitmq-c ALIAS unofficial-rabbitmq-c::rabbitmq-c)
-          endif()
-      endif()
-  else() # rabbitmq-c_FOUND
-      if (NOT TARGET rabbitmq-c::rabbitmq-c) # Check common target name
-           # Sometimes vcpkg creates just unofficial-rabbitmq-c::rabbitmq-c even if find_package(rabbitmq-c) works
-           if (TARGET unofficial-rabbitmq-c::rabbitmq-c)
-              if(NOT TARGET RabbitMQC::rabbitmq-c)
-                  add_library(RabbitMQC::rabbitmq-c ALIAS unofficial-rabbitmq-c::rabbitmq-c)
-              endif()
-           else()
-              message(FATAL_ERROR "GameServerCpp: rabbitmq-c::rabbitmq-c target not found via vcpkg.")
-           endif()
-      else()
-          message(STATUS "GameServerCpp: Found rabbitmq-c::rabbitmq-c via vcpkg.")
-          if(NOT TARGET RabbitMQC::rabbitmq-c)
-            add_library(RabbitMQC::rabbitmq-c ALIAS rabbitmq-c::rabbitmq-c)
-          endif()
-      endif()
+    message(FATAL_ERROR "GameServerCpp: Package rabbitmq-c not found via vcpkg, despite vcpkg hint for librabbitmq. Check vcpkg installation.")
+  else()
+    message(STATUS "GameServerCpp: Found package rabbitmq-c via vcpkg (likely provided by librabbitmq).")
+    set(RABBITMQ_PACKAGE_NAME "rabbitmq-c")
   endif()
+
+      # Отладочные сообщения для RabbitMQ-C
+      message(STATUS "Debug RabbitMQ: ===== Start Debug Info for ${RABBITMQ_PACKAGE_NAME} =====")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_FOUND = ${${RABBITMQ_PACKAGE_NAME}_FOUND}")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_CONFIG = ${${RABBITMQ_PACKAGE_NAME}_CONFIG}")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_VERSION = ${${RABBITMQ_PACKAGE_NAME}_VERSION}")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_INCLUDE_DIRS = ${${RABBITMQ_PACKAGE_NAME}_INCLUDE_DIRS}")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_LIBRARIES = ${${RABBITMQ_PACKAGE_NAME}_LIBRARIES}")
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_TARGETS = ${${RABBITMQ_PACKAGE_NAME}_TARGETS}") # Обычно не устанавливается для CONFIG-режима find_package
+      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_DEFINITIONS = ${${RABBITMQ_PACKAGE_NAME}_DEFINITIONS}")
+
+      # Попытка вывести все переменные, начинающиеся с RABBITMQ_PACKAGE_NAME_
+      get_cmake_property(_variableNames VARIABLES)
+      foreach (_variableName ${_variableNames})
+          if (_variableName MATCHES "^${RABBITMQ_PACKAGE_NAME}_.*")
+              message(STATUS "Debug RabbitMQ: Var ${_variableName} = ${${_variableName}}")
+          endif()
+          if (_variableName MATCHES "^RabbitMQC_.*") # Также проверим переменные для RabbitMQC, если они есть
+              message(STATUS "Debug RabbitMQ: Var ${_variableName} = ${${_variableName}}")
+          endif()
+      endforeach()
+      message(STATUS "Debug RabbitMQ: ===== End Debug Info for ${RABBITMQ_PACKAGE_NAME} =====")
+
+  # Проверка возможных имен целей
+  set(RABBITMQ_TARGET_FOUND FALSE)
+  set(POSSIBLE_TARGET_NAMES "") # Clear the list
+  list(APPEND POSSIBLE_TARGET_NAMES "rabbitmq::rabbitmq" "RabbitMQ::Client")
+
+  foreach(TARGET_NAME ${POSSIBLE_TARGET_NAMES})
+    if(TARGET ${TARGET_NAME} AND NOT RABBITMQ_TARGET_FOUND)
+      message(STATUS "GameServerCpp: Found RabbitMQ-C target as ${TARGET_NAME} via vcpkg.")
+      if(NOT TARGET RabbitMQC::rabbitmq-c)
+        add_library(RabbitMQC::rabbitmq-c ALIAS ${TARGET_NAME})
+        message(STATUS "GameServerCpp: Aliased ${TARGET_NAME} to RabbitMQC::rabbitmq-c.")
+      endif()
+      set(RABBITMQ_TARGET_FOUND TRUE)
+      break() # Цель найдена, выходим из цикла
+    endif()
+  endforeach()
+
+  if(NOT RABBITMQ_TARGET_FOUND)
+    message(FATAL_ERROR "GameServerCpp: Could not find a suitable RabbitMQ-C target (e.g., rabbitmq::rabbitmq, RabbitMQ::Client) via vcpkg after finding package ${RABBITMQ_PACKAGE_NAME}.")
+  endif()
+
   # Ensure the final target RabbitMQC::rabbitmq-c exists
   if (NOT TARGET RabbitMQC::rabbitmq-c)
-      message(FATAL_ERROR "GameServerCpp: Could not establish RabbitMQC::rabbitmq-c target via vcpkg.")
+      message(FATAL_ERROR "GameServerCpp: Could not establish RabbitMQC::rabbitmq-c target via vcpkg despite previous steps.")
+  else()
+      message(STATUS "GameServerCpp: Successfully established RabbitMQC::rabbitmq-c target.")
   endif()
 
 else() # NOT MY_USING_VCPKG
-  find_package(PkgConfig REQUIRED)
   # Существующая логика с find_package QUIET и откатом к pkg-config
   message(STATUS "GameServerCpp: Not using vcpkg. Attempting find_package/pkg-config for RabbitMQ-C.")
   find_package(rabbitmq-c CONFIG QUIET)
@@ -179,14 +204,16 @@ add_library(game_logic_lib STATIC
 )
 
 # Dependencies for game_logic_lib
-target_link_libraries(game_logic_lib PRIVATE
-    RdKafka::rdkafka++ # Link C++ target
-    Threads::Threads
-    nlohmann_json::nlohmann_json # If used in .cpp files, not just headers
-    Boost::headers # For Asio includes
-    Boost::system  # Asio might depend on system
-    RabbitMQC::rabbitmq-c # Use consistent target name
-    proto_lib              # For tcp_session using gRPC stubs
+target_link_libraries(game_logic_lib
+    PUBLIC
+        Boost::headers # For Asio includes
+        Boost::system  # Asio might depend on system
+    PRIVATE
+        RdKafka::rdkafka++ # Link C++ target
+        Threads::Threads
+        nlohmann_json::nlohmann_json # If used in .cpp files, not just headers
+        RabbitMQC::rabbitmq-c # Use consistent target name
+        proto_lib              # For tcp_session using gRPC stubs
 )
 
 target_include_directories(game_logic_lib PUBLIC

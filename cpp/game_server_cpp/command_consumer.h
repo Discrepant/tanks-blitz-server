@@ -8,9 +8,9 @@
 #include <nlohmann/json.hpp>
 
 // RabbitMQ C client
-#include <amqp.h>
-#include <amqp_tcp_socket.h> // For amqp_tcp_socket_new
-#include <amqp_framing.h>    // For amqp_cstring_bytes, amqp_empty_bytes, amqp_empty_table
+#include <rabbitmq-c/amqp.h>
+#include <rabbitmq-c/tcp_socket.h> // For amqp_tcp_socket_new
+#include <rabbitmq-c/framing.h>    // For amqp_cstring_bytes, amqp_empty_bytes, amqp_empty_table
 
 // Forward declarations from our project
 class SessionManager;

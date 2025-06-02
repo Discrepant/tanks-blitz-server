@@ -32,8 +32,28 @@ if(MY_USING_VCPKG)
     endif()
   endif()
 else()
-  # Fallback or error for non-vcpkg builds if RabbitMQ-C is a hard requirement for tests
-  message(FATAL_ERROR "Tests: RabbitMQ-C discovery for non-vcpkg builds is not configured.")
+  # Logic from game_server_cpp/CMakeLists.txt for non-vcpkg RabbitMQ-C
+  message(STATUS "Tests: Not using vcpkg. Attempting find_package/pkg-config for RabbitMQ-C.")
+  find_package(PkgConfig QUIET) # Ensure PkgConfig is found first
+  if(NOT PKG_CONFIG_FOUND)
+    message(FATAL_ERROR "Tests: PkgConfig not found, cannot use it for RabbitMQ-C.")
+  endif()
+  pkg_check_modules(PC_RabbitMQC QUIET librabbitmq) # Get variables
+  if(PC_RabbitMQC_FOUND)
+    message(STATUS "Tests: Found RabbitMQ-C (librabbitmq) via pkg-config. Version: ${PC_RabbitMQC_VERSION}")
+    if(NOT TARGET RabbitMQC::rabbitmq-c)
+        add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
+        target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_INCLUDE_DIRS})
+        target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_LIBRARIES})
+        message(STATUS "Tests: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config.")
+    endif()
+    set(RabbitMQC_FOUND TRUE) # Signal that it's found
+  else()
+    message(FATAL_ERROR "Tests: RabbitMQ-C (librabbitmq) not found via pkg-config.")
+  endif()
+  if(NOT RabbitMQC_FOUND OR NOT TARGET RabbitMQC::rabbitmq-c) # Double check
+    message(FATAL_ERROR "Tests: Failed to find RabbitMQ-C library for non-vcpkg build.")
+  endif()
 endif()
 
 # Find RdKafka
@@ -50,8 +70,28 @@ if(MY_USING_VCPKG)
     endif()
   endif()
 else()
-  # Fallback or error for non-vcpkg builds if RdKafka is a hard requirement for tests
-  message(FATAL_ERROR "Tests: RdKafka discovery for non-vcpkg builds is not configured.")
+  # Logic from game_server_cpp/CMakeLists.txt for non-vcpkg RdKafka
+  message(STATUS "Tests: Not using vcpkg. Attempting find_package/pkg-config for RdKafka.")
+  find_package(PkgConfig QUIET) # Ensure PkgConfig is found first
+  if(NOT PKG_CONFIG_FOUND)
+    message(FATAL_ERROR "Tests: PkgConfig not found, cannot use it for RdKafka.")
+  endif()
+  pkg_check_modules(PC_RdKafkaCpp QUIET rdkafka++) # Get variables
+  if(PC_RdKafkaCpp_FOUND)
+    message(STATUS "Tests: Found RdKafka (rdkafka++) via pkg-config. Version: ${PC_RdKafkaCpp_VERSION}")
+    if(NOT TARGET RdKafka::rdkafka++)
+        add_library(RdKafka::rdkafka++ INTERFACE IMPORTED GLOBAL)
+        target_include_directories(RdKafka::rdkafka++ INTERFACE ${PC_RdKafkaCpp_INCLUDE_DIRS})
+        target_link_libraries(RdKafka::rdkafka++ INTERFACE ${PC_RdKafkaCpp_LIBRARIES})
+        message(STATUS "Tests: Created GLOBAL IMPORTED target RdKafka::rdkafka++ from pkg-config.")
+    endif()
+    set(RdKafka_FOUND TRUE) # Signal that it's found
+  else()
+    message(FATAL_ERROR "Tests: RdKafka (rdkafka++) not found via pkg-config.")
+  endif()
+  if(NOT RdKafka_FOUND OR NOT TARGET RdKafka::rdkafka++) # Double check
+    message(FATAL_ERROR "Tests: Failed to find RdKafka C++ library (rdkafka++) for non-vcpkg build.")
+  endif()
 endif()
 
 find_package(Threads REQUIRED)
@@ -97,7 +137,7 @@ target_link_libraries(game_tests
     # Explicitly link what's directly used by tests, if not covered by game_logic_lib or proto_lib
     Boost::system              # Provided by find_package(Boost)
     nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
-    rabbitmq::rabbitmq         # Link directly to the target found by find_package(rabbitmq-c)
+    rabbitmq::rabbitmq      # Use the target name consistently created/found
     RdKafka::rdkafka++         # Use consistent GLOBAL target
     Threads::Threads           # Provided by find_package(Threads)
 

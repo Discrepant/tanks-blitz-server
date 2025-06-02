@@ -49,7 +49,9 @@ RUN git clone --depth 1 --branch ${PROTOBUF_VERSION} https://github.com/protocol
     make install && \
     ldconfig && \
     cd / && \
-    rm -rf /tmp/protobuf
+    rm -rf /tmp/protobuf && \
+    echo "DEBUG: Protobuf build complete. Exiting." && \
+    exit 0
 
 # --- Build and install gRPC v1.48.1 ---
 ENV GRPC_VERSION=v1.48.1

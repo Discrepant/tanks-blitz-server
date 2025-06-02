@@ -14,7 +14,7 @@ WORKDIR /usr/src/app
 
 # Copy requirements first to leverage Docker cache for dependencies
 # This assumes requirements.txt is in the root of the build context (auth_server/)
-COPY requirements.txt ./
+COPY ./auth_server/requirements.txt ./requirements.txt
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Copy the protos directory for gRPC generated code

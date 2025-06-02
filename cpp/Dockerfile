@@ -49,9 +49,7 @@ RUN git clone --depth 1 --branch ${PROTOBUF_VERSION} https://github.com/protocol
     make install && \
     ldconfig && \
     cd / && \
-    rm -rf /tmp/protobuf && \
-    echo "DEBUG: Protobuf build complete. Exiting." && \
-    exit 0
+    rm -rf /tmp/protobuf
 
 # --- Build and install gRPC v1.48.1 ---
 ENV GRPC_VERSION=v1.48.1
@@ -94,7 +92,8 @@ WORKDIR /opt/build
 # Copy the entire cpp directory content into the build stage
 # Assumes Dockerfile is in cpp/ and context is parent of cpp/ (e.g. project root)
 # If context is cpp/, then COPY . .
-COPY . ./
+COPY ./cpp ./cpp
+COPY ./protos ./protos
 # If Dockerfile is in project root and context is project root, then COPY ./cpp ./cpp
 
 # Add find commands to locate gRPC CMake config files

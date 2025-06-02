@@ -17,17 +17,40 @@ project(GameLogicTests CXX)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
 find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
 
-# Ensure GLOBAL IMPORTED targets from game_server_cpp are found/usable
-if(NOT TARGET RabbitMQC::rabbitmq-c)
-    message(FATAL_ERROR "Tests: RabbitMQC::rabbitmq-c target not found. It should be defined as GLOBAL in game_server_cpp.")
+# Find RabbitMQ-C (provided by librabbitmq)
+if(MY_USING_VCPKG)
+  find_package(rabbitmq-c CONFIG QUIET) # Package name is rabbitmq-c as hinted by vcpkg for librabbitmq
+  if(NOT rabbitmq-c_FOUND)
+    message(FATAL_ERROR "Tests: rabbitmq-c package (expected to be provided by librabbitmq) not found via vcpkg.")
+  else()
+    message(STATUS "Tests: Found rabbitmq-c package (likely provided by librabbitmq).")
+    if(NOT TARGET rabbitmq::rabbitmq) # Check for the actual target name
+      message(FATAL_ERROR "Tests: Target rabbitmq::rabbitmq not found after finding rabbitmq-c package.")
+    else()
+      message(STATUS "Tests: Successfully found target rabbitmq::rabbitmq.")
+    endif()
+  endif()
 else()
-    message(STATUS "Tests: Found GLOBAL target RabbitMQC::rabbitmq-c.")
+  # Fallback or error for non-vcpkg builds if RabbitMQ-C is a hard requirement for tests
+  message(FATAL_ERROR "Tests: RabbitMQ-C discovery for non-vcpkg builds is not configured.")
 endif()
 
-if(NOT TARGET RdKafka::rdkafka++)
-    message(FATAL_ERROR "Tests: RdKafka::rdkafka++ target not found. It should be defined as GLOBAL in game_server_cpp.")
+# Find RdKafka
+if(MY_USING_VCPKG)
+  find_package(RdKafka CONFIG QUIET) # vcpkg should provide this
+  if(NOT RdKafka_FOUND)
+    message(FATAL_ERROR "Tests: RdKafka package not found via vcpkg.")
+  else()
+    message(STATUS "Tests: Found RdKafka package.") # Added message for package found
+    if(NOT TARGET RdKafka::rdkafka++)
+      message(FATAL_ERROR "Tests: Target RdKafka::rdkafka++ not found after finding RdKafka package.")
+    else()
+      message(STATUS "Tests: Successfully found target RdKafka::rdkafka++.")
+    endif()
+  endif()
 else()
-    message(STATUS "Tests: Found GLOBAL target RdKafka::rdkafka++.")
+  # Fallback or error for non-vcpkg builds if RdKafka is a hard requirement for tests
+  message(FATAL_ERROR "Tests: RdKafka discovery for non-vcpkg builds is not configured.")
 endif()
 
 find_package(Threads REQUIRED)
@@ -73,7 +96,7 @@ target_link_libraries(game_tests
     # Explicitly link what's directly used by tests, if not covered by game_logic_lib or proto_lib
     Boost::system              # Provided by find_package(Boost)
     nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
-    RabbitMQC::rabbitmq-c      # Use consistent GLOBAL target
+    rabbitmq::rabbitmq         # Link directly to the target found by find_package(rabbitmq-c)
     RdKafka::rdkafka++         # Use consistent GLOBAL target
     Threads::Threads           # Provided by find_package(Threads)
 

@@ -34,13 +34,15 @@ add_library(auth_logic_lib STATIC
     auth_tcp_session.cpp
 )
 
-target_link_libraries(auth_logic_lib PRIVATE
-    proto_lib # For gRPC stubs used by auth_tcp_session
-    Boost::headers
-    Boost::system
-    gRPC::grpc++_unsecure # For auth_tcp_session using gRPC
-    Threads::Threads
-    nlohmann_json::nlohmann_json
+target_link_libraries(auth_logic_lib
+    PUBLIC
+        Boost::headers
+        Boost::system
+    PRIVATE
+        proto_lib # For gRPC stubs used by auth_tcp_session
+        gRPC::grpc++_unsecure # For auth_tcp_session using gRPC
+        Threads::Threads
+        nlohmann_json::nlohmann_json
 )
 
 target_include_directories(auth_logic_lib PUBLIC

@@ -14,6 +14,7 @@ project(GameLogicTests CXX)
 # find_package(PkgConfig REQUIRED) # No longer directly calling pkg_check_modules here
 
 # Find essential dependencies also needed for tests
+cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
 find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
 

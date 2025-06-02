@@ -120,8 +120,14 @@ RUN mkdir -p ./build_release && \
     cd ./build_release && \
     echo "Confirming CMake version before configuring project:" && \
     cmake --version && \
+    RABBITMQ_CFLAGS=$(pkg-config --cflags librabbitmq) && \
+    RDKAFKA_CFLAGS=$(pkg-config --cflags rdkafka++) && \
+    echo "RabbitMQ CFLAGS: ${RABBITMQ_CFLAGS}" && \
+    echo "RdKafka CFLAGS: ${RDKAFKA_CFLAGS}" && \
     echo "Using CMake from /usr/local/bin/cmake for project configuration:" && \
-    /usr/local/bin/cmake ../cpp -DCMAKE_BUILD_TYPE=Release && \
+    /usr/local/bin/cmake ../cpp \
+        -DCMAKE_BUILD_TYPE=Release \
+        -DCMAKE_CXX_FLAGS="${RABBITMQ_CFLAGS} ${RDKAFKA_CFLAGS}" && \
     make -j$(nproc) game_server_app auth_server_app
 
 # Stage 2: Runner

@@ -2,6 +2,7 @@
 # Project and C++ standard are set in the root CMakeLists.txt (cpp/CMakeLists.txt)
 
 # Find Boost (for Asio - system component often needed)
+cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
 if(NOT Boost_FOUND)
     message(FATAL_ERROR "AuthServerCpp: Boost not found.")

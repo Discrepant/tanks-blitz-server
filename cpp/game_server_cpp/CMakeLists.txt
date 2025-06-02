@@ -14,6 +14,7 @@ if(NOT MY_USING_VCPKG)
 endif()
 
 # Find direct dependencies for the game_logic_lib
+cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
 message(STATUS "GameServerCpp: Found Boost version: ${Boost_VERSION_STRING}")
 
@@ -87,28 +88,6 @@ if(MY_USING_VCPKG)
     message(STATUS "GameServerCpp: Found package rabbitmq-c via vcpkg (likely provided by librabbitmq).")
     set(RABBITMQ_PACKAGE_NAME "rabbitmq-c")
   endif()
-
-      # Отладочные сообщения для RabbitMQ-C
-      message(STATUS "Debug RabbitMQ: ===== Start Debug Info for ${RABBITMQ_PACKAGE_NAME} =====")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_FOUND = ${${RABBITMQ_PACKAGE_NAME}_FOUND}")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_CONFIG = ${${RABBITMQ_PACKAGE_NAME}_CONFIG}")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_VERSION = ${${RABBITMQ_PACKAGE_NAME}_VERSION}")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_INCLUDE_DIRS = ${${RABBITMQ_PACKAGE_NAME}_INCLUDE_DIRS}")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_LIBRARIES = ${${RABBITMQ_PACKAGE_NAME}_LIBRARIES}")
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_TARGETS = ${${RABBITMQ_PACKAGE_NAME}_TARGETS}") # Обычно не устанавливается для CONFIG-режима find_package
-      message(STATUS "Debug RabbitMQ: ${RABBITMQ_PACKAGE_NAME}_DEFINITIONS = ${${RABBITMQ_PACKAGE_NAME}_DEFINITIONS}")
-
-      # Попытка вывести все переменные, начинающиеся с RABBITMQ_PACKAGE_NAME_
-      get_cmake_property(_variableNames VARIABLES)
-      foreach (_variableName ${_variableNames})
-          if (_variableName MATCHES "^${RABBITMQ_PACKAGE_NAME}_.*")
-              message(STATUS "Debug RabbitMQ: Var ${_variableName} = ${${_variableName}}")
-          endif()
-          if (_variableName MATCHES "^RabbitMQC_.*") # Также проверим переменные для RabbitMQC, если они есть
-              message(STATUS "Debug RabbitMQ: Var ${_variableName} = ${${_variableName}}")
-          endif()
-      endforeach()
-      message(STATUS "Debug RabbitMQ: ===== End Debug Info for ${RABBITMQ_PACKAGE_NAME} =====")
 
   # Проверка возможных имен целей
   set(RABBITMQ_TARGET_FOUND FALSE)

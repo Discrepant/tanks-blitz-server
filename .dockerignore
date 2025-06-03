@@ -17,7 +17,7 @@ ENV/
 env/
 pip-selfcheck.json
 pip-log.txt
-requirements.txt 
+#requirements.txt 
 
 # C++ / CMake
 build/

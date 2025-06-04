@@ -37,11 +37,11 @@ RUN apt-get update && \
     && rm -rf /var/lib/apt/lists/*
 
 RUN    CMAKE_VERSION_MAJOR=3 && \
-   CMAKE_VERSION_MINOR=28 && \
-   CMAKE_VERSION_PATCH=3 && \
+   CMAKE_VERSION_MINOR=29 && \
+   CMAKE_VERSION_PATCH=6 && \
    CMAKE_VERSION_FULL=${CMAKE_VERSION_MAJOR}.${CMAKE_VERSION_MINOR}.${CMAKE_VERSION_PATCH} && \
    echo "Downloading CMake ${CMAKE_VERSION_FULL} source..." && \
-   wget "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION_FULL}/cmake-${CMAKE_VERSION_FULL}.tar.gz" -O /tmp/cmake.tar.gz && \
+   wget --no-verbose "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION_FULL}/cmake-${CMAKE_VERSION_FULL}.tar.gz" -O /tmp/cmake.tar.gz && \
    mkdir -p /tmp/cmake-source && \
    echo "Extracting CMake source..." && \
    tar -xzf /tmp/cmake.tar.gz -C /tmp/cmake-source --strip-components=1 && \
@@ -61,9 +61,9 @@ RUN    CMAKE_VERSION_MAJOR=3 && \
 RUN /usr/local/bin/cmake --version > /tmp/cmake_version.txt && \
     echo "CMake version reported by /usr/local/bin/cmake --version:" && \
     cat /tmp/cmake_version.txt && \
-    grep -q "3.28.3" /tmp/cmake_version.txt || \
-    (echo "CRITICAL: CMake version is NOT 3.28.3. Actual version in /tmp/cmake_version.txt. Build failed." && exit 1)
-RUN echo "CMake version 3.28.3 confirmed by grep."
+    grep -q "3.29.6" /tmp/cmake_version.txt || \
+    (echo "CRITICAL: CMake version is NOT 3.29.6. Actual version in /tmp/cmake_version.txt. Build failed." && exit 1)
+RUN echo "CMake version 3.29.6 confirmed by grep."
 
 # Check for CMake policy file
 # Note: CMAKE_VERSION_MAJOR and CMAKE_VERSION_MINOR are set within the new RUN command,

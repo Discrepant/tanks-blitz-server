@@ -1,12 +1,10 @@
-# docker-compose.yml (в корне проекта)
-
 networks:
   tanks_blitz_net:
     driver: bridge
 
 services:
   zookeeper:
-    image: confluentinc/cp-zookeeper:7.3.0 # Use a specific version
+    image: confluentinc/cp-zookeeper:7.3.0
     container_name: zookeeper
     networks:
       - tanks_blitz_net
@@ -17,28 +15,33 @@ services:
       - "2181:2181"
 
   kafka:
-    image: confluentinc/cp-kafka:7.3.0 # Use a specific version
+    image: confluentinc/cp-kafka:7.3.0
     container_name: kafka
     networks:
       - tanks_blitz_net
-    depends_on:
+    depends_on: # Kafka зависит только от Zookeeper для своего запуска
       - zookeeper
     ports:
-      - "9092:9092"       # For internal docker network
-      - "29092:29092"     # For host access
+      - "9092:9092"
+      - "29092:29092"
     environment:
       KAFKA_BROKER_ID: 1
       KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
       KAFKA_LISTENER_SECURITY_PROTOCOL_MAP: PLAINTEXT:PLAINTEXT,PLAINTEXT_HOST:PLAINTEXT
-      # For now, simplifying to use 9092 consistently internally.
       KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092,PLAINTEXT_HOST://localhost:29092
-      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092 # Corrected for clarity
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,PLAINTEXT_HOST://0.0.0.0:29092
       KAFKA_INTER_BROKER_LISTENER_NAME: PLAINTEXT
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
       KAFKA_GROUP_INITIAL_REBALANCE_DELAY_MS: 0
+    healthcheck:
+      test: ["CMD-SHELL", "nc -z localhost 9092 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 12
+      start_period: 60s
 
   rabbitmq:
-    image: rabbitmq:3.12-management-alpine # Use a specific version
+    image: rabbitmq:3.12-management-alpine
     container_name: rabbitmq
     networks:
       - tanks_blitz_net
@@ -53,82 +56,64 @@ services:
       interval: 10s
       timeout: 5s
       retries: 10
-      start_period: 30s # Give RabbitMQ more time to start
+      start_period: 30s
 
   redis-service:
-    image: redis:7-alpine # Use a specific version
+    image: redis:7-alpine
     container_name: redis-service
     networks:
       - tanks_blitz_net
     ports:
       - "6379:6379"
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 5s
 
-  # Python gRPC Authentication Service
-  auth_server: # Was python_auth_server, now it's the gRPC service
+  auth_server:
     build:
-      context: . # Changed context to project root
-      dockerfile: auth_server/Dockerfile # Path to Dockerfile from project root
-                             # If not, this needs to be created, or use project root context and specify path to python Dockerfile.
-                             # For now, assuming a simple Python Dockerfile in auth_server/ like:
-                             # FROM python:3.9-slim
-                             # WORKDIR /app
-                             # COPY requirements.txt .
-                             # RUN pip install -r requirements.txt
-                             # COPY . .
-                             # CMD ["python", "-m", "auth_grpc_server"] (adjust module name)
-    # If no Dockerfile in auth_server, build from project root with specific Dockerfile for Python
-    # For this task, let's assume a Dockerfile will be added to auth_server later, or use a pre-built image if available.
-    # To make it runnable for now, let's assume a simple Dockerfile structure in ./auth_server
-    # If auth_server/Dockerfile does not exist, this service WILL FAIL TO BUILD.
-    # The prompt was to update docker-compose, not create python Dockerfile.
-    # So, this part might need adjustment based on actual Python Dockerfile.
-    # For now, let's assume a python service that runs the gRPC server.
-    image: tank_game_python_auth_grpc_server # Placeholder image name
+      context: .
+      dockerfile: auth_server/Dockerfile
+    image: tank_game_python_auth_grpc_server
     container_name: python_auth_grpc_service
-    command: ["python", "-m", "auth_server.auth_grpc_server"] # Using list form and fully qualified module path
+    command: ["python", "-m", "auth_server.auth_grpc_server"]
     networks:
       - tanks_blitz_net
     ports:
-      - "50051:50051" # Expose gRPC port
+      - "50051:50051"
     environment:
       REDIS_HOST: redis-service
       REDIS_PORT: 6379
-      KAFKA_BOOTSTRAP_SERVERS: kafka:9092 # For auth events
-      # PYTHONUNBUFFERED: 1 # Useful for seeing logs immediately
+      KAFKA_BOOTSTRAP_SERVERS: kafka:9092
     depends_on:
-      - redis-service
-      - kafka
-    # volumes: # If you want live reload for Python code
-    #   - ./auth_server:/app
-    #   - ./protos:/app/protos # If protos are needed by Python server at runtime (they are for imports)
-    #   - ./cpp/protos:/app/protos # If protos are in cpp/protos
-    # To make this work, auth_server Dockerfile should copy protos or have access
-    # For now, assume generated code is available or copied by its Dockerfile.
+      redis-service:
+        condition: service_healthy
+      kafka: # auth_server также зависит от Kafka
+        condition: service_healthy
 
-
-  # C++ TCP Authentication Server (gRPC Client)
   cpp_auth_server:
     build:
-      context: . # Build from project root
-      dockerfile: cpp/Dockerfile # Using the new C++ Dockerfile
-      # target: runner # Not needed here, Dockerfile should produce runner image as final stage
+      context: .
+      dockerfile: cpp/Dockerfile
     image: tank_game_cpp_auth_server_app
     container_name: cpp_auth_tcp_server
     command: ["/opt/auth_server/auth_server_app", "--port", "9000", "--grpc_addr", "auth_server:50051"]
     networks:
       - tanks_blitz_net
     ports:
-      - "9000:9000" # Expose the C++ Auth TCP server port
+      - "9000:9000"
     depends_on:
-      - auth_server # Depends on the Python gRPC Auth service
+      auth_server:
+        condition: service_started # У auth_server нет своего healthcheck
     restart: unless-stopped
 
-  # C++ Game Server
   cpp_game_server:
     build:
-      context: . # Build from project root
-      dockerfile: cpp/Dockerfile # Using the new C++ Dockerfile
+      context: .
+      dockerfile: cpp/Dockerfile
     image: tank_game_cpp_game_server_app
     container_name: cpp_game_server
     command: >
@@ -145,23 +130,19 @@ services:
     networks:
       - tanks_blitz_net
     ports:
-      - "8888:8888"     # TCP game port
-      - "8889:8889/udp" # UDP game port
-      # Prometheus ports if C++ apps expose them directly:
-      # - "8000:8000" # Example if auth_server_app had metrics
-      # - "8001:8001" # Example if game_server_app had metrics
+      - "8888:8888"
+      - "8889:8889/udp"
     depends_on:
-      - rabbitmq
-      - kafka
-      - auth_server # Python gRPC Auth service
+      rabbitmq:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      auth_server:
+        condition: service_started # У auth_server нет своего healthcheck
     restart: unless-stopped
 
-  # Old Python Game Server (commented out/removed)
-  # game_server:
-  #   ...
-
   prometheus:
-    image: prom/prometheus:v2.47.0 # Use a specific version
+    image: prom/prometheus:v2.47.0
     container_name: prometheus
     networks:
       - tanks_blitz_net
@@ -171,13 +152,16 @@ services:
       - "9090:9090"
     command:
       - '--config.file=/etc/prometheus/prometheus.yml'
-    depends_on: # Ensure Prometheus starts after potential metric sources
-      - cpp_auth_server
-      - cpp_game_server
-      - auth_server # Python gRPC service if it exposes metrics
+    depends_on:
+      cpp_auth_server: # Зависит от сервисов, которые он должен скрейпить
+        condition: service_started
+      cpp_game_server:
+        condition: service_started
+      auth_server:
+        condition: service_started
 
   grafana:
-    image: grafana/grafana:10.1.1 # Use a specific version
+    image: grafana/grafana:10.1.1
     container_name: grafana
     networks:
       - tanks_blitz_net
@@ -185,16 +169,12 @@ services:
       - "3000:3000"
     environment:
       - GF_SECURITY_ADMIN_USER=admin
-      - GF_SECURITY_ADMIN_PASSWORD=password # Change in production
+      - GF_SECURITY_ADMIN_PASSWORD=password
     volumes:
       - grafana_data:/var/lib/grafana
-    depends_on:
-      - prometheus
+    depends_on: # Grafana зависит от Prometheus
+      prometheus:
+        condition: service_started # У Prometheus нет healthcheck по умолчанию
 
 volumes:
   grafana_data: {}
-  # kafka_data: {} # If you want to persist Kafka data
-  # zookeeper_data: {}
-  # zookeeper_log: {}
-  # rabbitmq_data: {} # If you want to persist RabbitMQ data
-  # redis_data: {} # If you want to persist Redis data

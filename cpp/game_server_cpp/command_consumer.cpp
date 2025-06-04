@@ -139,38 +139,122 @@ bool PlayerCommandConsumer::connect_to_rabbitmq() {
         return false;
     }
 
-    die_on_amqp_error(amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), rmq_pass_.c_str()), "RMQ Login");
-    if(amqp_get_rpc_reply(rmq_conn_state_).reply_type != AMQP_RESPONSE_NORMAL) { // Check if login failed
-        std::cerr << "Consumer RMQ: Login failed." << std::endl;
+    amqp_rpc_reply_t login_reply = amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), rmq_pass_.c_str());
+    if (login_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+        std::cerr << "Consumer RMQ: Login failed. AMQP reply type: " << static_cast<int>(login_reply.reply_type);
+        if (login_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+            if (login_reply.reply.id == AMQP_CONNECTION_CLOSE_METHOD) {
+                auto* decoded_reply = static_cast<amqp_connection_close_t*>(login_reply.reply.decoded);
+                if (decoded_reply) {
+                    std::cerr << " Server error: " << decoded_reply->reply_code
+                              << " text: " << amqp_bytes_to_std_string(decoded_reply->reply_text);
+                }
+            } else {
+                 std::cerr << " Server error, method id: " << login_reply.reply.id;
+            }
+        } else if (login_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+             std::cerr << " Library error: " << amqp_error_string2(login_reply.library_error);
+        }
+        std::cerr << std::endl;
         amqp_destroy_connection(rmq_conn_state_); rmq_conn_state_ = nullptr;
         return false;
     }
 
-
-    amqp_channel_open_ok_t* chan_ok = amqp_channel_open(rmq_conn_state_, CHANNEL_ID);
-    die_on_amqp_error(amqp_get_rpc_reply(rmq_conn_state_), "RMQ Channel Open");
-     if (!chan_ok) {
-        std::cerr << "Consumer RMQ: Failed to open channel " << CHANNEL_ID << "." << std::endl;
+    // Channel Open
+    amqp_channel_open(rmq_conn_state_, CHANNEL_ID);
+    amqp_rpc_reply_t channel_open_reply = amqp_get_rpc_reply(rmq_conn_state_);
+    if (channel_open_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+        std::cerr << "Consumer RMQ: Channel Open failed. AMQP reply type: " << static_cast<int>(channel_open_reply.reply_type);
+        if (channel_open_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+            if (channel_open_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) { // Typically AMQP_CHANNEL_CLOSE_METHOD
+                auto* decoded_reply = static_cast<amqp_channel_close_t*>(channel_open_reply.reply.decoded);
+                if (decoded_reply) {
+                    std::cerr << " Server error: " << decoded_reply->reply_code
+                              << " text: " << amqp_bytes_to_std_string(decoded_reply->reply_text);
+                }
+            } else {
+                 std::cerr << " Server error, method id: " << channel_open_reply.reply.id;
+            }
+        } else if (channel_open_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+             std::cerr << " Library error: " << amqp_error_string2(channel_open_reply.library_error);
+        }
+        std::cerr << std::endl;
         amqp_destroy_connection(rmq_conn_state_); rmq_conn_state_ = nullptr;
         return false;
     }
 
     // Declare queue as durable
+    // Note: amqp_queue_declare_ok_t is still useful to get queue name, message count etc. if needed later.
+    // For now, we only care about success/failure.
     amqp_queue_declare_ok_t *declare_ok = amqp_queue_declare(rmq_conn_state_, CHANNEL_ID, amqp_cstring_bytes(PLAYER_COMMANDS_QUEUE_NAME.c_str()), 0, 1, 0, 0, amqp_empty_table);
-    die_on_amqp_error(amqp_get_rpc_reply(rmq_conn_state_), "RMQ Queue Declare");
-    if (!declare_ok) {
-        std::cerr << "Consumer RMQ: Failed to declare queue '" << PLAYER_COMMANDS_QUEUE_NAME << "' (or it exists with incompatible properties)." << std::endl;
-        // This might not be fatal if queue already exists correctly.
+    amqp_rpc_reply_t queue_declare_reply = amqp_get_rpc_reply(rmq_conn_state_);
+    if (queue_declare_reply.reply_type != AMQP_RESPONSE_NORMAL || !declare_ok) { // Also check declare_ok for safety
+        std::cerr << "Consumer RMQ: Queue Declare failed. AMQP reply type: " << static_cast<int>(queue_declare_reply.reply_type);
+        if (queue_declare_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+             if (queue_declare_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) { // Queue errors often close channel
+                auto* decoded_reply = static_cast<amqp_channel_close_t*>(queue_declare_reply.reply.decoded);
+                if (decoded_reply) {
+                    std::cerr << " Server error: " << decoded_reply->reply_code
+                              << " text: " << amqp_bytes_to_std_string(decoded_reply->reply_text);
+                }
+            } else {
+                 std::cerr << " Server error, method id: " << queue_declare_reply.reply.id;
+            }
+        } else if (queue_declare_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+             std::cerr << " Library error: " << amqp_error_string2(queue_declare_reply.library_error);
+        }
+        std::cerr << std::endl;
+        if (!declare_ok) std::cerr << "Consumer RMQ: declare_ok was NULL." << std::endl;
+
+        amqp_destroy_connection(rmq_conn_state_); rmq_conn_state_ = nullptr;
+        return false;
     }
+
 
     // Set QoS: prefetch_count = 1 (process one message at a time)
     amqp_basic_qos(rmq_conn_state_, CHANNEL_ID, 0, 1, 0);
-    die_on_amqp_error(amqp_get_rpc_reply(rmq_conn_state_), "RMQ QoS Set");
+    amqp_rpc_reply_t qos_reply = amqp_get_rpc_reply(rmq_conn_state_);
+    if (qos_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+        std::cerr << "Consumer RMQ: QoS Set failed. AMQP reply type: " << static_cast<int>(qos_reply.reply_type);
+         if (qos_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+            if (qos_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) {
+                auto* decoded_reply = static_cast<amqp_channel_close_t*>(qos_reply.reply.decoded);
+                if (decoded_reply) {
+                    std::cerr << " Server error: " << decoded_reply->reply_code
+                              << " text: " << amqp_bytes_to_std_string(decoded_reply->reply_text);
+                }
+            } else {
+                 std::cerr << " Server error, method id: " << qos_reply.reply.id;
+            }
+        } else if (qos_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+             std::cerr << " Library error: " << amqp_error_string2(qos_reply.library_error);
+        }
+        std::cerr << std::endl;
+        amqp_destroy_connection(rmq_conn_state_); rmq_conn_state_ = nullptr;
+        return false;
+    }
 
+    // Basic Consume
     amqp_basic_consume_ok_t* consume_ok = amqp_basic_consume(rmq_conn_state_, CHANNEL_ID, amqp_cstring_bytes(PLAYER_COMMANDS_QUEUE_NAME.c_str()), amqp_empty_bytes, 0, 0, 0, amqp_empty_table); // no_ack = 0 (false)
-    die_on_amqp_error(amqp_get_rpc_reply(rmq_conn_state_), "RMQ Basic Consume");
-    if (!consume_ok) {
-        std::cerr << "Consumer RMQ: Failed to start consuming from queue '" << PLAYER_COMMANDS_QUEUE_NAME << "'." << std::endl;
+    amqp_rpc_reply_t basic_consume_reply = amqp_get_rpc_reply(rmq_conn_state_);
+    if (basic_consume_reply.reply_type != AMQP_RESPONSE_NORMAL || !consume_ok) {
+        std::cerr << "Consumer RMQ: Basic Consume failed. AMQP reply type: " << static_cast<int>(basic_consume_reply.reply_type);
+        if (basic_consume_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+            if (basic_consume_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) {
+                auto* decoded_reply = static_cast<amqp_channel_close_t*>(basic_consume_reply.reply.decoded);
+                if (decoded_reply) {
+                    std::cerr << " Server error: " << decoded_reply->reply_code
+                              << " text: " << amqp_bytes_to_std_string(decoded_reply->reply_text);
+                }
+            } else {
+                 std::cerr << " Server error, method id: " << basic_consume_reply.reply.id;
+            }
+        } else if (basic_consume_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+             std::cerr << " Library error: " << amqp_error_string2(basic_consume_reply.library_error);
+        }
+        std::cerr << std::endl;
+        if (!consume_ok) std::cerr << "Consumer RMQ: consume_ok was NULL." << std::endl;
+
         amqp_destroy_connection(rmq_conn_state_); rmq_conn_state_ = nullptr;
         return false;
     }

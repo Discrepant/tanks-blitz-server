@@ -44,7 +44,8 @@ ENV CMAKE_VERSION_FULL=${CMAKE_VERSION_MAJOR}.${CMAKE_VERSION_MINOR}.${CMAKE_VER
 ENV CMAKE_TAR_BALL=cmake-${CMAKE_VERSION_FULL}-linux-x86_64.tar.gz
 ENV CMAKE_DOWNLOAD_URL=https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION_FULL}/${CMAKE_TAR_BALL}
 
-RUN echo "Starting comprehensive CMake 3.28.3 installation..." && \
+RUN set -x && \
+    echo "Starting comprehensive CMake 3.28.3 installation..." && \
     apt-get purge -y --auto-remove cmake cmake-data || echo "CMake (apt) not found or already removed, skipping purge." && \
     rm -f /usr/bin/cmake /usr/local/bin/cmake /usr/bin/cpack /usr/local/bin/ctest || echo "Old cmake binaries not found, skipping rm." && \
     echo "Downloading CMake ${CMAKE_VERSION_FULL}..." && \
@@ -60,9 +61,7 @@ RUN echo "Starting comprehensive CMake 3.28.3 installation..." && \
     # (which include cmake-3.28, man, etc.) to be copied into /usr/local/share.
     # So, the destination for cmake-3.28 modules should become /usr/local/share/cmake-3.28/Modules
     cp -a /tmp/cmake-install/share/. /usr/local/share/ && \
-    echo "Verifying copied file directly after cp -a operations:" && \
-    (ls -l /usr/local/share/cmake-${CMAKE_VERSION_MAJOR}.${CMAKE_VERSION_MINOR}/Modules/CMakePolicyCMP0167.cmake && echo "File FOUND by ls -l immediately after cp -a in single RUN") || echo "File NOT found by ls -l immediately after cp -a in single RUN" && \
-    (test -f /usr/local/share/cmake-${CMAKE_VERSION_MAJOR}.${CMAKE_VERSION_MINOR}/Modules/CMakePolicyCMP0167.cmake && echo "File FOUND by test -f immediately after cp -a in single RUN") || echo "File NOT found by test -f immediately after cp -a in single RUN" && \
+    sync && \
     echo "Listing /usr/local/bin after copy:" && \
     ls -R /usr/local/bin/ && \
     echo "Listing /usr/local/share after copy:" && \

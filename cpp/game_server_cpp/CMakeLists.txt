@@ -1,3 +1,4 @@
+cmake_minimum_required(VERSION 3.28)
 # CMakeLists.txt for game_server_cpp
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
@@ -14,7 +15,7 @@ if(NOT MY_USING_VCPKG)
 endif()
 
 # Find direct dependencies for the game_logic_lib
-cmake_policy(SET CMP0167 NEW)
+#cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Try finding only system first
 message(STATUS "GameServerCpp: Found Boost version: ${Boost_VERSION_STRING}")
 

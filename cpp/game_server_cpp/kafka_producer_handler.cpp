@@ -14,62 +14,100 @@ void ExampleDeliveryReportCb::dr_cb(RdKafka::Message &message) {
     }
 }
 
+#include <thread> // For std::this_thread::sleep_for
+#include <chrono> // For std::chrono::seconds
+
 KafkaProducerHandler::KafkaProducerHandler(const std::string& brokers)
  : producer_valid_(false) { // Initialize producer_valid_
-    std::string errstr;
-    RdKafka::Conf *conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
+    std::string errstr; // General error string
 
-    if (!conf) {
-        std::cerr << "Kafka FATAL: Failed to create RdKafka Conf object" << std::endl;
-        return;
-    }
+    const int MAX_KAFKA_RETRIES = 5;
+    const std::chrono::seconds KAFKA_RETRY_DELAY = std::chrono::seconds(3);
 
-    // Set bootstrap servers
-    if (conf->set("bootstrap.servers", brokers, errstr) != RdKafka::Conf::CONF_OK) {
-        std::cerr << "Kafka FATAL: Failed to set bootstrap.servers to " << brokers << ": " << errstr << std::endl;
-        delete conf;
-        return;
-    }
+    for (int attempt = 1; attempt <= MAX_KAFKA_RETRIES; ++attempt) {
+        std::cout << "KafkaProducerHandler: Attempt " << attempt << "/" << MAX_KAFKA_RETRIES
+                  << " to connect to Kafka brokers: " << brokers << std::endl;
 
-    // Set delivery report callback
-    if (conf->set("dr_cb", &delivery_report_cb_, errstr) != RdKafka::Conf::CONF_OK) {
-        std::cerr << "Kafka FATAL: Failed to set delivery report callback: " << errstr << std::endl;
-        delete conf;
-        return;
-    }
+        RdKafka::Conf *conf = RdKafka::Conf::create(RdKafka::Conf::CONF_GLOBAL);
+        if (!conf) {
+            std::cerr << "Kafka FATAL: Failed to create RdKafka Conf object on attempt " << attempt << std::endl;
+            if (attempt < MAX_KAFKA_RETRIES) {
+                std::this_thread::sleep_for(KAFKA_RETRY_DELAY);
+                continue;
+            } else {
+                std::cerr << "KafkaProducerHandler: All " << MAX_KAFKA_RETRIES << " attempts to create RdKafka Conf failed." << std::endl;
+                producer_valid_ = false; // Ensure it's false
+                break; // Exit loop
+            }
+        }
 
-    // Recommended configurations for reliability
-    if (conf->set("acks", "all", errstr) != RdKafka::Conf::CONF_OK) {
-        std::cerr << "Kafka Warning: Failed to set acks=all: " << errstr << std::endl;
-    }
-    if (conf->set("retries", "3", errstr) != RdKafka::Conf::CONF_OK) { // Number of retries
-        std::cerr << "Kafka Warning: Failed to set retries=3: " << errstr << std::endl;
-    }
-    if (conf->set("message.send.max.retries", "3", errstr) != RdKafka::Conf::CONF_OK) { // Alias for retries
-         std::cerr << "Kafka Warning: Failed to set message.send.max.retries=3: " << errstr << std::endl;
-    }
-    if (conf->set("retry.backoff.ms", "100", errstr) != RdKafka::Conf::CONF_OK) { // Backoff between retries
-        std::cerr << "Kafka Warning: Failed to set retry.backoff.ms=100: " << errstr << std::endl;
-    }
-    if (conf->set("linger.ms", "10", errstr) != RdKafka::Conf::CONF_OK) { // Batching: time to wait for more messages
-        std::cerr << "Kafka Warning: Failed to set linger.ms=10: " << errstr << std::endl;
-    }
-     // Optional: idempotence for producer to avoid duplicates on retries (requires broker >= 0.11.0.0)
-    if (conf->set("enable.idempotence", "true", errstr) != RdKafka::Conf::CONF_OK) {
-        std::cerr << "Kafka Warning: Failed to enable idempotence (requires broker >= 0.11 and acks=all): " << errstr << std::endl;
-    }
+        // Set bootstrap servers (critical)
+        if (conf->set("bootstrap.servers", brokers, errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka FATAL: Failed to set bootstrap.servers to " << brokers << ": " << errstr << " on attempt " << attempt << std::endl;
+            delete conf;
+            if (attempt < MAX_KAFKA_RETRIES) {
+                std::this_thread::sleep_for(KAFKA_RETRY_DELAY);
+                continue;
+            } else {
+                producer_valid_ = false;
+                break;
+            }
+        }
 
+        // Set delivery report callback (critical)
+        if (conf->set("dr_cb", &delivery_report_cb_, errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka FATAL: Failed to set delivery report callback: " << errstr << " on attempt " << attempt << std::endl;
+            delete conf;
+            if (attempt < MAX_KAFKA_RETRIES) {
+                std::this_thread::sleep_for(KAFKA_RETRY_DELAY);
+                continue;
+            } else {
+                producer_valid_ = false;
+                break;
+            }
+        }
 
-    RdKafka::Producer *raw_producer = RdKafka::Producer::create(conf, errstr);
-    delete conf; // Conf object is copied by Producer::create
+        // Recommended configurations for reliability (non-critical for loop continuation, warnings are fine)
+        if (conf->set("acks", "all", errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka Warning: Failed to set acks=all: " << errstr << " on attempt " << attempt << std::endl;
+        }
+        // librdkafka has internal retries; these are producer-level config for those.
+        // The loop here is for initial connection/producer creation.
+        if (conf->set("message.send.max.retries", "3", errstr) != RdKafka::Conf::CONF_OK) {
+             std::cerr << "Kafka Warning: Failed to set message.send.max.retries=3: " << errstr << " on attempt " << attempt << std::endl;
+        }
+        if (conf->set("retry.backoff.ms", "100", errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka Warning: Failed to set retry.backoff.ms=100: " << errstr << " on attempt " << attempt << std::endl;
+        }
+        if (conf->set("linger.ms", "10", errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka Warning: Failed to set linger.ms=10: " << errstr << " on attempt " << attempt << std::endl;
+        }
+        if (conf->set("enable.idempotence", "true", errstr) != RdKafka::Conf::CONF_OK) {
+            std::cerr << "Kafka Warning: Failed to enable idempotence (requires broker >= 0.11 and acks=all): " << errstr << " on attempt " << attempt << std::endl;
+        }
 
-    if (!raw_producer) {
-        std::cerr << "Kafka FATAL: Failed to create Kafka producer: " << errstr << std::endl;
-    } else {
-        producer_.reset(raw_producer); // Manage with unique_ptr
-        producer_valid_ = true;
-        std::cout << "KafkaProducerHandler: Kafka producer created successfully for brokers: " << brokers << std::endl;
+        RdKafka::Producer *raw_producer = RdKafka::Producer::create(conf, errstr);
+
+        if (!raw_producer) {
+            std::cerr << "Kafka FATAL: Failed to create Kafka producer on attempt " << attempt << ": " << errstr << std::endl;
+            delete conf; // Producer::create did not take ownership of conf on failure
+            if (attempt < MAX_KAFKA_RETRIES) {
+                std::this_thread::sleep_for(KAFKA_RETRY_DELAY);
+            } else {
+                producer_valid_ = false; // All attempts failed
+            }
+        } else {
+            producer_.reset(raw_producer); // Manage with unique_ptr, Producer took ownership of conf
+            producer_valid_ = true;
+            std::cout << "KafkaProducerHandler: Kafka producer created successfully on attempt " << attempt << " for brokers: " << brokers << std::endl;
+            break; // Success, exit loop
+        }
+    } // End of retry loop
+
+    if (!producer_valid_) {
+        std::cerr << "KafkaProducerHandler: All " << MAX_KAFKA_RETRIES << " attempts to create Kafka producer failed for brokers: " << brokers << "." << std::endl;
     }
+    // Constructor finishes, producer_valid_ reflects the outcome.
 }
 
 KafkaProducerHandler::~KafkaProducerHandler() {

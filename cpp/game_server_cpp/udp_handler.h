@@ -8,11 +8,13 @@
 #include <vector>
 #include <array>
 #include <memory> // For std::shared_ptr
+#include <thread> // For std::this_thread::sleep_for
+#include <chrono> // For std::chrono::seconds
 
 // RabbitMQ C AMQP client
-#include <amqp.h>
-#include <amqp_tcp_socket.h>
-#include <amqp_framing.h> // For amqp_cstring_bytes etc.
+#include <rabbitmq-c/amqp.h>
+#include <rabbitmq-c/tcp_socket.h>
+#include <rabbitmq-c/framing.h> // For amqp_cstring_bytes etc.
 
 #include "session_manager.h" // Actual SessionManager
 #include "tank_pool.h"       // Actual TankPool

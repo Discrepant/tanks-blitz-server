@@ -1,4 +1,4 @@
-cmake_minimum_required(VERSION 3.16)
+cmake_minimum_required(VERSION 3.28)
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
     set(MY_USING_VCPKG TRUE)
@@ -14,7 +14,7 @@ project(GameLogicTests CXX)
 # find_package(PkgConfig REQUIRED) # No longer directly calling pkg_check_modules here
 
 # Find essential dependencies also needed for tests
-cmake_policy(SET CMP0167 NEW)
+#cmake_policy(SET CMP0167 NEW)
 find_package(Boost 1.71.0 REQUIRED COMPONENTS system) # Assuming system is needed, add others if necessary
 find_package(nlohmann_json 3 REQUIRED) # Or whatever version you expect
 
@@ -137,7 +137,7 @@ target_link_libraries(game_tests
     # Explicitly link what's directly used by tests, if not covered by game_logic_lib or proto_lib
     Boost::system              # Provided by find_package(Boost)
     nlohmann_json::nlohmann_json # Provided by find_package(nlohmann_json)
-    rabbitmq::rabbitmq      # Use the target name consistently created/found
+    RabbitMQC::rabbitmq-c      # Use the target name consistently created/found
     RdKafka::rdkafka++         # Use consistent GLOBAL target
     Threads::Threads           # Provided by find_package(Threads)
 

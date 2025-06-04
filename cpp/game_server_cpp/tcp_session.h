@@ -10,9 +10,9 @@
 #include <nlohmann/json.hpp>
 
 // AMQP (RabbitMQ)
-#include <rabbitmq-c/amqp.h>
+#include <amqp.h>
 // #include <amqp_tcp_socket.h> // Not directly used in session, connection state passed
-#include <rabbitmq-c/framing.h>    // For amqp_cstring_bytes etc. if used directly
+#include <amqp_framing.h>    // For amqp_cstring_bytes etc. if used directly
 
 // gRPC (Auth Service Client)
 #include <grpcpp/grpcpp.h>

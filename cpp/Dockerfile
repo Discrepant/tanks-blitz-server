@@ -128,6 +128,8 @@ RUN echo "Running ldconfig after Catch2 install..." && ldconfig && \
 WORKDIR /app/src
 
 # Copy the entire content of the current directory (cpp/) into /app/src
+# Force rebuild of this layer
+# Tue Jun 04 2024 12:00:00 GMT+0000 (Coordinated Universal Time) Force cache invalidation for source copy
 COPY . /app/src
 
 # (Остальные шаги типа установки Protobuf, gRPC, Catch2 если они нужны и раскомментированы)

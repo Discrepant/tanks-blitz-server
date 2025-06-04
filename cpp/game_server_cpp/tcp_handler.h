@@ -1,7 +1,7 @@
 #ifndef GAME_TCP_HANDLER_H // Renamed from TCP_HANDLER_H to avoid potential conflicts if an old one existed
 #define GAME_TCP_HANDLER_H
 
-#include <amqp.h>  // For amqp_connection_state_t and other AMQP types
+#include <rabbitmq-c/amqp.h>  // For amqp_connection_state_t and other AMQP types
 #include <boost/asio.hpp>
 #include <vector>   // Though not directly used in this header, often useful for server logic
 #include <memory>   // For std::shared_ptr

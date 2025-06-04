@@ -46,55 +46,157 @@ GameUDPHandler::~GameUDPHandler() {
 //     internal_start_receive();
 // }
 
+// Helper to convert amqp_bytes_t to std::string, useful for message bodies
+// This can be moved to a common utility if used by multiple RMQ classes
+static std::string amqp_bytes_to_std_string_udp(const amqp_bytes_t& bytes) {
+    return std::string(static_cast<char*>(bytes.bytes), bytes.len);
+}
+
+
 bool GameUDPHandler::setup_rabbitmq_connection() {
-    rmq_conn_state_ = amqp_new_connection();
-    if (!rmq_conn_state_) {
-        std::cerr << "UDP Handler RMQ: Failed to create new AMQP connection state." << std::endl;
-        return false;
+    rmq_connected_ = false; // Initialize at the start
+    const int MAX_RMQ_RETRIES = 5;
+    const std::chrono::seconds RMQ_RETRY_DELAY = std::chrono::seconds(3);
+    static const int CHANNEL_ID = 1; // Define channel ID
+
+    for (int attempt = 1; attempt <= MAX_RMQ_RETRIES; ++attempt) {
+        std::cout << "UDP Handler RMQ: Attempt " << attempt << "/" << MAX_RMQ_RETRIES << " to connect to "
+                  << rmq_host_ << ":" << rmq_port_ << std::endl;
+
+        rmq_conn_state_ = amqp_new_connection();
+        if (!rmq_conn_state_) {
+            std::cerr << "UDP Handler RMQ: Failed to create new AMQP connection state on attempt " << attempt << "." << std::endl;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break; // All attempts failed
+            }
+        }
+
+        amqp_socket_t *socket = amqp_tcp_socket_new(rmq_conn_state_);
+        if (!socket) {
+            std::cerr << "UDP Handler RMQ: Failed to create TCP socket on attempt " << attempt << "." << std::endl;
+            amqp_destroy_connection(rmq_conn_state_);
+            rmq_conn_state_ = nullptr;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        int status = amqp_socket_open(socket, rmq_host_.c_str(), rmq_port_);
+        if (status != AMQP_STATUS_OK) {
+            std::cerr << "UDP Handler RMQ: Failed to open TCP socket to " << rmq_host_ << ":" << rmq_port_
+                      << ". Error: " << amqp_error_string2(status) << " on attempt " << attempt << "." << std::endl;
+            amqp_destroy_connection(rmq_conn_state_);
+            rmq_conn_state_ = nullptr;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        amqp_rpc_reply_t login_reply = amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), rmq_pass_.c_str());
+        if (login_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+            std::cerr << "UDP Handler RMQ: Login failed on attempt " << attempt << ". AMQP reply type: " << static_cast<int>(login_reply.reply_type);
+            if (login_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+                if (login_reply.reply.id == AMQP_CONNECTION_CLOSE_METHOD) {
+                    auto* decoded = static_cast<amqp_connection_close_t*>(login_reply.reply.decoded);
+                    if (decoded) {
+                        std::cerr << " Server error: " << decoded->reply_code
+                                  << " text: " << amqp_bytes_to_std_string_udp(decoded->reply_text);
+                    }
+                } else {
+                    std::cerr << " Server error, method id: " << login_reply.reply.id;
+                }
+            } else if (login_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+                std::cerr << " Library error: " << amqp_error_string2(login_reply.library_error);
+            }
+            std::cerr << std::endl;
+            amqp_destroy_connection(rmq_conn_state_);
+            rmq_conn_state_ = nullptr;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        amqp_channel_open(rmq_conn_state_, CHANNEL_ID);
+        amqp_rpc_reply_t channel_open_reply = amqp_get_rpc_reply(rmq_conn_state_);
+        if (channel_open_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+            std::cerr << "UDP Handler RMQ: Channel Open failed on attempt " << attempt << ". AMQP reply type: " << static_cast<int>(channel_open_reply.reply_type);
+            if (channel_open_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+                if (channel_open_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) {
+                    auto* decoded = static_cast<amqp_channel_close_t*>(channel_open_reply.reply.decoded);
+                    if (decoded) {
+                        std::cerr << " Server error: " << decoded->reply_code
+                                  << " text: " << amqp_bytes_to_std_string_udp(decoded->reply_text);
+                    }
+                } else {
+                    std::cerr << " Server error, method id: " << channel_open_reply.reply.id;
+                }
+            } else if (channel_open_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+                std::cerr << " Library error: " << amqp_error_string2(channel_open_reply.library_error);
+            }
+            std::cerr << std::endl;
+            amqp_destroy_connection(rmq_conn_state_);
+            rmq_conn_state_ = nullptr;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // Declare queue as durable
+        amqp_queue_declare_ok_t *declare_ok = amqp_queue_declare(rmq_conn_state_, CHANNEL_ID, amqp_cstring_bytes(RMQ_PLAYER_COMMANDS_QUEUE.c_str()), 0, 1, 0, 0, amqp_empty_table);
+        amqp_rpc_reply_t queue_declare_reply = amqp_get_rpc_reply(rmq_conn_state_);
+        if (!declare_ok || queue_declare_reply.reply_type != AMQP_RESPONSE_NORMAL) {
+            std::cerr << "UDP Handler RMQ: Queue Declare failed for '" << RMQ_PLAYER_COMMANDS_QUEUE << "' on attempt " << attempt
+                      << ". Reply type: " << static_cast<int>(queue_declare_reply.reply_type)
+                      << (declare_ok ? "" : ", declare_ok is NULL");
+            if (queue_declare_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {
+                 if (queue_declare_reply.reply.id == AMQP_CHANNEL_CLOSE_METHOD) {
+                    auto* decoded = static_cast<amqp_channel_close_t*>(queue_declare_reply.reply.decoded);
+                    if (decoded) {
+                        std::cerr << " Server error: " << decoded->reply_code
+                                  << " text: " << amqp_bytes_to_std_string_udp(decoded->reply_text);
+                    }
+                } else {
+                    std::cerr << " Server error, method id: " << queue_declare_reply.reply.id;
+                }
+            } else if (queue_declare_reply.reply_type == AMQP_RESPONSE_LIBRARY_EXCEPTION) {
+                 std::cerr << " Library error: " << amqp_error_string2(queue_declare_reply.library_error);
+            }
+            std::cerr << std::endl;
+            amqp_destroy_connection(rmq_conn_state_);
+            rmq_conn_state_ = nullptr;
+            if (attempt < MAX_RMQ_RETRIES) {
+                std::this_thread::sleep_for(RMQ_RETRY_DELAY);
+                continue;
+            } else {
+                break;
+            }
+        }
+
+        // If all steps are successful
+        rmq_connected_ = true;
+        std::cout << "UDP Handler RMQ: Successfully connected to RabbitMQ and setup queue on attempt " << attempt << "." << std::endl;
+        break; // Exit retry loop
     }
 
-    amqp_socket_t *socket = amqp_tcp_socket_new(rmq_conn_state_);
-    if (!socket) {
-        std::cerr << "UDP Handler RMQ: Failed to create TCP socket." << std::endl;
-        amqp_destroy_connection(rmq_conn_state_);
-        rmq_conn_state_ = nullptr;
-        return false;
+    if (!rmq_connected_) {
+        std::cerr << "UDP Handler RMQ: All " << MAX_RMQ_RETRIES << " attempts to connect to RabbitMQ failed." << std::endl;
     }
-
-    int status = amqp_socket_open(socket, rmq_host_.c_str(), rmq_port_);
-    if (status) {
-        std::cerr << "UDP Handler RMQ: Failed to open TCP socket: " << amqp_error_string2(status) << std::endl;
-        amqp_destroy_connection(rmq_conn_state_);
-        rmq_conn_state_ = nullptr;
-        return false;
-    }
-
-    amqp_rpc_reply_t login_reply = amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), rmq_pass_.c_str());
-    if (login_reply.reply_type != AMQP_RESPONSE_NORMAL) {
-        std::cerr << "UDP Handler RMQ: Login failed: " << amqp_error_string2(login_reply.library_error) << std::endl;
-        amqp_destroy_connection(rmq_conn_state_);
-        rmq_conn_state_ = nullptr;
-        return false;
-    }
-
-    if (amqp_channel_open(rmq_conn_state_, 1) == nullptr) {
-        amqp_rpc_reply_t rpc_reply = amqp_get_rpc_reply(rmq_conn_state_);
-        std::cerr << "UDP Handler RMQ: Failed to open channel: " << amqp_error_string2(rpc_reply.library_error) << std::endl;
-        amqp_destroy_connection(rmq_conn_state_);
-        rmq_conn_state_ = nullptr;
-        return false;
-    }
-
-    // Declare queue as durable
-    amqp_queue_declare_ok_t *declare_ok = amqp_queue_declare(rmq_conn_state_, 1, amqp_cstring_bytes(RMQ_PLAYER_COMMANDS_QUEUE.c_str()), 0, 1, 0, 0, amqp_empty_table);
-    if (!declare_ok) {
-        amqp_rpc_reply_t rpc_reply = amqp_get_rpc_reply(rmq_conn_state_);
-        std::cerr << "UDP Handler RMQ: Failed to declare queue '" << RMQ_PLAYER_COMMANDS_QUEUE << "': " << amqp_error_string2(rpc_reply.library_error) << std::endl;
-        // This might not be fatal if queue already exists with compatible properties. Continuing.
-    }
-
-    rmq_connected_ = true;
-    return true;
+    return rmq_connected_;
 }
 
 void GameUDPHandler::publish_to_rabbitmq(const std::string& queue_name, const nlohmann::json& message_json) {

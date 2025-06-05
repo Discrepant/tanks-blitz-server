@@ -7,7 +7,7 @@
 #include <boost/asio/ip/udp.hpp>
 
 // Static initializers for dependencies
-static KafkaProducerHandler gudp_test_kafka_producer("localhost:9099"); // Dummy broker
+static KafkaProducerHandler gudp_test_kafka_producer("localhost:29092"); // Dummy broker
 static TankPool* gudp_test_tank_pool = TankPool::get_instance(5, &gudp_test_kafka_producer);
 static SessionManager* gudp_test_session_manager = SessionManager::get_instance(gudp_test_tank_pool, &gudp_test_kafka_producer);
 
@@ -41,7 +41,7 @@ struct GameUDPHandlerTestFixture {
             0, // Use ephemeral port for socket creation, won't actually listen.
             gudp_test_session_manager,
             gudp_test_tank_pool,
-            "dummy_rmq_host", 5672, "user", "pass"
+            "localhost", 5672, "user", "pass" // Changed dummy_rmq_host to localhost
         );
 
         // Create a dummy sender endpoint

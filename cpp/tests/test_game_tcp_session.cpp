@@ -7,7 +7,7 @@
 #include <grpcpp/create_channel.h> // For gRPC channel
 
 // Static initializers for dependencies (Singletons)
-static KafkaProducerHandler gtcp_test_kafka_producer("localhost:9099"); // Dummy for SM/TP
+static KafkaProducerHandler gtcp_test_kafka_producer("localhost:29092"); // Dummy for SM/TP
 static TankPool* gtcp_test_tank_pool = TankPool::get_instance(5, &gtcp_test_kafka_producer);
 static SessionManager* gtcp_test_session_manager = SessionManager::get_instance(gtcp_test_tank_pool, &gtcp_test_kafka_producer);
 

@@ -50,9 +50,9 @@ else()
           message(STATUS "Tests: Found librabbitmq via pkg-config. Version: ${PC_LIBRABBITMQ_VERSION}")
           if(NOT TARGET RabbitMQC::rabbitmq-c) # Create if it doesn't exist yet
               add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
-              target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_LIBRABBITMQ_INCLUDE_DIRS})
+              target_include_directories(RabbitMQC::rabbitmq-c INTERFACE /usr/include) # Explicitly set
               target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_LIBRABBITMQ_LIBRARIES})
-              message(STATUS "Tests: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config for librabbitmq.")
+              message(STATUS "Tests: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config for librabbitmq (include dir forced to /usr/include).")
           endif()
           set(RabbitMQ_LINK_TARGET RabbitMQC::rabbitmq-c)
       else()
@@ -162,6 +162,7 @@ target_include_directories(game_tests
     PRIVATE
     "${CMAKE_SOURCE_DIR}/game_server_cpp" # To find *.h from game_server_cpp
     "${CMAKE_SOURCE_DIR}/auth_server_cpp" # To find *.h from auth_server_cpp (e.g. auth_tcp_session.h)
+    "${CMAKE_BINARY_DIR}/protos"          # Added to find generated proto headers like auth_service.grpc.pb.h
     # The include path for generated gRPC headers ("auth_service.grpc.pb.h")
     # should come from the auth_grpc_codegen_lib target's PUBLIC include directories.
     # If CMAKE_SOURCE_DIR is cpp/, then protos build dir is CMAKE_BINARY_DIR/protos/generated

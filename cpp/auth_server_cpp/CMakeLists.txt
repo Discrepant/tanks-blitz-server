@@ -41,8 +41,8 @@ target_link_libraries(auth_logic_lib
     PUBLIC
         Boost::headers
         Boost::system
-    PRIVATE
         proto_lib # For gRPC stubs used by auth_tcp_session
+    PRIVATE
         gRPC::grpc++_unsecure # For auth_tcp_session using gRPC
         Threads::Threads
         nlohmann_json::nlohmann_json
@@ -50,6 +50,7 @@ target_link_libraries(auth_logic_lib
 
 target_include_directories(auth_logic_lib PUBLIC
     ${CMAKE_CURRENT_SOURCE_DIR}
+    "${CMAKE_BINARY_DIR}/protos" # Added to find generated proto headers
 )
 
 # Add executable

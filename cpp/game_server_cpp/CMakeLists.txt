@@ -148,9 +148,9 @@ else() # NOT MY_USING_VCPKG
         message(STATUS "GameServerCpp: Found RabbitMQ-C (librabbitmq) via pkg-config. Version: ${PC_RabbitMQC_VERSION}")
         if(NOT TARGET RabbitMQC::rabbitmq-c) # If not found by find_package above
             add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
-            target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_INCLUDE_DIRS})
+            target_include_directories(RabbitMQC::rabbitmq-c INTERFACE /usr/include) # Explicitly set
             target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_LIBRARIES})
-            message(STATUS "GameServerCpp: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config.")
+            message(STATUS "GameServerCpp: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config (include dir forced to /usr/include).")
         endif()
         set(RabbitMQC_FOUND TRUE)
         # Добавь следующую строку здесь:

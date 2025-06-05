@@ -21,7 +21,7 @@ struct AppConfig {
     int rmq_port = 5672;
     std::string rmq_user = "user";
     std::string rmq_pass = "password";
-    std::string kafka_brokers = "kafka:19092"; // Default for Docker
+    std::string kafka_brokers = "kafka:29092"; // Default for Docker
     std::string auth_grpc_host = "auth_server"; // Python gRPC Auth service, via Docker service name
     int auth_grpc_port = 50051;
 

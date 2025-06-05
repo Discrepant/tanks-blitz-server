@@ -12,7 +12,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
     // Operations that send Kafka messages will attempt to do so; tests focus on Tank state.
     // Using a placeholder broker address as it might not connect during unit tests.
     // If Kafka connection is critical for tests, a mock or test Kafka instance would be needed.
-    KafkaProducerHandler test_kafka_producer("localhost:9099"); // Dummy broker for tests if real one not needed
+    KafkaProducerHandler test_kafka_producer("localhost:29092"); // Dummy broker for tests if real one not needed
 
     SECTION("Tank Initialization") {
         Tank tank("tank_init_01", &test_kafka_producer, {{"x", 10}, {"y", 20}}, 150);

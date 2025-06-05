@@ -9,7 +9,7 @@
 // Or, TankPool::get_instance could be made to not require KafkaProducerHandler after first init,
 // or allow re-init with a new one (undesirable for singleton).
 // Current TankPool::get_instance only uses kafka_handler if instance_ is nullptr.
-static KafkaProducerHandler test_tp_kafka_producer("localhost:9099"); // Dummy broker
+static KafkaProducerHandler test_tp_kafka_producer("localhost:29092"); // Dummy broker
 
 // Helper to reset TankPool singleton state for isolated tests if possible.
 // This is generally NOT how singletons are tested. Proper singleton testing is complex.

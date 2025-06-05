@@ -6,7 +6,7 @@
 #include "../game_server_cpp/tank.h" // To check tank state
 
 // Static initializers for dependencies (TankPool and SessionManager are singletons)
-static KafkaProducerHandler cc_test_kafka_producer("localhost:9099"); // Dummy broker
+static KafkaProducerHandler cc_test_kafka_producer("localhost:29092"); // Dummy broker
 static TankPool* cc_test_tank_pool = TankPool::get_instance(5, &cc_test_kafka_producer);
 static SessionManager* cc_test_session_manager = SessionManager::get_instance(cc_test_tank_pool, &cc_test_kafka_producer);
 

@@ -41,7 +41,7 @@ struct GameUDPHandlerTestFixture {
             0, // Use ephemeral port for socket creation, won't actually listen.
             gudp_test_session_manager,
             gudp_test_tank_pool,
-            "localhost", 5672, "user", "pass" // Changed dummy_rmq_host to localhost
+            "localhost", 5672, "user", "pass", "/" // Explicitly added vhost
         );
 
         // Create a dummy sender endpoint

@@ -4,7 +4,7 @@
 #include "../game_server_cpp/kafka_producer_handler.h"
 
 // Global KafkaProducerHandler and TankPool for SessionManager tests.
-static KafkaProducerHandler sm_test_kafka_producer_recreated("localhost:9099");
+static KafkaProducerHandler sm_test_kafka_producer_recreated("localhost:29092");
 static TankPool* sm_test_tank_pool_recreated = nullptr; // Will be initialized in fixture/main test setup
 
 // Test Fixture for SessionManager to handle Singleton state

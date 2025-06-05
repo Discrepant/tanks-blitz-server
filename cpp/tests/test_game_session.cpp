@@ -5,7 +5,7 @@
 
 // Dummy KafkaProducerHandler for constructing Tanks in tests.
 // Operations on this handler won't actually send to Kafka if broker isn't up.
-static KafkaProducerHandler gs_test_kafka_producer_session("localhost:9099"); // Unique name for this test file's static
+static KafkaProducerHandler gs_test_kafka_producer_session("localhost:29092"); // Unique name for this test file's static
 
 TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
 

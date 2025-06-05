@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-#cmake_policy(SET CMP0167 NEW)
+cmake_policy(SET CMP0167 NEW)
 # CMakeLists.txt for auth_server_cpp
 # Project and C++ standard are set in the root CMakeLists.txt (cpp/CMakeLists.txt)
 

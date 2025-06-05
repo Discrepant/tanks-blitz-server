@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-#cmake_policy(SET CMP0167 NEW)
+cmake_policy(SET CMP0167 NEW)
 # CMakeLists.txt for game_server_cpp
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
@@ -148,9 +148,9 @@ else() # NOT MY_USING_VCPKG
         message(STATUS "GameServerCpp: Found RabbitMQ-C (librabbitmq) via pkg-config. Version: ${PC_RabbitMQC_VERSION}")
         if(NOT TARGET RabbitMQC::rabbitmq-c) # If not found by find_package above
             add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
-            target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_INCLUDE_DIRS})
+            target_include_directories(RabbitMQC::rabbitmq-c INTERFACE /usr/include) # Explicitly set
             target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_RabbitMQC_LIBRARIES})
-            message(STATUS "GameServerCpp: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config.")
+            message(STATUS "GameServerCpp: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config (include dir forced to /usr/include).")
         endif()
         set(RabbitMQC_FOUND TRUE)
         # Добавь следующую строку здесь:

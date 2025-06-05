@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-#cmake_policy(SET CMP0167 NEW)
+cmake_policy(SET CMP0167 NEW)
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
     set(MY_USING_VCPKG TRUE)
@@ -50,9 +50,9 @@ else()
           message(STATUS "Tests: Found librabbitmq via pkg-config. Version: ${PC_LIBRABBITMQ_VERSION}")
           if(NOT TARGET RabbitMQC::rabbitmq-c) # Create if it doesn't exist yet
               add_library(RabbitMQC::rabbitmq-c INTERFACE IMPORTED GLOBAL)
-              target_include_directories(RabbitMQC::rabbitmq-c INTERFACE ${PC_LIBRABBITMQ_INCLUDE_DIRS})
+              target_include_directories(RabbitMQC::rabbitmq-c INTERFACE /usr/include) # Explicitly set
               target_link_libraries(RabbitMQC::rabbitmq-c INTERFACE ${PC_LIBRABBITMQ_LIBRARIES})
-              message(STATUS "Tests: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config for librabbitmq.")
+              message(STATUS "Tests: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config for librabbitmq (include dir forced to /usr/include).")
           endif()
           set(RabbitMQ_LINK_TARGET RabbitMQC::rabbitmq-c)
       else()

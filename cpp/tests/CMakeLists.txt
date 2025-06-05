@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-cmake_policy(SET CMP0167 NEW)
+#cmake_policy(SET CMP0167 NEW)
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)
     set(MY_USING_VCPKG TRUE)
@@ -162,6 +162,7 @@ target_include_directories(game_tests
     PRIVATE
     "${CMAKE_SOURCE_DIR}/game_server_cpp" # To find *.h from game_server_cpp
     "${CMAKE_SOURCE_DIR}/auth_server_cpp" # To find *.h from auth_server_cpp (e.g. auth_tcp_session.h)
+    "${CMAKE_BINARY_DIR}/protos"          # Added to find generated proto headers like auth_service.grpc.pb.h
     # The include path for generated gRPC headers ("auth_service.grpc.pb.h")
     # should come from the auth_grpc_codegen_lib target's PUBLIC include directories.
     # If CMAKE_SOURCE_DIR is cpp/, then protos build dir is CMAKE_BINARY_DIR/protos/generated

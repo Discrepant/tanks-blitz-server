@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.28)
-cmake_policy(SET CMP0167 NEW)
+#cmake_policy(SET CMP0167 NEW)
 # CMakeLists.txt for game_server_cpp
 
 if(DEFINED VCPKG_TARGET_TRIPLET AND VCPKG_TARGET_TRIPLET)

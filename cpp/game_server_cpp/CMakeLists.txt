@@ -153,6 +153,7 @@ else() # NOT MY_USING_VCPKG
             message(STATUS "GameServerCpp: Created GLOBAL IMPORTED target RabbitMQC::rabbitmq-c from pkg-config.")
         endif()
         set(RabbitMQC_FOUND TRUE)
+        # Добавь следующую строку здесь:
       else()
         message(STATUS "GameServerCpp: RabbitMQ-C (librabbitmq) not found via pkg-config.")
       endif()
@@ -226,7 +227,7 @@ target_link_libraries(game_server_app PRIVATE
 
 target_include_directories(game_server_app PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR} # To find its own headers like udp_handler.h etc.
-    ${RabbitMQC_INCLUDE_DIRS} # Explicitly add RabbitMQC include dirs
+    # ${RabbitMQC_INCLUDE_DIRS} # Explicitly add RabbitMQC include dirs
 )
 
 install(TARGETS game_server_app DESTINATION bin)

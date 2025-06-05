@@ -58,7 +58,7 @@ struct GameTCPSessionTestFixture {
     }
 
     // Helper function, now part of the fixture
-    void perform_login(const std::string& user = "player1", const std::string& pass = "pass1") {
+    void perform_login(const std::string& user = "player1", const std::string& pass = "password123") {
         session->process_command("LOGIN " + user + " " + pass);
         // Assume login is successful for subsequent tests.
         // A getter session->is_authenticated() would be good here.
@@ -70,8 +70,8 @@ TEST_CASE_METHOD(GameTCPSessionTestFixture, "GameTCPSession::process_command Tes
     INFO("Ensure Python gRPC Auth Server (auth_server/auth_grpc_server.py) is running on localhost:50051 for LOGIN tests.");
 
     SECTION("Process 'LOGIN' command - Successful") {
-        // Assumes user "player1" pass "pass1" is valid in the Python gRPC Auth service.
-        REQUIRE_NOTHROW(session->process_command("LOGIN player1 pass1"));
+        // Assumes user "player1" pass "password123" is valid in the Python gRPC Auth service.
+        REQUIRE_NOTHROW(session->process_command("LOGIN player1 password123"));
         // Expected: Several messages sent via send_message acknowledging login, game join, tank state.
         // Hard to verify actual sent content without send_message interception.
         // Check internal state:

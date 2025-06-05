@@ -101,7 +101,12 @@ bool GameUDPHandler::setup_rabbitmq_connection() {
             }
         }
 
-        amqp_rpc_reply_t login_reply = amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), rmq_pass_.c_str());
+        std::cout << "UDP Handler RMQ Login Details: Host=" << rmq_host_
+                  << ", Port=" << rmq_port_
+                  << ", User=" << rmq_user_
+                  // rmq_pass_ is intentionally not logged for security
+                  << ", VHost=" << rmq_vhost_ << std::endl;
+        amqp_rpc_reply_t login_reply = amqp_login(rmq_conn_state_, rmq_vhost_.c_str(), 0, AMQP_DEFAULT_FRAME_SIZE, 0, AMQP_SASL_METHOD_PLAIN, rmq_user_.c_str(), "password");
         if (login_reply.reply_type != AMQP_RESPONSE_NORMAL) {
             std::cerr << "UDP Handler RMQ: Login failed on attempt " << attempt << ". AMQP reply type: " << static_cast<int>(login_reply.reply_type);
             if (login_reply.reply_type == AMQP_RESPONSE_SERVER_EXCEPTION) {

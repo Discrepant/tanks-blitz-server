@@ -176,6 +176,33 @@ void GameTCPSession::process_command(const std::string& line) {
 
 // --- Command Handlers ---
 void GameTCPSession::handle_login(const std::vector<std::string>& args) {
+    std::string remote_ep_str = "unknown_endpoint"; // Default value
+    try {
+        if (socket_.is_open()) {
+            boost::system::error_code ec_re;
+            tcp::endpoint re = socket_.remote_endpoint(ec_re); // This might throw or set ec_re
+            if (!ec_re) {
+                remote_ep_str = re.address().to_string() + ":" + std::to_string(re.port());
+            } else {
+                std::cerr << "GameTCPSession: Error code set by remote_endpoint in handle_login: " 
+                          << ec_re.message() << " for player attempt: " << (args.empty() ? "N/A" : args[0]) << std::endl;
+                // Keep remote_ep_str as "unknown_endpoint"
+            }
+        } else {
+            std::cerr << "GameTCPSession: Socket is not open at the beginning of handle_login for player attempt: " 
+                      << (args.empty() ? "N/A" : args[0]) << std::endl;
+            // Keep remote_ep_str as "unknown_endpoint"
+        }
+    } catch (const boost::system::system_error& e) {
+        std::cerr << "GameTCPSession: boost::system::system_error caught while getting remote_endpoint in handle_login: "
+                  << e.what() << " for player attempt: " << (args.empty() ? "N/A" : args[0]) << std::endl;
+        // Keep remote_ep_str as "unknown_endpoint"
+    } catch (const std::exception& e) {
+        std::cerr << "GameTCPSession: std::exception caught while getting remote_endpoint in handle_login: "
+                  << e.what() << " for player attempt: " << (args.empty() ? "N/A" : args[0]) << std::endl;
+        // Keep remote_ep_str as "unknown_endpoint"
+    }
+
     if (args.size() < 2) {
         send_message("SERVER_ERROR LOGIN_FAILED Invalid arguments. Usage: LOGIN <username> <password>\n");
         return;
@@ -216,7 +243,7 @@ void GameTCPSession::handle_login(const std::vector<std::string>& args) {
             // Use find_or_create_session_for_player for better session management
             auto game_session = session_manager_->find_or_create_session_for_player(
                 username_,
-                socket_.remote_endpoint().address().to_string() + ":" + std::to_string(socket_.remote_endpoint().port()),
+                remote_ep_str,
                 tank,
                 false /*is_udp_player=false*/
             );

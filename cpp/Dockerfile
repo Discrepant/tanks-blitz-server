@@ -36,9 +36,23 @@ RUN apt-get update && \
     # catch2 \
     && rm -rf /var/lib/apt/lists/*
 
+RUN if [ -f /usr/include/amqp.h ] && [ ! -d /usr/include/rabbitmq-c ]; then \
+          echo "Creating symlinks for rabbitmq-c headers..."; \
+          mkdir -p /usr/include/rabbitmq-c && \
+          ln -sf /usr/include/amqp.h /usr/include/rabbitmq-c/amqp.h && \
+          ln -sf /usr/include/amqp_framing.h /usr/include/rabbitmq-c/framing.h && \
+          ln -sf /usr/include/amqp_tcp_socket.h /usr/include/rabbitmq-c/tcp_socket.h && \
+          if [ -f /usr/include/amqp_ssl_socket.h ]; then \
+            ln -sf /usr/include/amqp_ssl_socket.h /usr/include/rabbitmq-c/ssl_socket.h; \
+          fi && \
+          echo "Symlinks for rabbitmq-c created in /usr/include/rabbitmq-c/"; \
+        else \
+          echo "Skipping rabbitmq-c symlink creation: /usr/include/rabbitmq-c already exists or /usr/include/amqp.h not found."; \
+        fi
+
 RUN    CMAKE_VERSION_MAJOR=3 && \
-   CMAKE_VERSION_MINOR=29 && \
-   CMAKE_VERSION_PATCH=6 && \
+   CMAKE_VERSION_MINOR=30 && \
+   CMAKE_VERSION_PATCH=0 && \
    CMAKE_VERSION_FULL=${CMAKE_VERSION_MAJOR}.${CMAKE_VERSION_MINOR}.${CMAKE_VERSION_PATCH} && \
    echo "Downloading CMake ${CMAKE_VERSION_FULL} source..." && \
    wget --no-verbose "https://github.com/Kitware/CMake/releases/download/v${CMAKE_VERSION_FULL}/cmake-${CMAKE_VERSION_FULL}.tar.gz" -O /tmp/cmake.tar.gz && \
@@ -61,9 +75,9 @@ RUN    CMAKE_VERSION_MAJOR=3 && \
 RUN /usr/local/bin/cmake --version > /tmp/cmake_version.txt && \
     echo "CMake version reported by /usr/local/bin/cmake --version:" && \
     cat /tmp/cmake_version.txt && \
-    grep -q "3.29.6" /tmp/cmake_version.txt || \
-    (echo "CRITICAL: CMake version is NOT 3.29.6. Actual version in /tmp/cmake_version.txt. Build failed." && exit 1)
-RUN echo "CMake version 3.29.6 confirmed by grep."
+    grep -q "3.30.0" /tmp/cmake_version.txt || \
+    (echo "CRITICAL: CMake version is NOT 3.30.0. Actual version in /tmp/cmake_version.txt. Build failed." && exit 1)
+RUN echo "CMake version 3.30.0 confirmed by grep."
 
 # Check for CMake policy file
 # Note: CMAKE_VERSION_MAJOR and CMAKE_VERSION_MINOR are set within the new RUN command,

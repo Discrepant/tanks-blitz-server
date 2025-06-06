@@ -149,7 +149,7 @@ class GameUser(User):
                     raise Exception(f"Присоединение не удалось: {response_json.get('reason', 'неизвестная причина')}")
             else: # Если ответ не получен (например, таймаут)
                 logger.warning(f"GameUser {self.player_id}: Нет ответа от сервера при попытке присоединения.")
-                raise Exception("Нет ответа от сервера на запрос join_game")
+                raise Exception("Нет ответа от сервера на запрос join_game") # "No response from server on join_game request"
         except Exception as e: # Обработка любых исключений (включая JSONDecodeError, таймауты и т.д.)
             end_time = time.time()
             logger.error(f"GameUser {self.player_id}: Ошибка при присоединении к игре - {e}")

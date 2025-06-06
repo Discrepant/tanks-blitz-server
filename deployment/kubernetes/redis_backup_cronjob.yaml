@@ -1,35 +1,35 @@
 # deployment/kubernetes/redis_backup_cronjob.yaml
 apiVersion: batch/v1
-kind: CronJob # В Kubernetes 1.21+ (для старых версий batch/v1beta1)
+kind: CronJob # В Kubernetes 1.21+ (для более старых версий используется batch/v1beta1)
 metadata:
   name: redis-backup-cron
 spec:
-  schedule: "0 2 * * *" # Запускать каждый день в 2 часа ночи
+  schedule: "0 2 * * *" # Запускать каждый день в 2 часа ночи (по UTC, если не указано иное в конфигурации кластера)
   jobTemplate:
     spec:
       template:
         spec:
-          restartPolicy: OnFailure
+          restartPolicy: OnFailure # Политика перезапуска пода в случае сбоя
           containers:
           - name: redis-backup
-            image: alpine:latest # Используем простой образ Alpine, добавляем утилиты если нужно
+            image: alpine:latest # Используем простой образ Alpine; можно добавить утилиты при необходимости
             command: ["/bin/sh", "-c"]
             args:
             - |
-              # Устанавливаем rsync или другие утилиты, если нужно для копирования на удаленный хост
-              # apk add --no-cache rsync openssh-client
+              # Установите rsync или другие утилиты, если необходимо копирование на удаленный хост.
+              # Пример: apk add --no-cache rsync openssh-client
               # Содержимое скрипта backup_redis.sh можно вставить сюда напрямую
-              # или скопировать его в образ и запустить.
-              # Для простоты, вставим сюда часть логики.
+              # или скопировать его в образ Docker и запустить оттуда.
+              # Для простоты, часть логики вставлена здесь.
               
-              BACKUP_DIR_TARGET="/mnt/backupstorage/redis" # Это должен быть смонтированный внешний сторадж
-              REDIS_DATA_MOUNT="/redis-pvc-data" # Путь к данным Redis PVC
+              BACKUP_DIR_TARGET="/mnt/backupstorage/redis" # Это должен быть смонтированный внешний накопитель (storage)
+              REDIS_DATA_MOUNT="/redis-pvc-data" # Путь к данным Redis PVC (PersistentVolumeClaim)
               TIMESTAMP=$(date +"%Y%m%d_%H%M%S")
               RDB_FILE="dump.rdb"
 
-              echo "Redis Backup CronJob started at $(date)"
+              echo "Redis Backup CronJob запущен в $(date)"
               if [ ! -d "$REDIS_DATA_MOUNT" ]; then
-                echo "Error: Redis data directory $REDIS_DATA_MOUNT not mounted or not found!"
+                echo "Ошибка: Директория данных Redis $REDIS_DATA_MOUNT не смонтирована или не найдена!"
                 exit 1
               fi
               
@@ -37,27 +37,27 @@ spec:
 
               if [ -f "${REDIS_DATA_MOUNT}/${RDB_FILE}" ]; then
                   cp "${REDIS_DATA_MOUNT}/${RDB_FILE}" "${BACKUP_DIR_TARGET}/dump-${TIMESTAMP}.rdb"
-                  echo "RDB file backup created: ${BACKUP_DIR_TARGET}/dump-${TIMESTAMP}.rdb"
-                  # Здесь можно добавить команду для загрузки в облачное хранилище
-                  # например, aws s3 cp ${BACKUP_DIR_TARGET}/dump-${TIMESTAMP}.rdb s3://your-backup-bucket/redis/
+                  echo "Резервная копия RDB файла создана: ${BACKUP_DIR_TARGET}/dump-${TIMESTAMP}.rdb"
+                  # Здесь можно добавить команду для загрузки в облачное хранилище,
+                  # например: aws s3 cp ${BACKUP_DIR_TARGET}/dump-${TIMESTAMP}.rdb s3://your-backup-bucket/redis/
               else
-                  echo "RDB file ${REDIS_DATA_MOUNT}/${RDB_FILE} not found."
+                  echo "RDB файл ${REDIS_DATA_MOUNT}/${RDB_FILE} не найден."
               fi
-              echo "Redis Backup CronJob finished at $(date)"
+              echo "Redis Backup CronJob завершен в $(date)"
 
             volumeMounts:
-            - name: redis-persistent-storage # Том с данными Redis
+            - name: redis-persistent-storage # Том (volume) с данными Redis
               mountPath: /redis-pvc-data 
-              readOnly: true # Монтируем только для чтения, чтобы не повредить данные
-            - name: backup-target-storage # Том для хранения бэкапов (например, NFS, облачный сторадж)
+              readOnly: true # Монтируем только для чтения, чтобы не повредить оперативные данные
+            - name: backup-target-storage # Том для хранения резервных копий (например, NFS, облачное хранилище)
               mountPath: /mnt/backupstorage 
-              # Этот том должен быть настроен отдельно (например, hostPath для тестов, или облачный PV)
+              # Этот том должен быть настроен отдельно (например, hostPath для тестов или облачный PV - PersistentVolume)
           volumes:
           - name: redis-persistent-storage
             persistentVolumeClaim:
-              claimName: redis-pvc # Тот же PVC, что использует Redis
+              claimName: redis-pvc # Тот же PVC, который использует Redis
           - name: backup-target-storage 
-            emptyDir: {} # ЗАГЛУШКА! В реальности это должен быть PersistentVolume для бэкапов
+            emptyDir: {} # ВНИМАНИЕ: ЗАГЛУШКА! В реальной системе это должен быть PersistentVolume для резервных копий,
                          # например, NFS, AWS EBS, GCE Persistent Disk, смонтированный сюда.
-                         # Использование emptyDir означает, что бэкапы будут удалены вместе с подом CronJob.
-                         # Это нужно заменить на реальное хранилище.
+                         # Использование emptyDir означает, что резервные копии будут удалены вместе с подом CronJob.
+                         # Это необходимо заменить на реальное постоянное хранилище.

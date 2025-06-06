@@ -1,30 +1,30 @@
 #include "catch2/catch_all.hpp"
 #include "../game_server_cpp/tank.h"
-#include "../game_server_cpp/kafka_producer_handler.h" // Include real Kafka handler
+#include "../game_server_cpp/kafka_producer_handler.h" // Включаем реальный обработчик Kafka
 
-// Note: For these tests to run without Kafka-related errors logged to console (if Kafka isn't running),
-// the KafkaProducerHandler should gracefully handle construction failure or send_message failure.
-// The tests themselves will focus on Tank's state, not successful Kafka delivery.
+// Примечание: Чтобы эти тесты выполнялись без ошибок, связанных с Kafka, выводимых в консоль (если Kafka не запущена),
+// KafkaProducerHandler должен корректно обрабатывать сбой конструктора или сбой send_message.
+// Сами тесты будут сосредоточены на состоянии Tank, а не на успешной доставке Kafka.
 
 TEST_CASE("Tank Class Tests", "[tank]") {
-    // A KafkaProducerHandler is needed by the Tank constructor.
-    // It's created here but its Kafka instance might not be running during tests.
-    // Operations that send Kafka messages will attempt to do so; tests focus on Tank state.
-    // Using a placeholder broker address as it might not connect during unit tests.
-    // If Kafka connection is critical for tests, a mock or test Kafka instance would be needed.
-    KafkaProducerHandler test_kafka_producer("localhost:29092"); // Dummy broker for tests if real one not needed
+    // Для конструктора Tank необходим KafkaProducerHandler.
+    // Он создается здесь, но его экземпляр Kafka может не работать во время тестов.
+    // Операции, отправляющие сообщения Kafka, попытаются это сделать; тесты сосредоточены на состоянии Tank.
+    // Используется фиктивный адрес брокера, так как он может не подключаться во время модульных тестов.
+    // Если соединение Kafka критично для тестов, потребуется мок или тестовый экземпляр Kafka.
+    KafkaProducerHandler test_kafka_producer("localhost:29092"); // Фиктивный брокер для тестов, если реальный не нужен
 
-    SECTION("Tank Initialization") {
+    SECTION("Tank Initialization") { // Инициализация танка
         Tank tank("tank_init_01", &test_kafka_producer, {{"x", 10}, {"y", 20}}, 150);
         REQUIRE(tank.get_id() == "tank_init_01");
         REQUIRE(tank.get_state()["health"] == 150);
         REQUIRE(tank.get_state()["position"]["x"] == 10);
         REQUIRE(tank.get_state()["position"]["y"] == 20);
-        REQUIRE_FALSE(tank.is_active()); // Tanks are inactive by default
+        REQUIRE_FALSE(tank.is_active()); // Танки по умолчанию неактивны
         REQUIRE(tank.get_state()["active"] == false);
     }
 
-    SECTION("Tank Activation and Deactivation") {
+    SECTION("Tank Activation and Deactivation") { // Активация и деактивация танка
         Tank tank("tank_active_01", &test_kafka_producer);
         REQUIRE_FALSE(tank.is_active());
 
@@ -32,7 +32,7 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         REQUIRE(tank.is_active());
         REQUIRE(tank.get_state()["active"] == true);
 
-        // Setting active to true again should not change anything
+        // Повторная установка active в true не должна ничего менять
         tank.set_active(true);
         REQUIRE(tank.is_active());
 
@@ -40,64 +40,64 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         REQUIRE_FALSE(tank.is_active());
         REQUIRE(tank.get_state()["active"] == false);
 
-        // Setting active to false again should not change anything
+        // Повторная установка active в false не должна ничего менять
         tank.set_active(false);
         REQUIRE_FALSE(tank.is_active());
     }
 
-    SECTION("Tank Reset") {
+    SECTION("Tank Reset") { // Сброс состояния танка
         Tank tank("tank_reset_01", &test_kafka_producer, {{"x", 5}, {"y", 5}}, 50);
-        tank.set_active(true); // Activate it first
+        tank.set_active(true); // Сначала активируем его
         REQUIRE(tank.is_active());
 
         tank.reset({{"x", 1}, {"y", 2}}, 90);
-        REQUIRE(tank.get_id() == "tank_reset_01"); // ID should persist
+        REQUIRE(tank.get_id() == "tank_reset_01"); // ID должен сохраниться
         REQUIRE(tank.get_state()["health"] == 90);
         REQUIRE(tank.get_state()["position"]["x"] == 1);
         REQUIRE(tank.get_state()["position"]["y"] == 2);
-        REQUIRE_FALSE(tank.is_active()); // Reset should deactivate
+        REQUIRE_FALSE(tank.is_active()); // Сброс должен деактивировать
         REQUIRE(tank.get_state()["active"] == false);
 
-        // Reset to default values
+        // Сброс к значениям по умолчанию
         tank.set_active(true);
         tank.reset();
-        REQUIRE(tank.get_state()["health"] == 100); // Default health
-        REQUIRE(tank.get_state()["position"]["x"] == 0); // Default x
-        REQUIRE(tank.get_state()["position"]["y"] == 0); // Default y
+        REQUIRE(tank.get_state()["health"] == 100); // Здоровье по умолчанию
+        REQUIRE(tank.get_state()["position"]["x"] == 0); // X по умолчанию
+        REQUIRE(tank.get_state()["position"]["y"] == 0); // Y по умолчанию
         REQUIRE_FALSE(tank.is_active());
     }
 
-    SECTION("Tank Movement") {
+    SECTION("Tank Movement") { // Перемещение танка
         Tank tank("tank_move_01", &test_kafka_producer);
-        tank.set_active(true); // Must be active to move
+        tank.set_active(true); // Должен быть активен для перемещения
 
         nlohmann::json new_pos = {{"x", 100}, {"y", 200}};
         tank.move(new_pos);
         REQUIRE(tank.get_state()["position"]["x"] == 100);
         REQUIRE(tank.get_state()["position"]["y"] == 200);
 
-        // Moving while inactive should not change position
+        // Перемещение в неактивном состоянии не должно изменять позицию
         tank.set_active(false);
         nlohmann::json another_pos = {{"x", -50}, {"y", -50}};
         tank.move(another_pos);
-        REQUIRE(tank.get_state()["position"]["x"] == 100); // Position should remain unchanged
+        REQUIRE(tank.get_state()["position"]["x"] == 100); // Позиция должна остаться неизменной
         REQUIRE(tank.get_state()["position"]["y"] == 200);
     }
 
-    SECTION("Tank Shooting") {
+    SECTION("Tank Shooting") { // Стрельба танка
         Tank tank("tank_shoot_01", &test_kafka_producer);
         tank.set_active(true);
-        // Test is conceptual for Kafka message. No state change in Tank object itself from shoot().
-        // We would need a mock KafkaProducerHandler to verify message was sent.
-        // For now, just ensure it doesn't crash.
+        // Тест концептуален для сообщения Kafka. В самом объекте Tank состояние от shoot() не меняется.
+        // Потребовался бы мок KafkaProducerHandler для проверки отправки сообщения.
+        // Пока что просто убедимся, что не падает.
         REQUIRE_NOTHROW(tank.shoot());
 
-        // Shooting while inactive should not do anything / send message
+        // Стрельба в неактивном состоянии не должна ничего делать / отправлять сообщение
         tank.set_active(false);
         REQUIRE_NOTHROW(tank.shoot());
     }
 
-    SECTION("Tank Damage and Destruction") {
+    SECTION("Tank Damage and Destruction") { // Получение урона и уничтожение танка
         Tank tank("tank_dmg_01", &test_kafka_producer, {{"x",0},{"y",0}}, 100);
         tank.set_active(true);
 
@@ -107,21 +107,21 @@ TEST_CASE("Tank Class Tests", "[tank]") {
         tank.take_damage(60);
         REQUIRE(tank.get_state()["health"] == 10);
 
-        // Damage exceeding current health
+        // Урон, превышающий текущее здоровье
         tank.take_damage(25);
         REQUIRE(tank.get_state()["health"] == 0);
-        // Tank might become inactive upon destruction, depending on game logic.
-        // Current Tank::take_damage does not set inactive, Tank::reset does.
-        // This behavior should be consistent or tested against specific game rules.
-        // For now, let's assume it remains active but with 0 health until explicitly reset/deactivated by game logic.
-        REQUIRE(tank.is_active()); // Or REQUIRE_FALSE(tank.is_active()) if take_damage(fatal) deactivates
+        // Танк может стать неактивным при уничтожении, в зависимости от игровой логики.
+        // Текущий Tank::take_damage не устанавливает неактивность, это делает Tank::reset.
+        // Это поведение должно быть согласованным или протестировано на соответствие конкретным правилам игры.
+        // Пока предположим, что он остается активным, но с 0 здоровья, до явного сброса/деактивации игровой логикой.
+        REQUIRE(tank.is_active()); // Или REQUIRE_FALSE(tank.is_active()), если take_damage(фатальный) деактивирует
 
-        // Further damage when health is 0 should not change health
+        // Дальнейший урон при здоровье 0 не должен изменять здоровье
         tank.take_damage(10);
         REQUIRE(tank.get_state()["health"] == 0);
     }
 
-    SECTION("Tank get_state method") {
+    SECTION("Tank get_state method") { // Метод get_state танка
         Tank tank("tank_getstate_01", &test_kafka_producer, {{"x", 7},{"y", 17}}, 77);
         nlohmann::json state = tank.get_state();
         REQUIRE(state["id"] == "tank_getstate_01");

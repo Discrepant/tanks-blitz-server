@@ -1,23 +1,23 @@
-# Tank Battle Game Server
+# Сервер игры "Танковые Сражения"
 
-This project is the backend server for a multiplayer tank battle game. It features a microservice architecture with components for authentication and game logic, supporting both Python and C++ implementations for different parts of the system.
+Этот проект представляет собой бэкенд-сервер для многопользовательской игры в танковые сражения. Он обладает микросервисной архитектурой с компонентами для аутентификации и игровой логики, поддерживая реализации на Python и C++ для различных частей системы.
 
-## Table of Contents
+## Содержание
 
-- [Project Goals](#project-goals)
-- [Architecture Overview](#architecture-overview)
+- [Цели проекта](#цели-проекта)
+- [Обзор архитектуры](#обзор-архитектуры)
 - [Детальное Описание Сервисов](#детальное-описание-сервисов)
-- [Directory Structure](#directory-structure)
-- [Data Flows](#data-flows)
-- [Requirements](#requirements)
-- [Installation](#installation)
-- [Running the Application](#running-the-application)
-- [Testing](#testing)
-- [Contributing](#contributing)
+- [Структура каталогов](#структура-каталогов)
+- [Потоки данных](#потоки-данных)
+- [Требования](#требования)
+- [Установка](#установка)
+- [Запуск приложения](#запуск-приложения)
+- [Тестирование](#тестирование)
+- [Вклад в проект](#вклад-в-проект)
 - [Стабилизация Окружения и Улучшения Сборки](#стабилизация-окружения-и-улучшения-сборки)
-- [Future Improvements](#future-improvements)
+- [Будущие улучшения](#будущие-улучшения)
 
-## Project Goals
+## Цели проекта
 
 *   **Создание масштабируемого и высокопроизводительного бэкенда:** Разработать серверную часть для многопользовательской игры в танковые сражения в реальном времени, способную выдерживать значительные нагрузки и обеспечивать минимальные задержки.
 *   **Разделение на микросервисы:** Реализовать независимые сервисы для аутентификации пользователей и игровой логики, что упрощает разработку, тестирование, развертывание и масштабирование отдельных компонентов системы.
@@ -29,7 +29,7 @@ This project is the backend server for a multiplayer tank battle game. It featur
 *   **Гибкость разработки и производительность с Python и C++:** Предложить реализации серверных компонентов как на Python (для скорости разработки и удобства), так и на C++ (для критически важных по производительности частей, таких как игровой сервер), чтобы сбалансировать скорость разработки и эффективность выполнения.
 *   **Повышение отказоустойчивости и наблюдаемости:** Внедрение механизмов для обеспечения стабильной работы сервисов при сбоях (например, healthchecks, retry-механизмы) и сбор детальной информации (логи, метрики) для анализа и отладки.
 
-## Architecture Overview
+## Обзор архитектуры
 
 Система спроектирована как набор взаимодействующих микросервисов, обеспечивающих различные аспекты игры и аутентификации.
 
@@ -66,75 +66,75 @@ This project is the backend server for a multiplayer tank battle game. It featur
 
 ```mermaid
 graph TD
-    subgraph User Interaction
+    subgraph Взаимодействие с пользователем
         UserClient[Игровой Клиент]
     end
 
-    subgraph Gateway / Load Balancer
+    subgraph Шлюз / Балансировщик нагрузки
         Nginx[Nginx (Концептуальный/Опциональный для C++ сервисов)]
     end
 
-    subgraph Authentication Services
+    subgraph Сервисы Аутентификации
         CppTCPAUTH[C++ TCP Auth Server (компонент `auth_server_cpp`)]
         PythonAuthTCPJSON[Python Auth TCP/JSON Service (на базе `auth_server.main`)]
         PythonAuthGRPC[Python Auth gRPC Service (на базе `auth_server.auth_grpc_server`)]
     end
 
-    subgraph Game Logic Services
+    subgraph Сервисы Игровой Логики
         CppGameServer[C++ Game Server (компонент `game_server_cpp`)]
         PlayerCommandHandler[C++ Player Command Consumer (часть C++ Game Server)]
         PythonGameServer[Python Game Server (Python Игровой Сервис, на базе `game_server.main`)]
     end
     
-    subgraph Message Brokers
+    subgraph Брокеры сообщений
         KafkaAuth[Kafka (auth_events)]
         KafkaGame[Kafka (game_events, session_history, tank_coords)]
         RabbitMQCommands[RabbitMQ (player_commands)]
     end
 
-    subgraph Data Stores
-        Redis[Redis (User Data, Sessions - концептуально для Python)]
+    subgraph Хранилища данных
+        Redis[Redis (Пользовательские данные, Сессии - концептуально для Python)]
     end
 
-    subgraph Monitoring
+    subgraph Мониторинг
         Prometheus[Prometheus]
         Grafana[Grafana]
     end
 
-    UserClient -->|TCP/UDP Game Traffic, TCP Auth Traffic (через Nginx для C++)| Nginx
-    UserClient -->|TCP/UDP Game Traffic (напрямую или через Nginx)| PythonGameServer
+    UserClient -->|TCP/UDP Игровой трафик, TCP Трафик аутентификации (через Nginx для C++)| Nginx
+    UserClient -->|TCP/UDP Игровой трафик (напрямую или через Nginx)| PythonGameServer
 
-    Nginx -->|TCP Auth Traffic (Port 9000)| CppTCPAUTH
-    Nginx -->|TCP Game Traffic (Port 8888)| CppGameServer
-    Nginx -->|UDP Game Traffic (Port 8889)| CppGameServer
+    Nginx -->|TCP Трафик аутентификации (Порт 9000)| CppTCPAUTH
+    Nginx -->|TCP Игровой трафик (Порт 8888)| CppGameServer
+    Nginx -->|UDP Игровой трафик (Порт 8889)| CppGameServer
 
-    CppTCPAUTH -->|gRPC: Authenticate/Register User| PythonAuthGRPC
+    CppTCPAUTH -->|gRPC: Аутентификация/Регистрация пользователя| PythonAuthGRPC
     
-    PythonAuthGRPC -->|CRUD: User Credentials (MOCK_USERS_DB)| Redis
-    PythonAuthGRPC -->|Pub: Auth Events (концептуально)| KafkaAuth
+    PythonAuthGRPC -->|CRUD: Учетные данные пользователя (MOCK_USERS_DB)| Redis
+    PythonAuthGRPC -->|Pub: События аутентификации (концептуально)| KafkaAuth
 
-    PythonAuthTCPJSON -->|CRUD: User Credentials (MOCK_USERS_DB)| Redis
-    PythonAuthTCPJSON -->|Pub: Auth Events (концептуально)| KafkaAuth
+    PythonAuthTCPJSON -->|CRUD: Учетные данные пользователя (MOCK_USERS_DB)| Redis
+    PythonAuthTCPJSON -->|Pub: События аутентификации (концептуально)| KafkaAuth
 
 
-    CppGameServer -->|gRPC: Validate Session Token (через AuthenticateUser)| PythonAuthGRPC
-    CppGameServer -->|Pub: Player Command| RabbitMQCommands
-    PlayerCommandHandler -.->|Sub: Reads Player Command| RabbitMQCommands
-    PlayerCommandHandler -->|Exec: Apply Command to Game State| CppGameServer
-    CppGameServer -->|Pub: Game Events, Session History, Tank Coordinates| KafkaGame
+    CppGameServer -->|gRPC: Валидация сессионного токена (через AuthenticateUser)| PythonAuthGRPC
+    CppGameServer -->|Pub: Команда игрока| RabbitMQCommands
+    PlayerCommandHandler -.->|Sub: Читает команду игрока| RabbitMQCommands
+    PlayerCommandHandler -->|Exec: Применяет команду к состоянию игры| CppGameServer
+    CppGameServer -->|Pub: Игровые события, История сессий, Координаты танка| KafkaGame
 
-    PythonGameServer -->|TCP/JSON Auth| PythonAuthTCPJSON
-    PythonGameServer -->|Pub: Player Command| RabbitMQCommands
-    PythonGameServer -->|Pub: Game Events (концептуально)| KafkaGame
+    PythonGameServer -->|TCP/JSON Аутентификация| PythonAuthTCPJSON
+    PythonGameServer -->|Pub: Команда игрока| RabbitMQCommands
+    PythonGameServer -->|Pub: Игровые события (концептуально)| KafkaGame
     
-    Prometheus -->|Scrapes Metrics| CppTCPAUTH
-    Prometheus -->|Scrapes Metrics| PythonAuthGRPC
-    Prometheus -->|Scrapes Metrics| PythonAuthTCPJSON
-    Prometheus -->|Scrapes Metrics| CppGameServer
-    Prometheus -->|Scrapes Metrics| PythonGameServer
-    Prometheus -->|Scrapes Metrics| KafkaGame
-    Prometheus -->|Scrapes Metrics| RabbitMQCommands
-    Grafana -->|Queries Metrics| Prometheus
+    Prometheus -->|Собирает метрики| CppTCPAUTH
+    Prometheus -->|Собирает метрики| PythonAuthGRPC
+    Prometheus -->|Собирает метрики| PythonAuthTCPJSON
+    Prometheus -->|Собирает метрики| CppGameServer
+    Prometheus -->|Собирает метрики| PythonGameServer
+    Prometheus -->|Собирает метрики| KafkaGame
+    Prometheus -->|Собирает метрики| RabbitMQCommands
+    Grafana -->|Запрашивает метрики| Prometheus
 ```
 
 ## Детальное Описание Сервисов
@@ -232,7 +232,7 @@ graph TD
 ### Инфраструктурные Компоненты (Kafka, RabbitMQ, Redis, Prometheus & Grafana, Nginx)
 (Описание этих компонентов остается прежним)
 
-## Directory Structure
+## Структура каталогов
 
 *   `auth_server/`: Исходный код Python сервисов аутентификации.
     *   `auth_grpc_server.py`: Основной скрипт запуска Python Auth gRPC Service.
@@ -314,7 +314,7 @@ graph TD
 *   `requirements.txt`: Список Python зависимостей для всего проекта.
 *   `README.md`: Этот файл.
 
-## Data Flows
+## Потоки данных
 
 ### Регистрация пользователя (через C++ TCP Auth Server)
 1.  **Клиент -> Nginx (концептуально) -> C++ TCP Auth Server (компонент `auth_server_cpp`):** Клиент отправляет TCP-запрос с данными для регистрации (например, логин, пароль в JSON-формате: `{"action": "register", "username": "user", "password": "pwd"}`). Nginx (если используется) проксирует этот запрос на C++ TCP Auth Server.
@@ -396,13 +396,13 @@ graph TD
 *   **Хранение пользовательских данных и сессий (Python сервисы):** Подтверждено: Python компоненты (Python Auth TCP/JSON Service, Python Auth gRPC Service и, следовательно, Python Game Server) в настоящее время используют `MOCK_USERS_DB` (словарь в памяти) через `auth_server.user_service.py`. Реальное использование Redis для хранения пользовательских данных или активных сессий не реализовано.
 *   **Публикация событий в Kafka (Python сервисы):** Подтверждено: Публикация событий из Python компонентов в Kafka (события аутентификации из Python Auth Services, игровые события из Python Game Server) на данный момент не реализована или является концептуальной. C++ Game Server (компонент `game_server_cpp`) реализует публикацию игровых событий в Kafka.
 
-## Requirements
+## Требования
 
 ### Общие требования
 *   **Git:** Система контроля версий для клонирования репозитория.
 *   **Docker & Docker Compose:** Для сборки и запуска контейнеризированных сервисов и самого приложения. Версия Docker Compose должна поддерживать формат `docker-compose.yml` версии 3.8+.
 
-### Python Development
+### Разработка на Python
 *   **Python:** Рекомендуется версия 3.9 или новее. Убедитесь, что Python добавлен в `PATH`.
 *   **PIP:** Менеджер пакетов Python (обычно устанавливается вместе с Python).
 *   **Виртуальное окружение (Рекомендуется):** Использование `venv` или `conda` для изоляции зависимостей проекта.
@@ -416,14 +416,14 @@ graph TD
     *   `pytest`, `pytest-asyncio`: для написания и запуска модульных тестов.
     *   `locust`: для нагрузочного тестирования.
 
-### C++ Development
+### Разработка на C++
 Для разработки C++ компонентов потребуется настроенное окружение.
 
 *   **Компилятор C++:** Поддерживающий стандарт C++17 (например, GCC 8+, Clang 6+, MSVC Visual Studio 2019+).
 *   **CMake:** Система автоматизации сборки.
     *   Локальная сборка: версия 3.16 или новее.
     *   Docker-сборка: используется версия CMake >= 3.29 (например, 3.29.6, как указано в `cpp/Dockerfile`) из-за использования политики `CMP0167`.
-*   **`protoc` (Protocol Buffers Compiler) и `grpc_cpp_plugin` (gRPC C++ Plugin):**
+*   **`protoc` (Компилятор Protocol Buffers) и `grpc_cpp_plugin` (Плагин gRPC C++):**
     *   Необходимы для компиляции `.proto` файлов.
     *   **При использовании `vcpkg` для установки `grpc` (рекомендуется для Windows):** `protoc` и `grpc_cpp_plugin` обычно устанавливаются и интегрируются автоматически.
     *   **Для Linux:** Если gRPC устанавливается через системный менеджер пакетов (например, `apt`), убедитесь, что установлены пакеты `protobuf-compiler` и `libgrpc-dev` (или `grpc_cpp_plugin`).
@@ -453,7 +453,7 @@ graph TD
     *   *Примечание: `grpc-proto` может потребоваться для плагина grpc cpp.*
     *   *Убедитесь в совместимости версий пакетов из системных репозиториев.*
 
-## Installation
+## Установка
 
 ### 1. Клонирование репозитория
 ```bash
@@ -461,15 +461,15 @@ git clone <URL_вашего_репозитория> # Замените на URL 
 cd <имя_каталога_проекта>
 ```
 
-### 2. Настройка Python окружения
+### 2. Настройка окружения Python
 Рекомендуется использовать виртуальное окружение.
 ```bash
 # Создание (например, python3 -m venv venv) и активация (source venv/bin/activate или .\venv\Scripts\activate)
 pip install -r requirements.txt
 ```
 
-### 3. Установка C++ зависимостей
-Следуйте инструкциям в разделе [C++ Development](#c-development) для установки зависимостей с помощью `vcpkg` или системного менеджера пакетов.
+### 3. Установка зависимостей C++
+Следуйте инструкциям в разделе [Разработка на C++](#разработка-на-c) для установки зависимостей с помощью `vcpkg` или системного менеджера пакетов.
 
 ### 4. Генерация gRPC кода
 
@@ -482,7 +482,7 @@ pip install -r requirements.txt
         ```
         *Примечание: Docker-сборка для `auth_server` (`auth_server/Dockerfile`) ожидает, что эти файлы уже сгенерированы и будут скопированы из `protos/generated/python` в образ.*
 
-### 5. Сборка C++ компонентов
+### 5. Сборка компонентов C++
 Сборка осуществляется с помощью CMake.
 
 1.  Перейдите в каталог `cpp`: `cd cpp`
@@ -514,7 +514,7 @@ pip install -r requirements.txt
     ```
 Исполняемые файлы будут в подкаталогах `cpp/build/auth_server_cpp/` и `cpp/build/game_server_cpp/` (и `cpp/build/tests/` для тестов).
 
-## Running the Application
+## Запуск приложения
 
 ### Через Docker Compose (Рекомендуемый способ)
 *Примечание: Если были внесены изменения в `requirements.txt` (Python-зависимости) или исходный код Python/C++ сервисов, используйте опцию `--build` при запуске (`docker compose up --build`) для пересборки Docker-образов.*
@@ -547,7 +547,7 @@ pip install -r requirements.txt
 ### Локальный запуск отдельных компонентов
 Этот способ может быть полезен для разработки и отладки отдельных сервисов. Требует, чтобы все зависимые инфраструктурные компоненты (Kafka, RabbitMQ, Redis) были запущены и доступны (например, через `docker compose up` только для них, или установлены локально).
 
-#### Python Auth Services (`auth_server/`)
+#### Python сервисы аутентификации (`auth_server/`)
 
 *   **A. Python Auth gRPC Service (`auth_server.auth_grpc_server`)**
     *   **Назначение**: Сервис аутентификации для C++ компонентов.
@@ -577,7 +577,7 @@ pip install -r requirements.txt
     *   **Хранилище данных**: Использует `user_service.py` с `MOCK_USERS_DB`.
     *   **Зависимости**: Не требует внешних сервисов для базовой работы с `MOCK_USERS_DB`.
 
-#### Python Game Server (`game_server.main`)
+#### Python игровой сервер (`game_server.main`)
 *   **Назначение**: Python реализация игрового сервера.
 *   **Предварительно**:
     *   Активируйте Python виртуальное окружение.
@@ -607,9 +607,9 @@ pip install -r requirements.txt
     *   Использует `AuthClient` для связи с Python Auth TCP/JSON Service для аутентификации игроков.
     *   Публикует команды `move`/`shoot` в RabbitMQ.
 
-#### C++ TCP Auth Server (`auth_server_cpp`)
+#### C++ TCP сервер аутентификации (`auth_server_cpp`)
 1.  Убедитесь, что **Python Auth gRPC Service (`auth_server.auth_grpc_server`)** запущен и доступен.
-2.  Соберите проект C++ (см. раздел "Сборка C++ компонентов").
+2.  Соберите проект C++ (см. раздел "Сборка компонентов C++").
 3.  Запустите исполняемый файл (путь может отличаться, пример для Release сборки на Linux из `cpp/build/`):
     ```bash
     ./auth_server_cpp/auth_server_app --port 9000 --grpc_addr localhost:50051
@@ -617,9 +617,9 @@ pip install -r requirements.txt
     *   `--port 9000`: Порт, на котором C++ TCP Auth Server будет слушать клиентские подключения.
     *   `--grpc_addr localhost:50051`: Адрес и порт запущенного Python Auth gRPC Service.
 
-#### C++ Game Server (`game_server_cpp`)
+#### C++ игровой сервер (`game_server_cpp`)
 1.  Убедитесь, что **Python Auth gRPC Service (`auth_server.auth_grpc_server`)**, RabbitMQ и Kafka запущены и доступны.
-2.  Соберите проект C++ (см. раздел "Сборка C++ компонентов").
+2.  Соберите проект C++ (см. раздел "Сборка компонентов C++").
 3.  Запустите исполняемый файл (путь может отличаться, пример для Release сборки на Linux из `cpp/build/`):
     ```bash
     ./game_server_cpp/game_server_app --tcp_port 8888 --udp_port 8889 \
@@ -707,7 +707,7 @@ pip install -r requirements.txt
         *   Для `locustfile_auth.py` (тестирование C++ TCP Auth Server): Требуется запущенный стек через `docker compose up`, так как он тестирует `cpp_auth_tcp_server` (порт 9000), который проксирует на `python_auth_grpc_service`.
         *   Для `locustfile_game.py` (тестирование C++ Game Server): Аналогично, требует `docker compose up`.
 
-## Testing
+## Тестирование
 
 Для запуска Python юнит-тестов и интеграционных тестов можно использовать скрипт `scripts/run_tests.sh` (расположен в директории `scripts/`).
 Этот скрипт выполняет следующие действия:
@@ -835,7 +835,7 @@ pytest -v tests/test_integration.py
 ```
 Скрипт `scripts/run_tests.sh` также запускает эти тесты.
 
-## Contributing
+## Вклад в проект
 (Содержимое этого раздела оставлено без изменений)
 ...
 
@@ -878,6 +878,52 @@ pytest -v tests/test_integration.py
 
 Эти изменения обеспечивают более стабильную и предсказуемую работу как Docker-окружения, так и процесса локальной сборки C++ компонентов.
 
-## Future Improvements
-(Содержимое этого раздела оставлено без изменений)
-...
+## Будущие улучшения
+
+*   **Реализовать полноценное использование Redis:**
+    *   Перенести хранение пользовательских данных из `MOCK_USERS_DB` в `auth_server.user_service.py` на Redis.
+    *   Реализовать управление сессиями (создание, валидация, удаление) с использованием Redis, включая TTL для сессий.
+    *   Обеспечить консистентность данных между `MOCK_USERS_DB` (если используется для первоначальных пользователей) и Redis.
+
+*   **Реализовать публикацию событий в Kafka из Python-сервисов:**
+    *   Добавить публикацию событий аутентификации (например, `user_registered`, `user_loggedin`) из Python Auth gRPC Service и Python Auth TCP/JSON Service в соответствующий топик Kafka.
+    *   Реализовать публикацию игровых событий (например, `player_joined`, `tank_destroyed`, `game_ended`) из Python Game Server в Kafka.
+
+*   **Исправить логику регистрации и аутентификации:**
+    *   Устранить несоответствие между сохранением хешированного пароля при регистрации (`user_service.create_user`) и ожиданием сырого пароля при аутентификации (`user_service.authenticate_user`). Либо хешировать пароль при аутентификации (потребуется сохранение соли), либо изменить логику хранения.
+    *   Реализовать корректный механизм валидации сессионных токенов в Python Auth gRPC Service (вместо повторного использования `AuthenticateUser` с токеном в поле пароля). Добавить отдельный RPC `ValidateSessionToken(ValidateTokenRequest) returns (ValidateTokenResponse)`.
+
+*   **Разработать Python Command Consumer:**
+    *   Создать Python-компонент, который бы подписывался на очередь команд `player_commands` в RabbitMQ и обрабатывал их, взаимодействуя с Python Game Server. Это позволит полностью разделить логику обработки команд для C++ и Python реализаций игрового сервера.
+
+*   **Улучшить обработку ошибок и отказоустойчивость:**
+    *   Добавить более гранулированную обработку ошибок во всех сервисах.
+    *   Внедрить retry-механизмы с экспоненциальной задержкой для всех межсервисных вызовов (gRPC, HTTP, брокеры сообщений).
+    *   Реализовать health checks для всех Python-сервисов, чтобы Docker и Kubernetes могли корректно отслеживать их состояние.
+
+*   **Расширить покрытие тестами:**
+    *   Добавить больше юнит-тестов для C++ компонентов, особенно для игровой логики.
+    *   Разработать интеграционные тесты для C++ стека (например, взаимодействие C++ TCP Auth Server -> Python Auth gRPC Service, C++ Game Server -> Python Auth gRPC Service, C++ Game Server -> Kafka/RabbitMQ).
+    *   Дополнить и детализировать сценарии в нагрузочных тестах Locust для C++ Game Server (`locustfile_game.py`).
+
+*   **Документация:**
+    *   Дополнить документацию API для всех сервисов (gRPC, TCP/JSON).
+    *   Описать детальные сценарии развертывания, включая Kubernetes.
+    *   Обновить диаграммы архитектуры и потоков данных по мере внесения изменений.
+
+*   **Безопасность:**
+    *   Реализовать использование SSL/TLS для всех внешних и внутренних коммуникаций.
+    *   Провести аудит безопасности кода и зависимостей.
+    *   Использовать переменные окружения или секреты для всех чувствительных данных (пароли, ключи API).
+
+*   **Конфигурация:**
+    *   Активно использовать `core/config.py` для централизованного управления конфигурацией Python-сервисов.
+    *   Рассмотреть использование Consul или etcd для динамической конфигурации в распределенной среде.
+
+*   **CI/CD:**
+    *   Настроить конвейеры непрерывной интеграции и доставки (CI/CD) для автоматической сборки, тестирования и развертывания сервисов.
+
+*   **Игровая логика (C++ и Python):**
+    *   Расширить возможности игровой логики: новые типы танков, бонусы, карты, игровые режимы.
+    *   Оптимизировать сетевой код для минимизации задержек.
+    *   Улучшить механизмы синхронизации состояния игры.

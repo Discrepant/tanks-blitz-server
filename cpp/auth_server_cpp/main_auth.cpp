@@ -1,18 +1,18 @@
 #include "auth_tcp_server.h"
 #include <iostream>
-#include <boost/asio/signal_set.hpp> // For signal handling (SIGINT, SIGTERM)
-#include <csignal> // For std::signal and signal constants (alternative to asio::signal_set)
+#include <boost/asio/signal_set.hpp> // Для обработки сигналов (SIGINT, SIGTERM)
+#include <csignal> // Для std::signal и констант сигналов (альтернатива asio::signal_set)
 
-// Removed global io_context pointer and C-style signal handler for simplicity with asio::signal_set
+// Удален глобальный указатель io_context и обработчик сигналов в стиле C для простоты с asio::signal_set
 
 int main(int argc, char* argv[]) {
-    short tcp_port = 9000; // Default TCP listening port
-    std::string grpc_server_address = "localhost:50051"; // Default Python gRPC Auth Service address
+    short tcp_port = 9000; // Порт TCP для прослушивания по умолчанию
+    std::string grpc_server_address = "localhost:50051"; // Адрес Python gRPC Auth Service по умолчанию
 
-    // Basic command-line argument parsing
-    // Usage: ./auth_server_app [tcp_listen_port] [grpc_auth_service_address]
-    // Example: ./auth_server_app 9000 localhost:50051
-    // Example for Docker: ./auth_server_app 9000 auth_server:50051 (where auth_server is Python gRPC service name)
+    // Базовый разбор аргументов командной строки
+    // Использование: ./auth_server_app [tcp_listen_port] [grpc_auth_service_address]
+    // Пример: ./auth_server_app 9000 localhost:50051
+    // Пример для Docker: ./auth_server_app 9000 auth_server:50051 (где auth_server - имя сервиса Python gRPC)
 
     for (int i = 1; i < argc; ++i) {
         std::string arg = argv[i];
@@ -32,7 +32,7 @@ int main(int argc, char* argv[]) {
             return 0;
         }
     }
-    // The old positional argument parsing is removed in favor of named arguments.
+    // Старый разбор позиционных аргументов удален в пользу именованных аргументов.
     // if (argc >= 2) {
     //     try {
     //         tcp_port = static_cast<short>(std::stoi(argv[1]));
@@ -52,7 +52,7 @@ int main(int argc, char* argv[]) {
     try {
         boost::asio::io_context io_context;
 
-        // Setup signal handling for graceful shutdown
+        // Настройка обработки сигналов для корректного завершения работы
         boost::asio::signal_set signals(io_context, SIGINT, SIGTERM);
         signals.async_wait([&io_context](const boost::system::error_code& /*error*/, int signal_num) {
             std::cout << "\nSignal " << signal_num << " received. Auth TCP Server stopping io_context." << std::endl;

@@ -1,37 +1,37 @@
 #include "tank_pool.h"
-#include <iostream>  // For std::cout, std::cerr for logging
-#include <algorithm> // For std::find (used in release_tank to check for duplicates, optional)
+#include <iostream>  // Для std::cout, std::cerr для логирования
+#include <algorithm> // Для std::find (используется в release_tank для проверки дубликатов, опционально)
 
-// Define static members
+// Определение статических членов
 TankPool* TankPool::instance_ = nullptr;
-std::mutex TankPool::mutex_; // Ensure this is defined
+std::mutex TankPool::mutex_; // Убедимся, что это определено
 
 TankPool::TankPool(size_t pool_size, KafkaProducerHandler* kafka_handler)
     : kafka_producer_handler_(kafka_handler), initial_pool_size_(pool_size) {
 
     if (pool_size > 0 && (!kafka_handler || !kafka_handler->is_valid())) {
-        // This check is crucial if tanks require a valid kafka_handler to function correctly.
+        // Эта проверка критична, если танки требуют действительный kafka_handler для корректной работы.
         std::cerr << "TankPool Warning: KafkaProducerHandler is null or invalid during construction, "
                   << "but pool_size is " << pool_size << ". Tanks may not function as expected." << std::endl;
-        // Depending on strictness, could throw or mark TankPool as invalid.
+        // В зависимости от строгости, можно выбросить исключение или пометить TankPool как недействительный.
     }
 
     std::cout << "TankPool: Initializing with pool size: " << pool_size << std::endl;
     for (size_t i = 0; i < pool_size; ++i) {
         std::string tank_id = "tank_" + std::to_string(i);
-        // Create tank with default position and health, pass the kafka_handler
+        // Создаем танк с позицией и здоровьем по умолчанию, передаем kafka_handler
         auto tank = std::make_shared<Tank>(tank_id, kafka_producer_handler_);
         all_tanks_[tank_id] = tank;
         available_tank_ids_.push_back(tank_id);
-        // Tanks are initially inactive (Tank constructor sets is_active_ = false).
+        // Танки изначально неактивны (конструктор Tank устанавливает is_active_ = false).
     }
     std::cout << "TankPool: " << all_tanks_.size() << " tanks initialized and added to the available pool." << std::endl;
 }
 
 TankPool* TankPool::get_instance(size_t pool_size, KafkaProducerHandler* kafka_handler) {
-    std::lock_guard<std::mutex> lock(mutex_); // Thread-safe initialization for the singleton
+    std::lock_guard<std::mutex> lock(mutex_); // Потокобезопасная инициализация для singleton
     if (instance_ == nullptr) {
-        if (pool_size > 0 && kafka_handler == nullptr) { // Kafka handler is essential if tanks are to be created
+        if (pool_size > 0 && kafka_handler == nullptr) { // Kafka handler важен, если создаются танки
             std::cerr << "TankPool Critical Error: First call to get_instance() with pool_size > 0 "
                       << "requires a valid KafkaProducerHandler." << std::endl;
             return nullptr;
@@ -42,8 +42,8 @@ TankPool* TankPool::get_instance(size_t pool_size, KafkaProducerHandler* kafka_h
         }
         instance_ = new TankPool(pool_size, kafka_handler);
     }
-    // Note: Subsequent calls to get_instance currently ignore pool_size and kafka_handler.
-    // If re-configuration is desired, the singleton pattern might need adjustment or a separate reinit method.
+    // Примечание: Последующие вызовы get_instance в настоящее время игнорируют pool_size и kafka_handler.
+    // Если требуется реконфигурация, паттерн singleton может потребовать корректировки или отдельного метода reinit.
     return instance_;
 }
 
@@ -54,22 +54,22 @@ std::shared_ptr<Tank> TankPool::acquire_tank() {
         return nullptr;
     }
 
-    std::string tank_id = available_tank_ids_.back(); // LIFO behavior
+    std::string tank_id = available_tank_ids_.back(); // Поведение LIFO (последним пришел - первым вышел)
     available_tank_ids_.pop_back();
 
     auto tank_it = all_tanks_.find(tank_id);
     if (tank_it == all_tanks_.end()) {
-        // This indicates an inconsistency, should ideally not happen.
+        // Это указывает на несоответствие, в идеале такого происходить не должно.
         std::cerr << "TankPool Error: Tank ID " << tank_id
                   << " from available list not found in all_tanks_ map. Re-adding ID to available." << std::endl;
-        available_tank_ids_.push_back(tank_id); // Put it back to try to prevent endless loop if logic error
+        available_tank_ids_.push_back(tank_id); // Возвращаем обратно, чтобы попытаться предотвратить бесконечный цикл при ошибке логики
         return nullptr;
     }
 
     std::shared_ptr<Tank> tank = tank_it->second;
 
-    tank->reset();          // Ensure tank is in a default state (also calls set_active(false))
-    tank->set_active(true); // Now activate it for use (this will send "tank_activated" event)
+    tank->reset();          // Убедимся, что танк в состоянии по умолчанию (также вызывает set_active(false))
+    tank->set_active(true); // Теперь активируем его для использования (это отправит событие "tank_activated")
 
     in_use_tanks_[tank_id] = tank;
 
@@ -89,15 +89,15 @@ void TankPool::release_tank(const std::string& tank_id) {
     }
 
     std::shared_ptr<Tank> tank = it->second;
-    tank->reset(); // This calls set_active(false) and sends "tank_reset" & "tank_deactivated" Kafka events.
+    tank->reset(); // Это вызывает set_active(false) и отправляет события Kafka "tank_reset" и "tank_deactivated".
 
     in_use_tanks_.erase(it);
 
-    // Add ID back to available_tank_ids_ only if it's not already there (safety check)
+    // Добавляем ID обратно в available_tank_ids_ только если его там еще нет (проверка безопасности)
     if (std::find(available_tank_ids_.begin(), available_tank_ids_.end(), tank_id) == available_tank_ids_.end()) {
         available_tank_ids_.push_back(tank_id);
     } else {
-        // This case should ideally not be reached if acquire/release logic is sound.
+        // Этот случай в идеале не должен достигаться, если логика acquire/release надежна.
         std::cerr << "TankPool Warning: Tank ID " << tank_id
                   << " already in available_tank_ids_ during release. Possible logic issue." << std::endl;
     }
@@ -107,13 +107,13 @@ void TankPool::release_tank(const std::string& tank_id) {
 }
 
 std::shared_ptr<Tank> TankPool::get_tank(const std::string& tank_id) {
-    std::lock_guard<std::mutex> lock(mutex_); // Protects access to in_use_tanks_
+    std::lock_guard<std::mutex> lock(mutex_); // Защищает доступ к in_use_tanks_
     auto it = in_use_tanks_.find(tank_id);
     if (it != in_use_tanks_.end()) {
-        return it->second; // Return shared_ptr to the tank
+        return it->second; // Возвращаем shared_ptr на танк
     }
-    // std::cout << "TankPool: Tank " << tank_id << " not found in in_use_tanks_." << std::endl; // Can be verbose
-    return nullptr; // Tank not in use or doesn't exist by that ID in the "in_use" map
+    // std::cout << "TankPool: Tank " << tank_id << " not found in in_use_tanks_." << std::endl; // Может быть слишком подробно
+    return nullptr; // Танк не используется или не существует с таким ID в карте "in_use"
 }
 
 size_t TankPool::get_available_tanks_count() const {

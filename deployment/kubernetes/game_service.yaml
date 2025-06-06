@@ -3,15 +3,15 @@ kind: Service
 metadata:
   name: game-server-service
 spec:
-  type: LoadBalancer # Для UDP часто используют LoadBalancer или NodePort
+  type: LoadBalancer # Для UDP часто используется LoadBalancer или NodePort
   selector:
     app: game-server
   ports:
   - name: game-udp
     protocol: UDP
-    port: 9999       # Внешний порт
-    targetPort: game-udp # Имя порта из Deployment
-  - name: game-metrics # Для доступа к метрикам игрового сервера, если нужно извне кластера
+    port: 9999       # Внешний порт, который будет открыт
+    targetPort: game-udp # Имя порта из вашего Deployment
+  - name: game-metrics # Для доступа к метрикам игрового сервера, если это необходимо извне кластера
     protocol: TCP
     port: 8001
     targetPort: game-metrics

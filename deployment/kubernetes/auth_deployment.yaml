@@ -22,7 +22,7 @@ spec:
         ports:
         - containerPort: 8888 # TCP
           name: auth-tcp
-        - containerPort: 8000 # HTTP Metrics
+        - containerPort: 8000 # HTTP Метрики
           name: auth-metrics
         # resources: # Определить запросы и лимиты ресурсов
         #   requests:

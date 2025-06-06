@@ -4,42 +4,42 @@ project(TankGameCppServices CXX)
 
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED True)
-set(CMAKE_CXX_EXTENSIONS OFF) # Disable compiler-specific extensions like -std=gnu++17
+set(CMAKE_CXX_EXTENSIONS OFF) # Отключаем специфичные для компилятора расширения, такие как -std=gnu++17
 
 if(MSVC OR (CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_ID MATCHES "GNU|Clang"))
-    # Define _WIN32_WINNT to target Windows 10 (0x0A00) or higher.
-    # This helps with libraries like Boost.Asio and avoids warnings.
-    # For Windows 7, use 0x0601. For Windows 8, use 0x0602. For Windows 8.1, use 0x0603.
+    # Определяем _WIN32_WINNT для нацеливания на Windows 10 (0x0A00) или выше.
+    # Это помогает с библиотеками вроде Boost.Asio и избегает предупреждений.
+    # Для Windows 7 используйте 0x0601. Для Windows 8 - 0x0602. Для Windows 8.1 - 0x0603.
     add_compile_definitions(_WIN32_WINNT=0x0A00)
     message(STATUS "Setting _WIN32_WINNT to 0x0A00 (Windows 10)")
 elseif(CMAKE_SYSTEM_NAME STREQUAL "Windows" AND CMAKE_CXX_COMPILER_ID MATCHES "Intel")
-    # For Intel compiler on Windows, the definition might be different or handled by environment
-    add_compile_definitions(_WIN32_WINNT=0x0A00) # Assuming similar for Intel C++ on Windows
+    # Для компилятора Intel в Windows определение может отличаться или управляться окружением
+    add_compile_definitions(_WIN32_WINNT=0x0A00) # Предполагаем аналогично для Intel C++ в Windows
     message(STATUS "Setting _WIN32_WINNT to 0x0A00 (Windows 10) for Intel Compiler")
 endif()
 
-# Common settings - can be expanded
-set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Useful for some tools like clangd
+# Общие настройки - могут быть расширены
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON) # Полезно для некоторых инструментов, таких как clangd
 
-# Find global dependencies that might be used by multiple subprojects
-# For example, if nlohmann_json is used everywhere and version is consistent.
-# However, it's often cleaner to let subprojects declare their direct dependencies.
+# Поиск глобальных зависимостей, которые могут использоваться несколькими подпроектами
+# Например, если nlohmann_json используется повсеместно и версия согласована.
+# Однако часто чище позволить подпроектам объявлять свои прямые зависимости.
 
-# Add subdirectories
-# The 'protos' subdirectory will define a target for gRPC/Protobuf code generation.
-# This target can then be linked by other subprojects.
+# Добавляем подкаталоги
+# Подкаталог 'protos' определит цель для генерации кода gRPC/Protobuf.
+# Эта цель затем может быть связана другими подпроектами.
 find_package(Protobuf REQUIRED)
 find_package(gRPC CONFIG REQUIRED)
 add_subdirectory(protos)
 add_subdirectory(game_server_cpp)
 add_subdirectory(auth_server_cpp)
 
-# Testing with Catch2
-# Enable testing for this project
+# Тестирование с Catch2
+# Включаем тестирование для этого проекта
 enable_testing()
 
-# Add the tests subdirectory
-# This assumes tests/CMakeLists.txt will define the test executable
+# Добавляем подкаталог tests
+# Предполагается, что tests/CMakeLists.txt определит исполняемый файл тестов
 add_subdirectory(tests)
 
 message(STATUS "Root CMakeLists.txt processed. Testing enabled.")

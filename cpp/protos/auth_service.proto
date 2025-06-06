@@ -2,23 +2,23 @@ syntax = "proto3";
 
 package auth;
 
-// Request message for authentication and registration
+// Сообщение запроса для аутентификации и регистрации
 message AuthRequest {
   string username = 1;
   string password = 2;
 }
 
-// Response message for authentication and registration
+// Сообщение ответа для аутентификации и регистрации
 message AuthResponse {
   bool authenticated = 1;
   string message = 2;
-  string token = 3; // e.g., session token, can be username for now
+  string token = 3; // например, токен сессии, пока может быть именем пользователя
 }
 
-// Definition of the authentication service
+// Определение сервиса аутентификации
 service AuthService {
-  // Authenticates a user
+  // Аутентифицирует пользователя
   rpc AuthenticateUser(AuthRequest) returns (AuthResponse);
-  // Registers a new user
+  // Регистрирует нового пользователя
   rpc RegisterUser(AuthRequest) returns (AuthResponse);
 }

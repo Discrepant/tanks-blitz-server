@@ -24,16 +24,16 @@ def reset_tank_pool_singleton():
          pass
 
 
-def test_tank_pool_singleton_instance():
+def test_tank_pool_singleton_instance(): # Тест экземпляра Singleton TankPool
     pool1 = TankPool(pool_size=5)
     pool2 = TankPool(pool_size=10) # Размер должен игнорироваться при втором вызове
     
     assert pool1 is pool2
-    assert hasattr(pool1, 'pool'), "Pool1 should have a 'pool' attribute after initialization"
+    assert hasattr(pool1, 'pool'), "Экземпляр pool1 должен иметь атрибут 'pool' после инициализации" # Pool1 should have a 'pool' attribute after initialization
     assert len(pool1.pool) == 5 # Должен быть использован размер из первого вызова
 
 @patch('game_server.tank_pool.Tank') # Мокируем класс Tank
-def test_tank_pool_initialization(MockTank):
+def test_tank_pool_initialization(MockTank): # Тест инициализации TankPool
     # Настраиваем мок Tank для возврата мок-экземпляров с tank_id
     mock_instances = []
     def mock_tank_init(tank_id):
@@ -74,7 +74,7 @@ def test_tank_pool_initialization(MockTank):
 
 @patch('game_server.tank_pool.TANKS_IN_USE')
 @patch('game_server.tank_pool.Tank')
-def test_acquire_tank_success(MockTank, mock_tanks_in_use):
+def test_acquire_tank_success(MockTank, mock_tanks_in_use): # Тест успешного получения танка
     # Сбрасываем _instance, чтобы TankPool был инициализирован с нашим MockTank
     TankPool._instance = None
     if hasattr(TankPool, 'initialized'):
@@ -104,7 +104,7 @@ def test_acquire_tank_success(MockTank, mock_tanks_in_use):
 
 @patch('game_server.tank_pool.TANKS_IN_USE')
 @patch('game_server.tank_pool.Tank')
-def test_acquire_tank_none_available(MockTank, mock_tanks_in_use):
+def test_acquire_tank_none_available(MockTank, mock_tanks_in_use): # Тест получения танка, когда нет свободных
     TankPool._instance = None
     if hasattr(TankPool, 'initialized'):
         delattr(TankPool, 'initialized')
@@ -126,7 +126,7 @@ def test_acquire_tank_none_available(MockTank, mock_tanks_in_use):
 
 @patch('game_server.tank_pool.TANKS_IN_USE')
 @patch('game_server.tank_pool.Tank')
-def test_release_tank_success(MockTank, mock_tanks_in_use):
+def test_release_tank_success(MockTank, mock_tanks_in_use): # Тест успешного освобождения танка
     TankPool._instance = None
     if hasattr(TankPool, 'initialized'):
         delattr(TankPool, 'initialized')
@@ -151,7 +151,7 @@ def test_release_tank_success(MockTank, mock_tanks_in_use):
 
 
 @patch('game_server.tank_pool.TANKS_IN_USE')
-def test_release_tank_not_in_use(mock_tanks_in_use):
+def test_release_tank_not_in_use(mock_tanks_in_use): # Тест освобождения танка, который не используется
     # Этот тест не мокирует Tank, так что TankPool создаст реальные Tank объекты
     pool = TankPool(pool_size=1)
     
@@ -166,7 +166,7 @@ def test_release_tank_not_in_use(mock_tanks_in_use):
 
 
 @patch('game_server.tank_pool.Tank')
-def test_get_tank_success(MockTank):
+def test_get_tank_success(MockTank): # Тест успешного получения используемого танка
     TankPool._instance = None # Сброс для чистоты
     if hasattr(TankPool, 'initialized'):
         delattr(TankPool, 'initialized')
@@ -181,14 +181,14 @@ def test_get_tank_success(MockTank):
     retrieved_tank = pool.get_tank(tank_in_use.tank_id)
     assert retrieved_tank is tank_in_use
 
-def test_get_tank_not_found(): # autouse fixture сработает
+def test_get_tank_not_found(): # Тест получения несуществующего танка (autouse fixture сработает)
     pool = TankPool(pool_size=1) # Создаст реальные танки
     retrieved_tank = pool.get_tank("not_found_id")
     assert retrieved_tank is None
 
 @patch('game_server.tank_pool.TANKS_IN_USE')
 @patch('game_server.tank_pool.Tank')
-def test_release_tank_calls_reset_which_sets_inactive(MockTank, mock_tanks_in_use):
+def test_release_tank_calls_reset_which_sets_inactive(MockTank, mock_tanks_in_use): # Тест: release_tank вызывает reset, который устанавливает неактивность
     TankPool._instance = None
     if hasattr(TankPool, 'initialized'):
         delattr(TankPool, 'initialized')

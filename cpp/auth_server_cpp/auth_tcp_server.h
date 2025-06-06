@@ -2,13 +2,13 @@
 #define AUTH_TCP_SERVER_H
 
 #include <boost/asio.hpp>
-#include <grpcpp/grpcpp.h> // For grpc::Channel
-#include <memory>           // For std::shared_ptr
-// #include "auth_tcp_session.h" // Forward declaration preferred if possible
+#include <grpcpp/grpcpp.h> // Для grpc::Channel
+#include <memory>           // Для std::shared_ptr
+// #include "auth_tcp_session.h" // Предварительное объявление предпочтительнее, если возможно
 
 using boost::asio::ip::tcp;
 
-// Forward declaration
+// Предварительное объявление
 class AuthTcpSession;
 
 class AuthTcpServer {
@@ -17,7 +17,7 @@ public:
                   short port,
                   const std::string& grpc_server_address);
 
-    // Deleted copy constructor and assignment operator
+    // Удаленные конструктор копирования и оператор присваивания
     AuthTcpServer(const AuthTcpServer&) = delete;
     AuthTcpServer& operator=(const AuthTcpServer&) = delete;
 
@@ -27,7 +27,7 @@ private:
                        const boost::system::error_code& error);
 
     tcp::acceptor acceptor_;
-    std::shared_ptr<grpc::Channel> grpc_channel_; // Shared pointer to the gRPC channel
+    std::shared_ptr<grpc::Channel> grpc_channel_; // Общий указатель на канал gRPC
 };
 
 #endif // AUTH_TCP_SERVER_H

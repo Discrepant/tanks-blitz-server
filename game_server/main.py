@@ -21,13 +21,13 @@ from .tank_pool import TankPool
 from .metrics import ACTIVE_SESSIONS, TANKS_IN_USE # Metrics might be used by commented out code
 from prometheus_client import start_http_server # For commented out metrics server
 
-# Global logger for this module, configured in __main__
-# Note: logging.getLogger(__name__) should be called AFTER logging.basicConfig
-# For now, we define it here, and basicConfig in __main__ will configure the root logger
-# which this logger will inherit from.
+# Глобальный логгер для этого модуля, настраивается в __main__
+# Примечание: logging.getLogger(__name__) должен вызываться ПОСЛЕ logging.basicConfig
+# Пока что мы определяем его здесь, а basicConfig в __main__ настроит корневой логгер,
+# от которого этот логгер будет наследоваться.
 logger = logging.getLogger(__name__)
 
-# Placeholder for metric functions (commented out, but structure preserved)
+# Заглушка для функций метрик (закомментировано, но структура сохранена)
 # def update_metrics():
 #     pass
 # def metrics_updater_loop():
@@ -42,8 +42,8 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
     """
     loop = asyncio.get_running_loop()
 
-    # UDP Server Setup
-    udp_host = os.getenv('GAME_SERVER_UDP_HOST', '0.0.0.0') # Usually 0.0.0.0 for server
+    # Настройка UDP-сервера
+    udp_host = os.getenv('GAME_SERVER_UDP_HOST', '0.0.0.0') # Обычно 0.0.0.0 для сервера
     udp_port_str = os.getenv("GAME_SERVER_UDP_PORT", "29998")
     try:
         udp_port = int(udp_port_str)
@@ -53,12 +53,12 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
         logger.warning(f"Invalid value for GAME_SERVER_UDP_PORT ('{udp_port_str}'). Using default UDP port {default_udp_port}.")
         udp_port = default_udp_port
 
-    transport_udp = None # Initialize to ensure it's defined for finally block
-    protocol_udp = None # Initialize protocol_udp as well
+    transport_udp = None # Инициализируем, чтобы было определено для блока finally
+    protocol_udp = None # Также инициализируем protocol_udp
 
     max_retries = 5
-    retry_delay = 2  # seconds
-    udp_sock = None # Initialize udp_sock outside the try block for access in except/finally if needed
+    retry_delay = 2  # секунды
+    udp_sock = None # Инициализируем udp_sock вне блока try для доступа в except/finally при необходимости
 
     for attempt in range(max_retries):
         try:
@@ -82,10 +82,10 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
             logger.info(f"Attempt {attempt + 1}/{max_retries}: Creating datagram endpoint...")
             transport_udp, protocol_udp = await loop.create_datagram_endpoint(
                 lambda: GameUDPProtocol(session_manager=session_manager, tank_pool=tank_pool),
-                sock=udp_sock  # Use the pre-configured and bound socket
+                sock=udp_sock  # Используем предварительно настроенный и привязанный сокет
             )
             logger.info(f"Game UDP server started successfully on attempt {attempt + 1}/{max_retries}, listening on {transport_udp.get_extra_info('sockname')}.")
-            break  # Exit loop on success
+            break  # Выход из цикла при успехе
 
         except OSError as e:
             logger.warning(f"Attempt {attempt + 1}/{max_retries} failed to start UDP server on {udp_host}:{udp_port}: {e}")
@@ -95,21 +95,21 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
 
             if attempt == max_retries - 1:
                 logger.critical(f"All {max_retries} attempts to start UDP server on {udp_host}:{udp_port} failed. Last error: {e}", exc_info=True)
-                raise  # Re-raise the last exception
+                raise  # Повторно вызываем последнее исключение
             else:
                 logger.info(f"Retrying UDP server setup for {udp_host}:{udp_port} in {retry_delay} seconds...")
                 await asyncio.sleep(retry_delay)
-        except Exception as e_general: # Catch any other unexpected error during setup
+        except Exception as e_general: # Перехват любых других неожиданных ошибок во время настройки
             logger.critical(f"Unexpected error during UDP setup attempt {attempt + 1}/{max_retries} for {udp_host}:{udp_port}: {e_general}", exc_info=True)
             if udp_sock:
-                udp_sock.close() # Ensure socket is closed on other exceptions too
-            raise # Re-raise to stop server startup
+                udp_sock.close() # Убедимся, что сокет закрыт и при других исключениях
+            raise # Повторно вызываем для остановки запуска сервера
 
-    if not transport_udp: # This check is more of a safeguard
+    if not transport_udp: # Эта проверка больше для подстраховки
         logger.critical(f"UDP server setup failed for {udp_host}:{udp_port} after all retries. Transport is None.") # pragma: no cover
         raise RuntimeError(f"UDP server could not be initialized for {udp_host}:{udp_port}.") # pragma: no cover
 
-    # TCP Server and AuthClient Setup
+    # Настройка TCP-сервера и AuthClient
     game_tcp_host = os.getenv('GAME_SERVER_TCP_HOST', '0.0.0.0')
     game_tcp_port_str = os.getenv('GAME_SERVER_TCP_PORT', '8889')
     try:
@@ -131,7 +131,7 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
 
     logger.info(f"AuthClient will connect to Auth Server at {auth_server_host}:{auth_server_port}.")
 
-    tcp_server = None # Initialize to ensure it's defined for finally block
+    tcp_server = None # Инициализируем, чтобы было определено для блока finally
     try:
         logger.debug("Initializing AuthClient...")
         auth_client = AuthClient(auth_server_host=auth_server_host, auth_server_port=auth_server_port)
@@ -151,14 +151,14 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
         )
         logger.info(f"Game TCP server started successfully on {game_tcp_host}:{game_tcp_port}.")
 
-    except OSError as e: # Catch OSError specifically for TCP server binding
+    except OSError as e: # Перехват OSError специально для привязки TCP-сервера
         logger.critical(f"Could not start Game TCP server on {game_tcp_host}:{game_tcp_port}: {e}", exc_info=True)
-        # This error will propagate to asyncio.run and be handled in __main__
-        raise # Re-raise to stop server startup if TCP fails
-    except Exception as e_setup: # Catch other setup errors (e.g. AuthClient, GameRoom init)
+        # Эта ошибка будет передана в asyncio.run и обработана в __main__
+        raise # Повторно вызываем для остановки запуска сервера, если TCP не удался
+    except Exception as e_setup: # Перехват других ошибок настройки (например, инициализация AuthClient, GameRoom)
         logger.critical(f"Critical error during server setup (TCP/Auth/GameRoom): {e_setup}", exc_info=True)
-        # This error will propagate to asyncio.run and be handled in __main__
-        raise # Re-raise
+        # Эта ошибка будет передана в asyncio.run и обработана в __main__
+        raise # Повторно вызываем
 
     try:
         logger.info("Game server fully initialized. Waiting for termination signal...")
@@ -169,23 +169,23 @@ async def start_game_server(session_manager: SessionManager, tank_pool: TankPool
             tcp_server.close()
             await tcp_server.wait_closed()
             logger.info("Game TCP server stopped.")
-        if transport_udp: # Use the specific variable name for UDP transport
+        if transport_udp: # Используем конкретное имя переменной для UDP-транспорта
             transport_udp.close()
             logger.info("Game UDP server stopped.")
 
 if __name__ == '__main__':
-    # Setup basic logging first
-    # The format includes module name, function name, and line number for detailed debugging.
+    # Сначала настраиваем базовое логирование
+    # Формат включает имя модуля, имя функции и номер строки для детальной отладки.
     logging.basicConfig(
-        level=os.getenv("LOG_LEVEL", "INFO").upper(), # Default to INFO if not set
+        level=os.getenv("LOG_LEVEL", "INFO").upper(), # По умолчанию INFO, если не установлено
         format='%(asctime)s - %(levelname)s - %(name)s - %(module)s.%(funcName)s:%(lineno)d - %(message)s',
-        stream=sys.stderr # Log to stderr by default
+        stream=sys.stderr # По умолчанию логируем в stderr
     )
 
-    # Now that basicConfig is done, the module-level logger is configured.
-    # Any print statements for ULTRA_DEBUG can be removed or kept for initial process start indication.
-    # sys.stdout.write("[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.\n") # Example of direct write
-    # sys.stderr.write("Test stderr message\n") # For testing stderr capture
+    # Теперь, когда basicConfig выполнен, логгер уровня модуля настроен.
+    # Любые операторы print для ULTRA_DEBUG могут быть удалены или оставлены для индикации начального запуска процесса.
+    # sys.stdout.write("[GAME_SERVER_MAIN_ULTRA_DEBUG] Process started. sys imported.\n") # Пример прямой записи
+    # sys.stderr.write("Test stderr message\n") # Для тестирования захвата stderr
 
     logger.info("Initializing game server application...")
 
@@ -197,47 +197,47 @@ if __name__ == '__main__':
     tank_pool = TankPool(pool_size=int(os.getenv("TANK_POOL_SIZE", 50)))
     logger.debug("TankPool initialized.")
 
-    # Placeholder for starting metrics server (currently commented out)
+    # Заглушка для запуска сервера метрик (в данный момент закомментировано)
     # try:
     #     logger.info("Attempting to start metrics server...")
-    #     start_metrics_server() # This function would need to be defined or uncommented
+    #     start_metrics_server() # Эту функцию нужно будет определить или раскомментировать
     # except Exception as e_metrics:
     #     logger.error(f"Failed to start metrics server: {e_metrics}", exc_info=True)
 
-    # Placeholder for starting RabbitMQ consumers (currently commented out)
+    # Заглушка для запуска потребителей RabbitMQ (в данный момент закомментировано)
     # try:
     #     logger.info("Attempting to start RabbitMQ consumers...")
-    #     # ... (consumer starting logic) ...
+    #     # ... (логика запуска потребителей) ...
     # except Exception as e_consumers:
     #     logger.error(f"Failed to start RabbitMQ consumers: {e_consumers}", exc_info=True)
 
     main_event_loop = None
     try:
         logger.info("Attempting to run main server logic: start_game_server.")
-        # For Python 3.7+ asyncio.run is preferred
-        main_event_loop = asyncio.get_event_loop() # Get loop for policies if needed before run
+        # Для Python 3.7+ предпочтительнее asyncio.run
+        main_event_loop = asyncio.get_event_loop() # Получаем цикл для политик, если нужно, перед запуском
         if sys.platform == "win32" and sys.version_info >= (3, 8): # pragma: no cover
-             # Required for Windows if ProactorEventLoop is default and UDP endpoints are used with it.
-             # SelectorEventLoop is generally more compatible for some UDP/subprocess uses on Windows.
+             # Требуется для Windows, если ProactorEventLoop используется по умолчанию и с ним используются конечные точки UDP.
+             # SelectorEventLoop обычно более совместим для некоторых использований UDP/подпроцессов в Windows.
              asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
-             logger.info("Windows OS detected: Applied WindowsSelectorEventLoopPolicy for asyncio.")
+             logger.info("Windows OS detected: Applied WindowsSelectorEventLoopPolicy for asyncio.") # Обнаружена ОС Windows: применена WindowsSelectorEventLoopPolicy для asyncio.
 
         asyncio.run(start_game_server(session_manager=session_manager, tank_pool=tank_pool))
     except KeyboardInterrupt:
         logger.info("Server shutdown requested via KeyboardInterrupt.")
-        sys.stderr.write("Server shutdown requested via KeyboardInterrupt.\n")
+        sys.stderr.write("Завершение работы сервера запрошено через KeyboardInterrupt.\n") # Server shutdown requested via KeyboardInterrupt.
     except OSError as e:
         logger.critical(f"CRITICAL: Failed to start server due to OSError (e.g., port binding issue): {e}", exc_info=True)
-        sys.stderr.write(f"CRITICAL OSERROR: {e}\n")
+        sys.stderr.write(f"КРИТИЧЕСКАЯ OSERROR: {e}\n") # CRITICAL OSERROR:
         sys.exit(1)
     except Exception as e:
         logger.critical(f"CRITICAL: Unhandled error in main execution block: {e}", exc_info=True)
-        sys.stderr.write(f"CRITICAL ERROR: {e}\n")
+        sys.stderr.write(f"КРИТИЧЕСКАЯ ОШИБКА: {e}\n") # CRITICAL ERROR:
         sys.exit(1)
     finally:
         logger.info("Game server application shutting down or has failed to start.")
-        # Any other final cleanup if necessary
+        # Любая другая необходимая окончательная очистка
 
-    # This print should ideally not be reached if server runs indefinitely via asyncio.Event().wait()
-    # unless Event is set or an error occurs that bypasses sys.exit.
+    # Это сообщение в идеале не должно быть достигнуто, если сервер работает неопределенно долго через asyncio.Event().wait()
+    # если только Event не установлен или не произошла ошибка, обходящая sys.exit.
     logger.info("Game server application main block finished.")

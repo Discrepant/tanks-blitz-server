@@ -323,7 +323,7 @@ if __name__ == '__main__':
 
     # Создаем сессию
     session1 = sm1.create_session()
-    logger.info(f"Created session ID: {session1.session_id}")
+    logger.info(f"Created session ID: {session1.session_id}") # Создан ID сессии
     
     # Определяем данные игроков и пытаемся получить для них танки
     player1_id = "player_A"
@@ -336,39 +336,39 @@ if __name__ == '__main__':
     
     # Добавляем игроков в сессию
     if tank1:
-        logger.info(f"Tank for player_A: ID {tank1.tank_id}")
+        logger.info(f"Tank for player_A: ID {tank1.tank_id}") # Танк для игрока_A
         sm1.add_player_to_session(session1.session_id, player1_id, player1_addr, tank1)
     else:
-        logger.warning("Failed to get tank for player_A")
+        logger.warning("Failed to get tank for player_A") # Не удалось получить танк для игрока_A
 
     if tank2:
-        logger.info(f"Tank for player_B: ID {tank2.tank_id}")
+        logger.info(f"Tank for player_B: ID {tank2.tank_id}") # Танк для игрока_B
         sm1.add_player_to_session(session1.session_id, player2_id, player2_addr, tank2)
     else:
         # Если pool_size=1, это ожидаемое поведение для второго игрока
-        logger.warning("Failed to get tank for player_B") 
+        logger.warning("Failed to get tank for player_B") # Не удалось получить танк для игрока_B
 
     if session1: # Проверяем, что сессия была создана
-        logger.info(f"Players in session {session1.session_id}: {session1.players}")
-        logger.info(f"Tanks in session {session1.session_id}: {session1.tanks}")
+        logger.info(f"Players in session {session1.session_id}: {session1.players}") # Игроки в сессии
+        logger.info(f"Tanks in session {session1.session_id}: {session1.tanks}") # Танки в сессии
     
     # Проверяем поиск сессии по ID игрока
     retrieved_session = sm1.get_session_by_player_id(player1_id)
     if retrieved_session:
-        logger.info(f"Player {player1_id} is in session {retrieved_session.session_id}")
+        logger.info(f"Player {player1_id} is in session {retrieved_session.session_id}") # Игрок ... находится в сессии ...
 
     # Удаляем первого игрока
     sm1.remove_player_from_session(player1_id)
     if tank1: # Возвращаем танк в пул, если он был получен
         tank_pool.release_tank(tank1.tank_id)
-        logger.info(f"Tank {tank1.tank_id} returned to pool.")
+        logger.info(f"Tank {tank1.tank_id} returned to pool.") # Танк ... возвращен в пул.
     
     # Если последний игрок удален, сессия должна удалиться автоматически
     # (проверяем по логам или по состоянию sm1.sessions)
     sm1.remove_player_from_session(player2_id) 
     if tank2: # Возвращаем второй танк в пул
         tank_pool.release_tank(tank2.tank_id)
-        logger.info(f"Tank {tank2.tank_id} returned to pool.")
+        logger.info(f"Tank {tank2.tank_id} returned to pool.") # Танк ... возвращен в пул.
 
-    logger.info(f"Current sessions in SessionManager: {sm1.sessions}")
-    logger.info(f"Tank pool state: available {len(tank_pool.available_tanks)}, in_use {len(tank_pool.in_use_tanks)}")
+    logger.info(f"Current sessions in SessionManager: {sm1.sessions}") # Текущие сессии в SessionManager
+    logger.info(f"Tank pool state: available {len(tank_pool.available_tanks)}, in_use {len(tank_pool.in_use_tanks)}") # Состояние пула танков: доступно ..., используется ...

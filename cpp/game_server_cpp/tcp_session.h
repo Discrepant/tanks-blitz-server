@@ -5,35 +5,35 @@
 #include <string>
 #include <vector>
 #include <deque>
-#include <iostream> // Included for consistency, though logging might be more in .cpp
-#include <memory>   // For std::enable_shared_from_this, std::shared_ptr, std::unique_ptr
+#include <iostream> // Включено для согласованности, хотя логирование может быть больше в .cpp
+#include <memory>   // Для std::enable_shared_from_this, std::shared_ptr, std::unique_ptr
 #include <nlohmann/json.hpp>
 
 // AMQP (RabbitMQ)
 #include <rabbitmq-c/amqp.h>
-// #include <amqp_tcp_socket.h> // Not directly used in session, connection state passed
-#include <rabbitmq-c/framing.h>    // For amqp_cstring_bytes etc. if used directly
+// #include <amqp_tcp_socket.h> // Напрямую не используется в сессии, передается состояние соединения
+#include <rabbitmq-c/framing.h>    // Для amqp_cstring_bytes и т.д., если используется напрямую
 
-// gRPC (Auth Service Client)
+// gRPC (Клиент сервиса аутентификации)
 #include <grpcpp/grpcpp.h>
-// Path to generated gRPC code for auth_service.proto
-// This assumes a specific project structure where auth_server_cpp is a sibling to game_server_cpp,
-// and protos target generates files accessible via this relative path.
-// This will be resolved by CMake include directories.
+// Путь к сгенерированному gRPC коду для auth_service.proto
+// Это предполагает определенную структуру проекта, где auth_server_cpp является соседним с game_server_cpp,
+// и цель protos генерирует файлы, доступные по этому относительному пути.
+// Это будет разрешено через include директории CMake.
 #include "auth_service.grpc.pb.h"
 
-// Forward declarations from our own project
+// Предварительные объявления из нашего собственного проекта
 class SessionManager;
 class TankPool;
-// class Tank; // Included via tank_pool.h or session_manager.h if they include it, or directly if needed.
-// For PlayerInSessionData, Tank is needed.
+// class Tank; // Включается через tank_pool.h или session_manager.h, если они его включают, или напрямую при необходимости.
+// Для PlayerInSessionData, Tank необходим.
 #include "tank.h"
 
 
 using boost::asio::ip::tcp;
 using nlohmann::json;
 
-// Forward declaration for AuthService for the Stub type
+// Предварительное объявление для AuthService для типа Stub
 namespace auth {
     class AuthService;
 }
@@ -44,24 +44,24 @@ public:
     GameTCPSession(tcp::socket socket,
                    SessionManager* sm,
                    TankPool* tp,
-                   amqp_connection_state_t rabbitmq_conn_state, // For publishing game events via RabbitMQ
-                   std::shared_ptr<grpc::Channel> grpc_auth_channel); // For authentication
+                   amqp_connection_state_t rabbitmq_conn_state, // Для публикации игровых событий через RabbitMQ
+                   std::shared_ptr<grpc::Channel> grpc_auth_channel); // Для аутентификации
 
-    void start(); // Starts the session, typically by initiating a read operation
+    void start(); // Запускает сессию, обычно инициируя операцию чтения
 
 private:
-    // Network operations
+    // Сетевые операции
     void do_read();
     void handle_read(const boost::system::error_code& error, std::size_t length);
-    void do_write(); // Manages sending messages from write_msgs_queue_
-    void send_message(const std::string& msg); // Queues a message for sending
+    void do_write(); // Управляет отправкой сообщений из write_msgs_queue_
+    void send_message(const std::string& msg); // Помещает сообщение в очередь для отправки
     void handle_write(const boost::system::error_code& error, std::size_t length);
     void close_session(const std::string& reason = "");
 
-public: // Made public for testing
+public: // Сделано публичным для тестирования
     void process_command(const std::string& line);
 private:
-    // Command Handlers
+    // Обработчики команд
     void handle_login(const std::vector<std::string>& args);
     void handle_register(const std::vector<std::string>& args);
     void handle_move(const std::vector<std::string>& args);
@@ -70,29 +70,29 @@ private:
     void handle_help(const std::vector<std::string>& args);
     void handle_players(const std::vector<std::string>& args);
     void handle_quit(const std::vector<std::string>& args);
-    // Potentially other handlers: get_game_state, get_leaderboard, etc.
+    // Потенциально другие обработчики: get_game_state, get_leaderboard и т.д.
 
-    // RabbitMQ Publishing
+    // Публикация в RabbitMQ
     void publish_to_rabbitmq_internal(const std::string& queue_name, const nlohmann::json& message_json);
     static const std::string RMQ_PLAYER_COMMANDS_QUEUE;
     static const std::string RMQ_CHAT_MESSAGES_QUEUE;
 
 
-    // Member variables
+    // Члены-переменные
     tcp::socket socket_;
-    boost::asio::streambuf read_buffer_; // Buffer for incoming data
-    std::deque<std::string> write_msgs_queue_; // Queue of outgoing messages
+    boost::asio::streambuf read_buffer_; // Буфер для входящих данных
+    std::deque<std::string> write_msgs_queue_; // Очередь исходящих сообщений
 
-    // External services and managers (raw pointers, lifetime managed by main/server)
+    // Внешние сервисы и менеджеры (сырые указатели, время жизни управляется main/server)
     SessionManager* session_manager_;
     TankPool* tank_pool_;
-    amqp_connection_state_t rmq_conn_state_; // RabbitMQ connection state (not owned)
-    std::unique_ptr<auth::AuthService::Stub> auth_grpc_stub_; // gRPC client stub for authentication
+    amqp_connection_state_t rmq_conn_state_; // Состояние соединения RabbitMQ (не владеет)
+    std::unique_ptr<auth::AuthService::Stub> auth_grpc_stub_; // Клиентская заглушка gRPC для аутентификации
 
-    // Player state
-    std::string username_;           // Authenticated username
-    std::string current_session_id_; // ID of the game session the player is in
-    std::string assigned_tank_id_;   // ID of the tank assigned to this player
+    // Состояние игрока
+    std::string username_;           // Аутентифицированное имя пользователя
+    std::string current_session_id_; // ID игровой сессии, в которой находится игрок
+    std::string assigned_tank_id_;   // ID танка, назначенного этому игроку
     bool authenticated_ = false;
 };
 

@@ -1,14 +1,14 @@
-#define CATCH_CONFIG_RUNNER // This tells Catch to provide a main() - only do this in one cpp file
+#define CATCH_CONFIG_RUNNER // Это указывает Catch предоставить main() - делать это только в одном cpp файле
 #include "catch2/catch_all.hpp"
 #include <iostream>
 
 int main(int argc, char* argv[]) {
-    // Global setup can go here
+    // Глобальная настройка может быть здесь
     std::cout << "Starting Test Runner for TankGame C++ Components" << std::endl;
 
     int result = Catch::Session().run(argc, argv);
 
-    // Global teardown can go here
+    // Глобальная очистка может быть здесь
     std::cout << "Test Runner finished." << std::endl;
     return result;
 }

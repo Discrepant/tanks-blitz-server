@@ -4,16 +4,16 @@
 #include <boost/asio.hpp>
 #include <nlohmann/json.hpp>
 #include <grpcpp/grpcpp.h>
-#include "auth_service.grpc.pb.h" // Generated gRPC code (from protos target)
+#include "auth_service.grpc.pb.h" // Сгенерированный gRPC код (из цели protos)
 #include <iostream>
 #include <string>
-#include <memory> // For std::enable_shared_from_this, std::shared_ptr, std::unique_ptr
-#include <deque>  // For write_msgs_queue_
+#include <memory> // Для std::enable_shared_from_this, std::shared_ptr, std::unique_ptr
+#include <deque>  // Для write_msgs_queue_ (очереди сообщений для записи)
 
 using boost::asio::ip::tcp;
 using nlohmann::json;
 
-// Forward declaration of AuthService for the Stub (already in auth_service.grpc.pb.h but good practice if only stub was needed)
+// Предварительное объявление AuthService для заглушки (Stub) (уже есть в auth_service.grpc.pb.h, но хорошая практика, если нужна только заглушка)
 // namespace auth {
 //     class AuthService;
 // }
@@ -26,11 +26,11 @@ public:
 private:
     void do_read();
     void handle_read(const boost::system::error_code& error, std::size_t length);
-public: // Made public for testing
+public: // Сделано публичным для тестирования
     void process_json_request(const std::string& json_str);
 private:
-    void send_response(const std::string& msg); // Queues message and starts write chain if not active
-    void do_write(); // Writes the front message from the queue
+    void send_response(const std::string& msg); // Помещает сообщение в очередь и запускает цепочку записи, если она не активна
+    void do_write(); // Записывает первое сообщение из очереди
     void handle_write(const boost::system::error_code& error, std::size_t length);
 
     void close_session(const std::string& reason = "");
@@ -38,8 +38,8 @@ private:
 
     tcp::socket socket_;
     boost::asio::streambuf read_buffer_;
-    std::unique_ptr<auth::AuthService::Stub> grpc_stub_; // gRPC client stub
-    std::deque<std::string> write_msgs_queue_; // Queue for outgoing messages
+    std::unique_ptr<auth::AuthService::Stub> grpc_stub_; // Клиентская заглушка gRPC
+    std::deque<std::string> write_msgs_queue_; // Очередь для исходящих сообщений
 };
 
 #endif // AUTH_TCP_SESSION_H

@@ -39,7 +39,8 @@ async def test_grpc_server(mock_user_service):
 @pytest.mark.asyncio
 async def test_authenticate_user_success(test_grpc_server, mock_user_service):
     server_address, _ = test_grpc_server
-    mock_user_service.authenticate_user.return_value = (True, "Authentication successful")
+    # Предполагаем, что UserService теперь возвращает русские сообщения
+    mock_user_service.authenticate_user.return_value = (True, "Аутентификация прошла успешно")
 
     async with insecure_channel(server_address) as channel:
         stub = auth_service_pb2_grpc.AuthServiceStub(channel)
@@ -48,13 +49,13 @@ async def test_authenticate_user_success(test_grpc_server, mock_user_service):
 
     mock_user_service.authenticate_user.assert_called_once_with("testuser", "password")
     assert response.authenticated is True
-    assert response.message == "Authentication successful"
+    assert response.message == "Аутентификация прошла успешно"
     assert response.token == "testuser" # Токен - это имя пользователя при успехе
 
 @pytest.mark.asyncio
 async def test_authenticate_user_failure(test_grpc_server, mock_user_service):
     server_address, _ = test_grpc_server
-    mock_user_service.authenticate_user.return_value = (False, "Invalid credentials")
+    mock_user_service.authenticate_user.return_value = (False, "Неверные учетные данные") # Сообщение на русском
 
     async with insecure_channel(server_address) as channel:
         stub = auth_service_pb2_grpc.AuthServiceStub(channel)
@@ -63,14 +64,15 @@ async def test_authenticate_user_failure(test_grpc_server, mock_user_service):
 
     mock_user_service.authenticate_user.assert_called_once_with("testuser", "wrongpassword")
     assert response.authenticated is False
-    assert response.message == "Invalid credentials"
+    assert response.message == "Неверные учетные данные"
     assert response.token == ""
 
 # Тесты для RegisterUser
 @pytest.mark.asyncio
 async def test_register_user_success(test_grpc_server, mock_user_service):
     server_address, _ = test_grpc_server
-    mock_user_service.create_user.return_value = (True, "User registered successfully")
+    # Предполагаем, что UserService теперь возвращает русские сообщения
+    mock_user_service.create_user.return_value = (True, "Пользователь успешно зарегистрирован")
 
     # Мокируем объект pbkdf2_sha256 в модуле auth_grpc_server
     with patch('auth_server.auth_grpc_server.pbkdf2_sha256') as mock_pbkdf2_object:
@@ -85,13 +87,14 @@ async def test_register_user_success(test_grpc_server, mock_user_service):
     mock_pbkdf2_object.hash.assert_called_once_with("newpassword") # Проверяем вызов на мок-методе hash
     mock_user_service.create_user.assert_called_once_with("newuser", "hashed_password_value")
     assert response.authenticated is False # По логике RegisterUser, authenticated всегда False в ответе
-    assert response.message == "Registration successful. Please login." # Сообщение кастомизируется
+    assert response.message == "Регистрация прошла успешно. Пожалуйста, войдите в систему." // Сообщение от AuthServiceServicer
     assert response.token == ""
 
 @pytest.mark.asyncio
 async def test_register_user_failure_user_exists(test_grpc_server, mock_user_service):
     server_address, _ = test_grpc_server
-    mock_user_service.create_user.return_value = (False, "User already exists")
+    # Предполагаем, что UserService теперь возвращает русские сообщения
+    mock_user_service.create_user.return_value = (False, "Пользователь уже существует")
 
     with patch('auth_server.auth_grpc_server.pbkdf2_sha256') as mock_pbkdf2_object:
         mock_pbkdf2_object.hash.return_value = "hashed_password_value"
@@ -104,7 +107,7 @@ async def test_register_user_failure_user_exists(test_grpc_server, mock_user_ser
     mock_pbkdf2_object.hash.assert_called_once_with("password")
     mock_user_service.create_user.assert_called_once_with("existinguser", "hashed_password_value")
     assert response.authenticated is False
-    assert response.message == "Registration failed: User already exists" # Сообщение кастомизируется
+    assert response.message == "Ошибка регистрации: Пользователь уже существует" # Сообщение от AuthServiceServicer
     assert response.token == ""
 
 @pytest.mark.asyncio

@@ -5,17 +5,19 @@ import logging
 
 # Assuming protos are in ./protos and generated files are in ./grpc_generated relative to this script's execution path
 # Adjust sys.path if necessary, or structure as a proper package
-import sys
-import os
+# import sys # No longer needed for this
+# import os # No longer needed for this
 # Add the parent directory of 'auth_server' to sys.path to allow sibling imports if 'protos' is outside 'auth_server'
 # For example, if 'protos' and 'auth_server' are siblings in a root directory.
 # This also helps find 'grpc_generated' if it's a sub-package of 'auth_server'.
-sys.path.append(os.path.join(os.path.dirname(__file__), 'grpc_generated'))
-sys.path.append(os.path.dirname(os.path.abspath(__file__))) # Add auth_server itself for user_service
+# sys.path.append(os.path.join(os.path.dirname(__file__), 'grpc_generated')) # Removed
+# sys.path.append(os.path.dirname(os.path.abspath(__file__))) # Add auth_server itself for user_service # Removed
 
-import auth_service_pb2
-import auth_service_pb2_grpc
-from user_service import UserService # Assuming user_service.py is in the same directory (auth_server)
+# Use fully qualified imports assuming 'auth_server' is the top-level package visible in PYTHONPATH
+from auth_server.grpc_generated import auth_service_pb2
+from auth_server.grpc_generated import auth_service_pb2_grpc
+from auth_server.user_service import UserService
+from passlib.hash import pbkdf2_sha256 # Moved import to top level
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -49,8 +51,8 @@ class AuthServiceServicer(auth_service_pb2_grpc.AuthServiceServicer):
         # We'd need to hash the password here. For simplicity, let's mock it as not implemented.
 
         # If you wanted to implement it:
-        from passlib.hash import pbkdf2_sha256
-        password_hash = pbkdf2_sha256.hash(request.password)
+        # from passlib.hash import pbkdf2_sha256 # Removed from here, moved to top
+        password_hash = pbkdf2_sha256.hash(request.password) # pbkdf2_sha256 is now from module globals
         success, message = await self.user_service.create_user(request.username, password_hash)
         if success:
             logging.info(f"User {request.username} registered successfully.")

@@ -3,6 +3,7 @@
 # для управления экземплярами танков.
 from .tank import Tank # Используем относительный импорт, так как Tank находится в том же пакете
 import logging # Добавляем логирование
+from .metrics import TANKS_IN_USE # Импортируем метрику
 
 logger = logging.getLogger(__name__) # Инициализация логгера
 
@@ -65,7 +66,8 @@ class TankPool:
             if not tank.is_active: # Если танк не активен (т.е. свободен)
                 tank.is_active = True # Помечаем как активный
                 self.in_use_tanks[tank.tank_id] = tank # Добавляем в словарь используемых
-                logger.info(f"Tank {tank.tank_id} acquired from pool.")
+                TANKS_IN_USE.inc() # Обновляем метрику
+                logger.info(f"Tank {tank.tank_id} acquired from pool. TANKS_IN_USE incremented.")
                 return tank
         logger.warning("No free tanks available in the pool.")
         return None # Возвращаем None, если все танки заняты
@@ -83,7 +85,8 @@ class TankPool:
         tank = self.in_use_tanks.pop(tank_id, None) # Удаляем танк из используемых
         if tank:
             tank.reset() # Сбрасываем состояние танка (включая is_active = False)
-            logger.info(f"Tank {tank.tank_id} released back to pool.")
+            TANKS_IN_USE.dec() # Обновляем метрику
+            logger.info(f"Tank {tank.tank_id} released back to pool. TANKS_IN_USE decremented.")
         else:
             # Попытка вернуть танк, который не был помечен как используемый или не существует.
             logger.warning(f"Warning: Attempt to release tank with ID ({tank_id}) that is not in use or does not exist.")

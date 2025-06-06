@@ -157,7 +157,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                                     }
                                 }
                                 try:
-                                    publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
+                                    publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Removed await
                                     logger.info(f"UDP [{addr}]: Published 'move' command for player {player_id} (tank: {tank_id}, position: {position}) to RabbitMQ.")
                                 except Exception as e:
                                     logger.error(f"UDP [{addr}]: Failed to publish 'move' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
@@ -187,7 +187,7 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                             }
                             try:
                                 # Use default exchange (empty string), routing key is queue name
-                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message)
+                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Removed await
                                 logger.info(f"UDP [{addr}]: Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ.")
                             except Exception as e:
                                 logger.error(f"UDP [{addr}]: Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)

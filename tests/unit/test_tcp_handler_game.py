@@ -177,3 +177,291 @@ class TestGameTCPHandlerRabbitMQ(unittest.IsolatedAsyncioTestCase):
 if __name__ == '__main__':
     # Запуск тестов, если файл выполняется напрямую
     unittest.main()
+
+# --- Pytest style tests added below ---
+import pytest # Required for pytest specific features if not already at top
+from game_server.game_logic import GameRoom # для мокирования типа (re-import for clarity if needed)
+from game_server.models import Player # для мокирования и проверки создания (re-import for clarity if needed)
+# CLIENT_TCP_READ_TIMEOUT might be needed if tests depend on it, imported from handler.
+# from game_server.tcp_handler import CLIENT_TCP_READ_TIMEOUT
+
+@pytest.fixture
+def mock_game_room_pytest(): # Renamed to avoid conflict if unittest and pytest fixtures were in same global scope
+    room = MagicMock(spec=GameRoom)
+    room.authenticate_player = AsyncMock()
+    room.add_player = AsyncMock()
+    room.remove_player = AsyncMock()
+    room.handle_player_command = AsyncMock()
+    return room
+
+@pytest.fixture
+def mock_reader_factory_pytest():
+    def _factory(side_effects):
+        reader = AsyncMock(spec=asyncio.StreamReader)
+        reader.readuntil.side_effect = side_effects
+        return reader
+    return _factory
+
+@pytest.fixture
+def mock_writer_pytest(): # Renamed
+    writer = AsyncMock(spec=asyncio.StreamWriter)
+    writer.is_closing.return_value = False
+    writer.get_extra_info.return_value = ('127.0.0.1', 12345)
+    return writer
+
+@pytest.mark.asyncio
+async def test_handle_game_client_initial_ack_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([asyncio.IncompleteReadError(b'', 0)])
+    await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+    mock_writer_pytest.write.assert_called_once_with(b"SERVER_ACK_CONNECTED\n")
+    assert mock_writer_pytest.close.call_count >= 1 # close might be called in finally
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_handle_game_client_auth_success_then_disconnect_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN testuser password123\n",
+        asyncio.IncompleteReadError(b'', 0)
+    ])
+    auth_msg = "Auth Success"
+    token = "test_token_123"
+    mock_game_room_pytest.authenticate_player.return_value = (True, auth_msg, token)
+
+    mock_player_instance = MagicMock(spec=Player)
+    mock_player_instance.name = "testuser"
+    mock_player_instance.id = 1
+    mock_player_instance.writer = mock_writer_pytest
+
+    with patch('game_server.tcp_handler.Player', return_value=mock_player_instance) as MockPlayerConstructor:
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once_with("testuser", "password123")
+
+    expected_login_success_msg = f"LOGIN_SUCCESS {auth_msg} Token: {token}\n".encode('utf-8')
+    calls = [call(b"SERVER_ACK_CONNECTED\n"), call(expected_login_success_msg)]
+    mock_writer_pytest.write.assert_has_calls(calls, any_order=False)
+
+    MockPlayerConstructor.assert_called_once_with(writer=mock_writer_pytest, name="testuser", session_token=token)
+    mock_game_room_pytest.add_player.assert_called_once_with(mock_player_instance)
+    mock_game_room_pytest.remove_player.assert_called_once_with(mock_player_instance)
+
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+@pytest.mark.asyncio
+async def test_handle_game_client_auth_failure_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN testuser password123\n",
+        # Handler terminates after auth failure, so no further reads needed for this test path
+    ])
+    auth_msg = "Auth Failed"
+    mock_game_room_pytest.authenticate_player.return_value = (False, auth_msg, None)
+
+    with patch('game_server.tcp_handler.Player') as MockPlayerConstructor:
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once_with("testuser", "password123")
+    expected_login_failure_msg = f"LOGIN_FAILURE {auth_msg}\n".encode('utf-8')
+    calls = [call(b"SERVER_ACK_CONNECTED\n"), call(expected_login_failure_msg)]
+    mock_writer_pytest.write.assert_has_calls(calls, any_order=False)
+
+    MockPlayerConstructor.assert_not_called()
+    mock_game_room_pytest.add_player.assert_not_called()
+    mock_game_room_pytest.remove_player.assert_not_called()
+    mock_writer_pytest.close.assert_called_once()
+    mock_writer_pytest.wait_closed.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_handle_game_client_auth_exception_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN testuser password123\n",
+    ])
+    auth_exception_message = "Auth service unavailable"
+    mock_game_room_pytest.authenticate_player.side_effect = Exception(auth_exception_message)
+
+    with patch('game_server.tcp_handler.Player') as MockPlayerConstructor:
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once_with("testuser", "password123")
+    expected_auth_exception_msg = f"CRITICAL_SERVER_ERROR Exception\n".encode('utf-8')
+    calls = [call(b"SERVER_ACK_CONNECTED\n"), call(expected_auth_exception_msg)]
+    mock_writer_pytest.write.assert_has_calls(calls, any_order=False)
+
+    MockPlayerConstructor.assert_not_called()
+    mock_game_room_pytest.add_player.assert_not_called()
+    mock_game_room_pytest.remove_player.assert_not_called()
+    mock_writer_pytest.close.assert_called_once()
+    mock_writer_pytest.wait_closed.assert_called_once()
+
+@pytest.mark.asyncio
+async def test_handle_game_client_command_processing_then_quit_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN player_cmd superpass\n",
+        b"SAY Hello\n",
+        b"QUIT\n",
+        asyncio.IncompleteReadError(b'', 0)
+    ])
+    mock_game_room_pytest.authenticate_player.return_value = (True, "Auth Success", "token1")
+
+    mock_player_instance = MagicMock(spec=Player)
+    mock_player_instance.name = "player_cmd"
+    mock_player_instance.id = 2
+    mock_player_instance.writer = mock_writer_pytest
+
+    with patch('game_server.tcp_handler.Player', return_value=mock_player_instance) as MockPlayerConstructor:
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once_with("player_cmd", "superpass")
+    MockPlayerConstructor.assert_called_once_with(writer=mock_writer_pytest, name="player_cmd", session_token="token1")
+    mock_game_room_pytest.add_player.assert_called_once_with(mock_player_instance)
+
+    expected_command_calls = [call(mock_player_instance, "SAY Hello"), call(mock_player_instance, "QUIT")]
+    mock_game_room_pytest.handle_player_command.assert_has_calls(expected_command_calls)
+
+    mock_game_room_pytest.remove_player.assert_called_once_with(mock_player_instance)
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+# --- Pytest style tests for error handling and other commands ---
+@pytest.mark.asyncio
+async def test_handle_game_client_incomplete_read_username_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([asyncio.IncompleteReadError(b'user', 4)])
+
+    await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_writer_pytest.write.assert_called_once_with(b"SERVER_ACK_CONNECTED\n")
+    mock_game_room_pytest.authenticate_player.assert_not_called()
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+@pytest.mark.asyncio
+async def test_handle_game_client_connection_reset_during_auth_read_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    # Login attempt, then connection reset when trying to read password
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN testuser \n", # Part of login
+        ConnectionResetError("Connection reset while reading password")
+    ])
+    # Note: The above side_effect implies LOGIN user pass is on one line.
+    # If user is one line, pass is another, then it's:
+    # b"testuser\n", ConnectionResetError(...)
+    # Let's assume LOGIN user pass is one line for consistency with previous fixes.
+    # So, if it resets during that line, it's IncompleteReadError.
+    # If it resets on the *next* read (e.g. if LOGIN was just "LOGIN\n" and server expects user next):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN_CMD_EXPECTING_USER_PASS_LATER\n", # Example if server has multi-stage login
+        ConnectionResetError("Connection reset")
+    ])
+    # For this test, let's assume the server expects "LOGIN user pass" on one line,
+    # and the reset happens *during* the read of this line, causing IncompleteReadError.
+    # Or, if the server reads username, then password separately:
+    mock_reader = mock_reader_factory_pytest([
+        b"testuser\n", # Username read successfully
+        ConnectionResetError("Connection reset while reading password") # Reset on password read
+    ])
+    # The handle_game_client reads LOGIN user pass in one go. So the test should reflect that.
+    # Let's simulate a ConnectionResetError *instead* of IncompleteReadError for a different code path.
+    # This means asyncio.open_connection fails, or readuntil itself raises it not wrapped by wait_for.
+    # The current tcp_handler catches ConnectionResetError in a general try-except.
+
+    # Re-evaluate: Test ConnectionResetError after successful ACK.
+    # The first readuntil is for "LOGIN user pass". If this raises ConnectionResetError:
+    mock_reader = mock_reader_factory_pytest([
+        ConnectionResetError("Connection reset during login line read")
+    ])
+
+    await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_writer_pytest.write.assert_called_once_with(b"SERVER_ACK_CONNECTED\n")
+    mock_game_room_pytest.authenticate_player.assert_not_called()
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+
+@pytest.mark.asyncio
+async def test_handle_game_client_timeout_reading_command_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN timeout_user password\n",
+        asyncio.TimeoutError # Timeout when waiting for a command after login
+    ])
+    mock_game_room_pytest.authenticate_player.return_value = (True, "Auth Success", "token_timeout")
+    mock_player_instance = MagicMock(spec=Player, id=3)
+    mock_player_instance.name = "timeout_player"
+    mock_player_instance.writer = mock_writer_pytest
+
+    with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once_with("timeout_user", "password")
+    mock_game_room_pytest.add_player.assert_called_once_with(mock_player_instance)
+    mock_writer_pytest.write.assert_any_call(b"SERVER_ERROR Timeout waiting for command\n")
+    mock_game_room_pytest.remove_player.assert_called_once_with(mock_player_instance)
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+@pytest.mark.asyncio
+async def test_handle_game_client_empty_command_after_login_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN empty_cmd_user password\n",
+        b"\n", # Empty command
+        asyncio.IncompleteReadError(b'', 0)
+    ])
+    mock_game_room_pytest.authenticate_player.return_value = (True, "Auth Success", "token_empty_cmd")
+    mock_player_instance = MagicMock(spec=Player, id=4)
+    mock_player_instance.name = "empty_cmd_user"
+    mock_player_instance.writer = mock_writer_pytest
+
+    with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once()
+    mock_game_room_pytest.add_player.assert_called_once_with(mock_player_instance)
+    mock_writer_pytest.write.assert_any_call(b"EMPTY_COMMAND\n")
+    mock_game_room_pytest.handle_player_command.assert_not_called()
+    mock_game_room_pytest.remove_player.assert_called_once_with(mock_player_instance)
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+@pytest.mark.asyncio
+async def test_handle_game_client_unknown_command_after_login_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    mock_reader = mock_reader_factory_pytest([
+        b"LOGIN unknown_cmd_user password\n",
+        b"BLABLA\n",
+        asyncio.IncompleteReadError(b'', 0)
+    ])
+    mock_game_room_pytest.authenticate_player.return_value = (True, "Auth Success", "token_unknown_cmd")
+    mock_player_instance = MagicMock(spec=Player, id=5)
+    mock_player_instance.name = "unknown_cmd_user"
+    mock_player_instance.writer = mock_writer_pytest
+
+    with patch('game_server.tcp_handler.Player', return_value=mock_player_instance):
+        await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_called_once()
+    mock_game_room_pytest.add_player.assert_called_once_with(mock_player_instance)
+    mock_writer_pytest.write.assert_any_call(b"UNKNOWN_COMMAND\n")
+    mock_game_room_pytest.handle_player_command.assert_not_called()
+    mock_game_room_pytest.remove_player.assert_called_once_with(mock_player_instance)
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1
+
+@pytest.mark.asyncio
+async def test_handle_game_client_register_command_pytest(mock_reader_factory_pytest, mock_writer_pytest, mock_game_room_pytest):
+    # REGISTER command is processed before typical auth loop
+    mock_reader = mock_reader_factory_pytest([
+        b"REGISTER newuser newpass\n",
+        asyncio.IncompleteReadError(b'',0) # To stop after this command, or handler might terminate
+    ])
+
+    await handle_game_client(mock_reader, mock_writer_pytest, mock_game_room_pytest)
+
+    mock_game_room_pytest.authenticate_player.assert_not_called()
+    calls = [
+        call(b"SERVER_ACK_CONNECTED\n"),
+        call(b"REGISTER_FAILURE Registration via game server is not supported yet.\n")
+    ]
+    mock_writer_pytest.write.assert_has_calls(calls, any_order=False)
+    mock_game_room_pytest.add_player.assert_not_called()
+    mock_game_room_pytest.remove_player.assert_not_called()
+    assert mock_writer_pytest.close.call_count >= 1
+    assert mock_writer_pytest.wait_closed.call_count >= 1

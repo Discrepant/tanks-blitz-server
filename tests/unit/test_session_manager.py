@@ -2,7 +2,7 @@
 # Этот файл содержит модульные тесты для SessionManager и GameSession
 # из модуля game_server.session_manager, используя pytest и фикстуры.
 import pytest # Импортируем pytest для написания и запуска тестов
-from unittest.mock import MagicMock, patch, call
+from unittest.mock import MagicMock, patch, call # Инструменты для мокирования
 import uuid # Для мокирования uuid.uuid4
 import time # Для мокирования time.time
 
@@ -12,9 +12,9 @@ from game_server.tank import Tank # Класс танка, нужен для м�
 from core.message_broker_clients import KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS
 
 
-# --- Существующие тесты для SessionManager (интеграционного стиля) ---
+# --- Существующие тесты для SessionManager (в стиле интеграционных тестов) ---
 @pytest.fixture(scope="function")
-def session_manager_instance():
+def session_manager_instance(): # Экземпляр менеджера сессий
     SessionManager._instance = None
     # Убедимся, что initialized сбрасывается для __init__ guard SessionManager
     if hasattr(SessionManager, 'initialized') and SessionManager._instance is None:
@@ -30,13 +30,13 @@ def session_manager_instance():
     return sm
 
 @pytest.fixture
-def tank_pool_for_sm_tests(): # Изменено имя, чтобы не конфликтовать с другими тестами TankPool
+def tank_pool_for_sm_tests(): # Пул танков для тестов SessionManager (изменено имя, чтобы не конфликтовать)
     TankPool._instance = None
     if hasattr(TankPool, 'initialized') and TankPool._instance is None:
         delattr(TankPool, 'initialized')
     return TankPool(pool_size=5)
 
-def test_session_manager_singleton_existing_tests(session_manager_instance):
+def test_session_manager_singleton_existing_tests(session_manager_instance): # Тест Singleton для SessionManager (существующие тесты)
     sm1 = session_manager_instance
     sm2 = SessionManager()
     assert sm1 is sm2, "SessionManager должен быть Singleton (возвращать тот же экземпляр)."
@@ -44,7 +44,7 @@ def test_session_manager_singleton_existing_tests(session_manager_instance):
 @patch('game_server.session_manager.send_kafka_message') # Мокируем Kafka для существующих тестов SM
 @patch('game_server.session_manager.time.time') # Мокируем time для существующих тестов SM
 @patch('game_server.session_manager.uuid.uuid4') # Мокируем uuid для существующих тестов SM
-def test_create_get_remove_session_existing_tests(mock_uuid, mock_time, mock_send_kafka, session_manager_instance):
+def test_create_get_remove_session_existing_tests(mock_uuid, mock_time, mock_send_kafka, session_manager_instance): # Тест создания, получения и удаления сессии (существующие тесты)
     mock_uuid.return_value = "fixed-uuid-for-existing-test"
     mock_time.return_value = 12345.0
 
@@ -70,10 +70,10 @@ def test_create_get_remove_session_existing_tests(mock_uuid, mock_time, mock_sen
     # Учитывая, что session_manager_instance может быть переиспользован с моками, лучше reset_mock
     mock_send_kafka.reset_mock() # Сброс перед действием, которое мы хотим проверить
 
-    # Re-create session for this part of test to ensure clean mock state for remove
-    TankPool._instance = None # Reset for tank pool
+    # Пересоздаем сессию для этой части теста, чтобы обеспечить чистое состояние мока для удаления
+    TankPool._instance = None # Сброс для пула танков
     if hasattr(TankPool, 'initialized'): delattr(TankPool, 'initialized')
-    SessionManager._instance = None # Reset for session manager
+    SessionManager._instance = None # Сброс для менеджера сессий
     if hasattr(SessionManager, 'initialized'): delattr(SessionManager, 'initialized')
     sm = SessionManager()
     _ = TankPool(pool_size=5)
@@ -99,7 +99,7 @@ def test_create_get_remove_session_existing_tests(mock_uuid, mock_time, mock_sen
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.time.time')
 @patch('game_server.session_manager.uuid.uuid4')
-def test_add_remove_player_from_session_existing_tests(mock_uuid, mock_time, mock_send_kafka, session_manager_instance, tank_pool_for_sm_tests):
+def test_add_remove_player_from_session_existing_tests(mock_uuid, mock_time, mock_send_kafka, session_manager_instance, tank_pool_for_sm_tests): # Тест добавления и удаления игрока из сессии (существующие тесты)
     sm = session_manager_instance
 
     mock_uuid.return_value = "session-for-player-test"
@@ -151,7 +151,7 @@ def test_add_remove_player_from_session_existing_tests(mock_uuid, mock_time, moc
 
     tank_pool_for_sm_tests.release_tank(tank1.tank_id)
 
-def test_add_player_to_non_existent_session_existing_tests(session_manager_instance, tank_pool_for_sm_tests):
+def test_add_player_to_non_existent_session_existing_tests(session_manager_instance, tank_pool_for_sm_tests): # Тест добавления игрока в несуществующую сессию (существующие тесты)
     sm = session_manager_instance
     player_id = "p_ghost"
     tank = tank_pool_for_sm_tests.acquire_tank()
@@ -166,7 +166,7 @@ def test_add_player_to_non_existent_session_existing_tests(session_manager_insta
         )
     tank_pool_for_sm_tests.release_tank(tank.tank_id)
 
-def test_remove_non_existent_player_existing_tests(session_manager_instance):
+def test_remove_non_existent_player_existing_tests(session_manager_instance): # Тест удаления несуществующего игрока (существующие тесты)
     sm = session_manager_instance
     _ = sm.create_session() 
     with patch('game_server.session_manager.logger') as mock_logger:
@@ -177,7 +177,7 @@ def test_remove_non_existent_player_existing_tests(session_manager_instance):
         )
 
 @patch('game_server.session_manager.send_kafka_message') # Мокируем Kafka для чистоты
-def test_add_player_already_in_another_session_existing_tests(mock_send_kafka, session_manager_instance, tank_pool_for_sm_tests):
+def test_add_player_already_in_another_session_existing_tests(mock_send_kafka, session_manager_instance, tank_pool_for_sm_tests): # Тест добавления игрока, уже находящегося в другой сессии (существующие тесты)
     sm = session_manager_instance
     session1 = sm.create_session()
     session2 = sm.create_session()
@@ -210,17 +210,17 @@ def test_add_player_already_in_another_session_existing_tests(mock_send_kafka, s
 
 # --- Новые тесты для GameSession (юнит-тесты) ---
 @pytest.fixture
-def mock_gs_tank(): # Изменено имя фикстуры, чтобы не конфликтовать
+def mock_gs_tank(): # Мок танка для GameSession (изменено имя фикстуры)
     tank = MagicMock(spec=Tank)
     tank.tank_id = "tank_007"
     tank.get_state = MagicMock(return_value={"id": "tank_007", "position": (0,0), "health": 100})
     return tank
 
 @pytest.fixture
-def game_session_unit(): # Изменено имя фикстуры
+def game_session_unit(): # Юнит-тест для GameSession (изменено имя фикстуры)
     return GameSession(session_id="session_test_123_unit")
 
-def test_gs_initialization(game_session_unit):
+def test_gs_initialization(game_session_unit): # Тест инициализации GameSession
     assert game_session_unit.session_id == "session_test_123_unit"
     assert isinstance(game_session_unit.players, dict)
     assert len(game_session_unit.players) == 0
@@ -228,7 +228,7 @@ def test_gs_initialization(game_session_unit):
     assert len(game_session_unit.tanks) == 0
     assert isinstance(game_session_unit.game_state, dict)
 
-def test_gs_add_player_new(game_session_unit, mock_gs_tank):
+def test_gs_add_player_new(game_session_unit, mock_gs_tank): # Тест добавления нового игрока в GameSession
     player_id = "player1"
     player_addr = ("127.0.0.1", 1111)
     result = game_session_unit.add_player(player_id, player_addr, mock_gs_tank)
@@ -239,7 +239,7 @@ def test_gs_add_player_new(game_session_unit, mock_gs_tank):
     assert mock_gs_tank.tank_id in game_session_unit.tanks
     assert game_session_unit.tanks[mock_gs_tank.tank_id] is mock_gs_tank
 
-def test_gs_add_player_existing(game_session_unit, mock_gs_tank):
+def test_gs_add_player_existing(game_session_unit, mock_gs_tank): # Тест добавления существующего игрока в GameSession
     player_id = "player1"
     game_session_unit.add_player(player_id, ("1.1.1.1", 11), mock_gs_tank)
     another_mock_tank = MagicMock(spec=Tank)
@@ -250,25 +250,25 @@ def test_gs_add_player_existing(game_session_unit, mock_gs_tank):
     assert game_session_unit.players[player_id]['tank_id'] == mock_gs_tank.tank_id
     assert another_mock_tank.tank_id not in game_session_unit.tanks
 
-def test_gs_remove_player_existing(game_session_unit, mock_gs_tank):
+def test_gs_remove_player_existing(game_session_unit, mock_gs_tank): # Тест удаления существующего игрока из GameSession
     player_id = "player1"
     game_session_unit.add_player(player_id, ("1.1.1.1", 11), mock_gs_tank)
     original_tank_id = game_session_unit.players[player_id]['tank_id']
     assert original_tank_id in game_session_unit.tanks
     game_session_unit.remove_player(player_id)
     assert player_id not in game_session_unit.players
-    assert original_tank_id in game_session_unit.tanks
+    assert original_tank_id in game_session_unit.tanks # Танк остается в сессии, но не привязан к игроку
 
-def test_gs_remove_player_not_existing(game_session_unit):
+def test_gs_remove_player_not_existing(game_session_unit): # Тест удаления несуществующего игрока из GameSession
     initial_player_count = len(game_session_unit.players)
-    with patch('game_server.session_manager.logger') as mock_logger:
+    with patch('game_server.session_manager.logger') as mock_logger: # Логгер находится в session_manager, не в game_session напрямую для этого сообщения
         game_session_unit.remove_player("non_existent_player")
         mock_logger.warning.assert_called_once_with(
             f"Player non_existent_player not found in session {game_session_unit.session_id} during removal attempt."
         )
     assert len(game_session_unit.players) == initial_player_count
 
-def test_gs_get_all_player_addresses(game_session_unit, mock_gs_tank):
+def test_gs_get_all_player_addresses(game_session_unit, mock_gs_tank): # Тест получения всех адресов игроков в GameSession
     addr1 = ("1.1.1.1", 11); addr2 = ("2.2.2.2", 22)
     game_session_unit.add_player("p1", addr1, mock_gs_tank)
     mock_tank2 = MagicMock(spec=Tank); mock_tank2.tank_id = "tank_008"
@@ -276,7 +276,7 @@ def test_gs_get_all_player_addresses(game_session_unit, mock_gs_tank):
     addresses = game_session_unit.get_all_player_addresses()
     assert len(addresses) == 2; assert addr1 in addresses; assert addr2 in addresses
 
-def test_gs_get_players_count(game_session_unit, mock_gs_tank):
+def test_gs_get_players_count(game_session_unit, mock_gs_tank): # Тест получения количества игроков в GameSession
     assert game_session_unit.get_players_count() == 0
     game_session_unit.add_player("p1", ("1.1.1.1", 11), mock_gs_tank)
     assert game_session_unit.get_players_count() == 1
@@ -284,7 +284,7 @@ def test_gs_get_players_count(game_session_unit, mock_gs_tank):
     game_session_unit.add_player("p2", ("2.2.2.2", 22), mock_tank2)
     assert game_session_unit.get_players_count() == 2
 
-def test_gs_get_tanks_state(game_session_unit, mock_gs_tank):
+def test_gs_get_tanks_state(game_session_unit, mock_gs_tank): # Тест получения состояния танков в GameSession
     state1 = {"id": "tank_007", "position": (0,0), "health": 100}
     game_session_unit.add_player("p1", ("1.1.1.1", 11), mock_gs_tank)
     mock_tank2 = MagicMock(spec=Tank); mock_tank2.tank_id = "tank_008"
@@ -311,7 +311,7 @@ def sm_unit(): # Новая фикстура для SessionManager для юни
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.uuid.uuid4')
 @patch('game_server.session_manager.time.time')
-def test_sm_unit_create_session(mock_time, mock_uuid, mock_send_kafka, mock_active_sessions, sm_unit):
+def test_sm_unit_create_session(mock_time, mock_uuid, mock_send_kafka, mock_active_sessions, sm_unit): # Юнит-тест создания сессии в SessionManager
     mock_uuid.return_value = "test-uuid-sm-unit"
     mock_time.return_value = 12345.678
 
@@ -332,7 +332,7 @@ def test_sm_unit_create_session(mock_time, mock_uuid, mock_send_kafka, mock_acti
 # --- Юнит-тесты для SessionManager (продолжение) ---
 
 @patch('game_server.session_manager.GameSession') # Мокируем класс GameSession
-def test_sm_unit_get_session(MockGameSession, sm_unit):
+def test_sm_unit_get_session(MockGameSession, sm_unit): # Юнит-тест получения сессии из SessionManager
     mock_session_instance = MockGameSession.return_value
     mock_session_instance.session_id = "session1"
     sm_unit.sessions = {"session1": mock_session_instance} # Наполняем вручную
@@ -346,7 +346,7 @@ def test_sm_unit_get_session(MockGameSession, sm_unit):
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.time.time')
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_remove_session_existing(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit):
+def test_sm_unit_remove_session_existing(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit): # Юнит-тест удаления существующей сессии из SessionManager
     mock_time.return_value = 45678.123
 
     mock_session_instance = MockGameSession()
@@ -355,7 +355,7 @@ def test_sm_unit_remove_session_existing(MockGameSession, mock_time, mock_send_k
 
     sm_unit.sessions = {mock_session_instance.session_id: mock_session_instance}
     sm_unit.player_to_session = {"playerA": mock_session_instance.session_id, "playerB": mock_session_instance.session_id}
-    mock_active_sessions.inc.reset_mock() # Reset from potential creation if session was real
+    mock_active_sessions.inc.reset_mock() # Сброс от потенциального создания, если сессия была реальной
 
     removed = sm_unit.remove_session(mock_session_instance.session_id, reason="unit_test_removal")
 
@@ -376,11 +376,11 @@ def test_sm_unit_remove_session_existing(MockGameSession, mock_time, mock_send_k
 
 @patch('game_server.session_manager.ACTIVE_SESSIONS')
 @patch('game_server.session_manager.send_kafka_message')
-def test_sm_unit_remove_session_not_existing(mock_send_kafka, mock_active_sessions, sm_unit):
+def test_sm_unit_remove_session_not_existing(mock_send_kafka, mock_active_sessions, sm_unit): # Юнит-тест удаления несуществующей сессии из SessionManager
     with patch('game_server.session_manager.logger') as mock_logger:
         removed = sm_unit.remove_session("non_existent_id_unit")
         assert removed is None
-        mock_logger.warning.assert_called_once_with("Attempt to remove non-existent session: non_existent_id_unit")
+        mock_logger.warning.assert_called_once_with("Attempt to remove non-existent session: non_existent_id_unit") # Попытка удалить несуществующую сессию
     mock_send_kafka.assert_not_called()
     mock_active_sessions.dec.assert_not_called()
 
@@ -388,7 +388,7 @@ def test_sm_unit_remove_session_not_existing(mock_send_kafka, mock_active_sessio
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.time.time')
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_add_player_to_session_success(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit, mock_gs_tank):
+def test_sm_unit_add_player_to_session_success(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit, mock_gs_tank): # Юнит-тест успешного добавления игрока в сессию
     mock_time.return_value = 789.012
 
     mock_session_instance = MockGameSession()
@@ -420,15 +420,15 @@ def test_sm_unit_add_player_to_session_success(MockGameSession, mock_time, mock_
     mock_active_sessions.dec.assert_not_called()
 
 
-def test_sm_unit_add_player_to_non_existent_session(sm_unit, mock_gs_tank):
+def test_sm_unit_add_player_to_non_existent_session(sm_unit, mock_gs_tank): # Юнит-тест добавления игрока в несуществующую сессию
     with patch('game_server.session_manager.logger') as mock_logger:
         result = sm_unit.add_player_to_session("fake_s", "p_unit", ("a",1), mock_gs_tank)
         assert result is None
         mock_logger.error.assert_called_once_with(
-            "Error: Session fake_s not found when adding player p_unit."
+            "Error: Session fake_s not found when adding player p_unit." # Ошибка: Сессия ... не найдена при добавлении игрока ...
         )
 
-def test_sm_unit_add_player_already_in_another_session(sm_unit, mock_gs_tank):
+def test_sm_unit_add_player_already_in_another_session(sm_unit, mock_gs_tank): # Юнит-тест добавления игрока, уже находящегося в другой сессии
     mock_session1 = MagicMock(spec=GameSession)
     mock_session1.session_id = "s1"
     mock_session2 = MagicMock(spec=GameSession)
@@ -441,11 +441,11 @@ def test_sm_unit_add_player_already_in_another_session(sm_unit, mock_gs_tank):
         result = sm_unit.add_player_to_session("s2", "p_unit_exists", ("b",2), mock_gs_tank)
         assert result is None
         mock_logger.error.assert_called_once_with(
-            f"Error: Player p_unit_exists is already in session s1."
+            f"Error: Player p_unit_exists is already in session s1." # Ошибка: Игрок ... уже в сессии ...
         )
 
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_add_player_session_add_player_fails(MockGameSession, sm_unit, mock_gs_tank):
+def test_sm_unit_add_player_session_add_player_fails(MockGameSession, sm_unit, mock_gs_tank): # Юнит-тест, когда GameSession.add_player возвращает False
     mock_session_instance = MockGameSession()
     mock_session_instance.session_id = "s_add_fail"
     mock_session_instance.add_player.return_value = False
@@ -456,14 +456,14 @@ def test_sm_unit_add_player_session_add_player_fails(MockGameSession, sm_unit, m
         assert result is None
         mock_session_instance.add_player.assert_called_once_with("p_fail_add", ("c",3), mock_gs_tank)
         mock_logger.warning.assert_called_once_with(
-            f"Failed to add player p_fail_add to session s_add_fail (possibly already in session)."
+            f"Failed to add player p_fail_add to session s_add_fail (possibly already in session)." # Не удалось добавить игрока ... в сессию ... (возможно, уже в сессии).
         )
 
 @patch('game_server.session_manager.ACTIVE_SESSIONS')
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.time.time')
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_remove_player_from_session_empties_session(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit):
+def test_sm_unit_remove_player_from_session_empties_session(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit): # Юнит-тест удаления игрока, после которого сессия становится пустой
     mock_session_instance = MockGameSession()
     mock_session_instance.session_id = "s_empty_test"
     mock_session_instance.players = {"p_to_remove": {'tank_id': "tank123"}}
@@ -473,7 +473,7 @@ def test_sm_unit_remove_player_from_session_empties_session(MockGameSession, moc
     sm_unit.player_to_session = {"p_to_remove": mock_session_instance.session_id}
 
     mock_time.side_effect = [100.0, 101.0]
-    mock_active_sessions.inc.reset_mock()
+    mock_active_sessions.inc.reset_mock() # Сброс от потенциального создания, если сессия была реальной
 
     result = sm_unit.remove_player_from_session("p_to_remove")
 
@@ -499,7 +499,7 @@ def test_sm_unit_remove_player_from_session_empties_session(MockGameSession, moc
 @patch('game_server.session_manager.send_kafka_message')
 @patch('game_server.session_manager.time.time')
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_remove_player_session_not_empty(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit):
+def test_sm_unit_remove_player_session_not_empty(MockGameSession, mock_time, mock_send_kafka, mock_active_sessions, sm_unit): # Юнит-тест удаления игрока, после которого сессия НЕ пуста
     mock_time.return_value = 200.0
     mock_session_instance = MockGameSession()
     mock_session_instance.session_id = "s_not_empty"
@@ -524,17 +524,17 @@ def test_sm_unit_remove_player_session_not_empty(MockGameSession, mock_time, moc
     mock_active_sessions.dec.assert_not_called()
 
 
-def test_sm_unit_remove_player_not_found(sm_unit):
+def test_sm_unit_remove_player_not_found(sm_unit): # Юнит-тест удаления несуществующего игрока
     sm_unit.player_to_session = {} # Нет активных игроков
     with patch('game_server.session_manager.logger') as mock_logger:
         result = sm_unit.remove_player_from_session("p_ghost_unit")
         assert result is False
         mock_logger.warning.assert_called_once_with(
-            "Player p_ghost_unit not found in any active session during removal attempt."
+            "Player p_ghost_unit not found in any active session during removal attempt." # Игрок ... не найден ни в одной активной сессии при попытке удаления.
         )
 
 @patch('game_server.session_manager.GameSession')
-def test_sm_unit_get_session_by_player_id(MockGameSession, sm_unit):
+def test_sm_unit_get_session_by_player_id(MockGameSession, sm_unit): # Юнит-тест получения сессии по ID игрока
     mock_session = MockGameSession()
     mock_session.session_id = "s_find_me"
     sm_unit.sessions = {"s_find_me": mock_session}

@@ -22,7 +22,7 @@ async def test_authenticate_user_success():
     # Используем исходный MOCK_USERS_DB, так как он содержит player1
     is_auth, message = await user_service.authenticate_user(test_username, test_password)
     assert is_auth is True, "Аутентификация должна быть успешной для корректных учетных данных."
-    assert "authenticated successfully" in message, "Сообщение должно подтверждать успешную аутентификацию."
+    assert "успешно аутентифицирован" in message, "Сообщение должно подтверждать успешную аутентификацию." # Ожидаем русский текст
 
 async def test_authenticate_user_wrong_password():
     """
@@ -35,7 +35,7 @@ async def test_authenticate_user_wrong_password():
     wrong_password = "wrongpassword" # Неверный пароль
     is_auth, message = await user_service.authenticate_user(test_username, wrong_password)
     assert is_auth is False, "Аутентификация не должна проходить с неверным паролем."
-    assert "Incorrect password" in message, "Сообщение должно указывать на неверный пароль."
+    assert "Неверный пароль" in message, "Сообщение должно указывать на неверный пароль." # Ожидаем русский текст
 
 async def test_authenticate_user_not_found():
     """
@@ -54,7 +54,7 @@ async def test_authenticate_user_not_found():
     # В данном случае, так как мы проверяем отсутствие, достаточно исходного состояния.
     is_auth, message = await user_service.authenticate_user(unknown_username, test_password)
     assert is_auth is False, "Аутентификация не должна проходить для несуществующего пользователя."
-    assert "User not found" in message, "Сообщение должно указывать, что пользователь не найден."
+    assert "Пользователь не найден" in message, "Сообщение должно указывать, что пользователь не найден." # Ожидаем русский текст
 
 async def test_create_user_success():
     """
@@ -79,7 +79,7 @@ async def test_create_user_success():
     with patch.dict('auth_server.user_service.MOCK_USERS_DB', initial_users, clear=True):
         is_created, message = await user_service.create_user(new_username, hashed_password)
         assert is_created is True, "Регистрация нового пользователя должна быть успешной."
-        assert "successfully created" in message or "successfully registered" in message, "Сообщение должно подтверждать успешную регистрацию/создание."
+        assert "успешно создан" in message or "успешно зарегистрирован" in message, "Сообщение должно подтверждать успешную регистрацию/создание." # Ожидаем русский текст
         # Проверяем, что пользователь действительно добавлен в MOCK_USERS_DB с хешированным паролем
         assert new_username in MOCK_USERS_DB, "Пользователь должен быть добавлен в MOCK_USERS_DB."
         assert MOCK_USERS_DB[new_username] == hashed_password, "Хешированный пароль должен быть сохранен."
@@ -113,7 +113,7 @@ async def test_create_user_already_exists():
     with patch.dict('auth_server.user_service.MOCK_USERS_DB', users_db_for_test, clear=True):
         is_created, message = await user_service.create_user(existing_username, hashed_password)
         assert is_created is False, "Регистрация существующего пользователя должна завершиться неудачей."
-        assert "already exists" in message, "Сообщение должно указывать, что пользователь уже существует."
+        assert "уже существует" in message, "Сообщение должно указывать, что пользователь уже существует." # Ожидаем русский текст
         # Убедимся, что пароль не был изменен для существующего пользователя
         assert MOCK_USERS_DB[existing_username] == "original_password123", "Пароль существующего пользователя не должен изменяться."
 
@@ -162,16 +162,16 @@ async def test_authenticate_newly_created_user_with_hash_as_password():
         is_auth_success, msg_auth_success = await user_service.authenticate_user(username, password_hash)
         assert is_auth_success is True, \
             f"Аутентификация с правильным хешем должна быть успешной. Сообщение: {msg_auth_success}"
-        assert "authenticated successfully" in msg_auth_success, \
-            "Сообщение об успехе аутентификации неверно."
+        assert "успешно аутентифицирован" in msg_auth_success, \
+            "Сообщение об успехе аутентификации неверно." # Ожидаем русский текст
 
         # 3. Пытаемся аутентифицировать с неправильным хешем/паролем
         wrong_password = "wrong_hash_or_password"
         is_auth_fail, msg_auth_fail = await user_service.authenticate_user(username, wrong_password)
         assert is_auth_fail is False, \
             "Аутентификация с неправильным хешем/паролем должна быть неуспешной."
-        assert "Incorrect password" in msg_auth_fail, \
-            "Сообщение о неверном пароле неверно при аутентификации с неправильным хешем."
+        assert "Неверный пароль" in msg_auth_fail, \
+            "Сообщение о неверном пароле неверно при аутентификации с неправильным хешем." # Ожидаем русский текст
 
 def test_initialize_redis_client_static_method():
     """
@@ -184,4 +184,4 @@ def test_initialize_redis_client_static_method():
         # Можно добавить mock для logger и проверить, что логирование происходит,
         # но для простой заглушки это может быть излишним.
     except Exception as e:
-        pytest.fail(f"UserService.initialize_redis_client() raised an exception: {e}")
+        pytest.fail(f"UserService.initialize_redis_client() вызвал исключение: {e}")

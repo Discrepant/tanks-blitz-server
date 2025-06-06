@@ -32,60 +32,60 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
         writer: Объект asyncio.StreamWriter для отправки данных клиенту.
     """
     addr = writer.get_extra_info('peername') # Получаем адрес клиента
-    logger.info(f"New connection from {addr}, JSON expected.")
+    logger.info(f"Новое соединение от {addr}, ожидается JSON.")
     ACTIVE_CONNECTIONS_AUTH.inc()
     try:
-        logger.debug(f"handle_auth_client: [{addr}] Waiting for data from client with timeout {CLIENT_READ_TIMEOUT}s.")
+        logger.debug(f"handle_auth_client: [{addr}] Ожидание данных от клиента с таймаутом {CLIENT_READ_TIMEOUT}с.")
         data = await asyncio.wait_for(reader.readuntil(b"\n"), timeout=CLIENT_READ_TIMEOUT)
-        logger.debug(f"handle_auth_client: [{addr}] Received raw data: {data!r}")
+        logger.debug(f"handle_auth_client: [{addr}] Получены сырые данные: {data!r}")
         message = data.decode('utf-8').strip()
         
-        logger.info(f"handle_auth_client: [{addr}] Received stripped message: '{message}'")
+        logger.info(f"handle_auth_client: [{addr}] Получено обработанное сообщение: '{message}'")
 
         if not message:
-            logger.warning(f"handle_auth_client: [{addr}] Empty message after strip from raw: {data!r}.")
-            response_payload = {"status": "error", "message": "Empty message received"}
+            logger.warning(f"handle_auth_client: [{addr}] Пустое сообщение после обработки из сырых данных: {data!r}.")
+            response_payload = {"status": "error", "message": "Получено пустое сообщение"}
             writer.write(json.dumps(response_payload).encode('utf-8') + b'\n')
             await writer.drain()
             return
 
         try:
-            logger.debug(f"handle_auth_client: [{addr}] Attempting to parse JSON: '{message}'")
+            logger.debug(f"handle_auth_client: [{addr}] Попытка разбора JSON: '{message}'")
             payload = json.loads(message)
             action = payload.get("action")
             username = payload.get("username")
             password = payload.get("password") # Для register это будет сырой пароль
 
-            logger.info(f"handle_auth_client: [{addr}] Parsed payload: {payload}, Action: '{action}'")
+            logger.info(f"handle_auth_client: [{addr}] Разобранная полезная нагрузка: {payload}, Действие: '{action}'")
 
             response = {}
             if action == "login":
                 if not username or not password:
-                    logger.warning(f"handle_auth_client: [{addr}] Login attempt with missing username or password.")
+                    logger.warning(f"handle_auth_client: [{addr}] Попытка входа с отсутствующим именем пользователя или паролем.")
                     FAILED_AUTHS.inc()
-                    response = {"status": "failure", "message": "Missing username or password for login."}
+                    response = {"status": "failure", "message": "Отсутствует имя пользователя или пароль для входа."}
                 else:
-                    logger.info(f"handle_auth_client: [{addr}] Processing 'login' action for user '{username}'.")
-                    logger.debug(f"handle_auth_client: [{addr}] Calling user_service.authenticate_user for user '{username}'.")
+                    logger.info(f"handle_auth_client: [{addr}] Обработка действия 'login' для пользователя '{username}'.")
+                    logger.debug(f"handle_auth_client: [{addr}] Вызов user_service.authenticate_user для пользователя '{username}'.")
                     # Используем экземпляр user_service
                     authenticated, detail = await user_service.authenticate_user(username, password)
-                    logger.info(f"handle_auth_client: [{addr}] Authentication result for '{username}': success={authenticated}, detail='{detail}'")
+                    logger.info(f"handle_auth_client: [{addr}] Результат аутентификации для '{username}': успех={authenticated}, детали='{detail}'")
 
                     if authenticated:
                         SUCCESSFUL_AUTHS.inc()
-                        response = {"status": "success", "message": detail, "token": username}
+                        response = {"status": "success", "message": detail, "token": username} # detail уже на русском от user_service
                     else:
                         FAILED_AUTHS.inc()
-                        response = {"status": "failure", "message": detail}
+                        response = {"status": "failure", "message": detail} # detail уже на русском от user_service
 
             elif action == "register":
                 if not username or not password:
-                    logger.warning(f"handle_auth_client: [{addr}] Registration attempt with missing username or password.")
+                    logger.warning(f"handle_auth_client: [{addr}] Попытка регистрации с отсутствующим именем пользователя или паролем.")
                     # Не инкрементируем FAILED_AUTHS здесь, т.к. это не неудачная попытка входа, а ошибка запроса.
                     # Однако, если считать это неудачной попыткой операции, можно и добавить. Пока не будем.
-                    response = {"status": "error", "message": "Missing username or password for registration."}
+                    response = {"status": "error", "message": "Отсутствует имя пользователя или пароль для регистрации."}
                 else:
-                    logger.info(f"handle_auth_client: [{addr}] Processing 'register' action for user '{username}'.")
+                    logger.info(f"handle_auth_client: [{addr}] Обработка действия 'register' для пользователя '{username}'.")
                     # ВАЖНО: UserService.create_user ожидает ХЕШИРОВАННЫЙ пароль.
                     # Текущий tcp_handler получает сырой пароль.
                     # Для выполнения задачи "Проверь, что create_user вызывается с ("newuser", "newpassword")"
@@ -95,82 +95,82 @@ async def handle_auth_client(reader: asyncio.StreamReader, writer: asyncio.Strea
                     # В реальной системе здесь должно быть хеширование пароля перед вызовом create_user.
                     # Например: password_hash = await hash_password_utility(password)
                     # И затем: created, detail = await user_service.create_user(username, password_hash)
-                    logger.debug(f"handle_auth_client: [{addr}] Calling user_service.create_user for user '{username}'. Password will be passed as is (should be hashed in a real scenario).")
+                    logger.debug(f"handle_auth_client: [{addr}] Вызов user_service.create_user для пользователя '{username}'. Пароль будет передан как есть (в реальном сценарии должен быть хеширован).")
                     created, detail = await user_service.create_user(username, password) # Передаем сырой пароль
-                    logger.info(f"handle_auth_client: [{addr}] Registration result for '{username}': created={created}, detail='{detail}'")
+                    logger.info(f"handle_auth_client: [{addr}] Результат регистрации для '{username}': создано={created}, детали='{detail}'")
                     if created:
                         # SUCCESSFUL_REGISTRATIONS.inc() # Потенциальная новая метрика
-                        response = {"status": "success", "message": detail}
+                        response = {"status": "success", "message": detail} # detail уже на русском от user_service
                     else:
                         # FAILED_REGISTRATIONS.inc() # Потенциальная новая метрика
-                        response = {"status": "failure", "message": detail}
+                        response = {"status": "failure", "message": detail} # detail уже на русском от user_service
             else:
-                logger.warning(f"handle_auth_client: [{addr}] Unknown or missing action: '{action}'.")
+                logger.warning(f"handle_auth_client: [{addr}] Неизвестное или отсутствующее действие: '{action}'.")
                 # FAILED_AUTHS.inc() # Можно считать это ошибкой запроса, а не неудачным входом
-                response = {"status": "error", "message": "Unknown or missing action"}
+                response = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
             
             response_str = json.dumps(response) + "\n"
-            logger.info(f"handle_auth_client: [{addr}] Sending response: {response_str.strip()}")
+            logger.info(f"handle_auth_client: [{addr}] Отправка ответа: {response_str.strip()}")
             writer.write(response_str.encode('utf-8'))
             await writer.drain()
 
         except json.JSONDecodeError:
-            logger.error(f"handle_auth_client: [{addr}] Invalid JSON received: {message}", exc_info=True)
-            error_response = {"status": "error", "message": "Invalid JSON format"}
+            logger.error(f"handle_auth_client: [{addr}] Получен неверный JSON: {message}", exc_info=True)
+            error_response = {"status": "error", "message": "Неверный формат JSON"}
             writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
             await writer.drain()
-            # No return here, let finally handle cleanup. FAILED_AUTHS might be relevant.
-        except Exception as e: # Catch other errors during payload processing or action handling
-            logger.error(f"handle_auth_client: [{addr}] Error processing message: {e}", exc_info=True)
-            error_response = {"status": "error", "message": "Internal server error during processing"}
+            # Здесь нет return, очистка будет в finally. FAILED_AUTHS может быть релевантен.
+        except Exception as e: # Перехват других ошибок во время обработки полезной нагрузки или действия
+            logger.error(f"handle_auth_client: [{addr}] Ошибка обработки сообщения: {e}", exc_info=True)
+            error_response = {"status": "error", "message": "Внутренняя ошибка сервера при обработке"}
             if not writer.is_closing():
                 try:
                     writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                     await writer.drain()
                 except Exception as ex_send:
-                    logger.error(f"handle_auth_client: [{addr}] Failed to send error response during general exception: {ex_send}", exc_info=True)
-            # No return here, let finally handle cleanup.
+                    logger.error(f"handle_auth_client: [{addr}] Не удалось отправить ответ об ошибке во время общего исключения: {ex_send}", exc_info=True)
+            # Здесь нет return, очистка будет в finally.
 
-    except asyncio.TimeoutError: # Specifically for reader.readuntil timeout
-        logger.warning(f"handle_auth_client: [{addr}] Timeout waiting for client message ({CLIENT_READ_TIMEOUT}s).")
-        # Attempt to send timeout response if writer is still open
+    except asyncio.TimeoutError: # Специально для таймаута reader.readuntil
+        logger.warning(f"handle_auth_client: [{addr}] Таймаут ожидания сообщения от клиента ({CLIENT_READ_TIMEOUT}с).")
+        # Попытка отправить ответ о таймауте, если writer все еще открыт
         if not writer.is_closing():
             try:
-                error_response = {"status": "error", "message": "Request timeout"}
+                error_response = {"status": "error", "message": "Таймаут запроса"}
                 writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                 await writer.drain()
             except Exception as ex_send:
-                logger.error(f"handle_auth_client: [{addr}] Failed to send timeout error response: {ex_send}", exc_info=True)
+                logger.error(f"handle_auth_client: [{addr}] Не удалось отправить ответ об ошибке таймаута: {ex_send}", exc_info=True)
     except asyncio.IncompleteReadError as e:
-        logger.warning(f"handle_auth_client: [{addr}] Incomplete read. Client closed connection prematurely. Partial data: {e.partial!r}", exc_info=True)
+        logger.warning(f"handle_auth_client: [{addr}] Незавершенное чтение. Клиент преждевременно закрыл соединение. Частичные данные: {e.partial!r}", exc_info=True)
     except ConnectionResetError as e:
-        logger.warning(f"handle_auth_client: [{addr}] Connection reset by client.", exc_info=True)
+        logger.warning(f"handle_auth_client: [{addr}] Соединение сброшено клиентом.", exc_info=True)
     except UnicodeDecodeError as ude: 
-        logger.error(f"handle_auth_client: [{addr}] Unicode decode error: {ude}. Raw data might not be UTF-8.", exc_info=True)
+        logger.error(f"handle_auth_client: [{addr}] Ошибка декодирования Unicode: {ude}. Сырые данные могут быть не в UTF-8.", exc_info=True)
         if not writer.is_closing():
             try:
-                error_response = {"status":"error", "message":"Invalid character encoding. UTF-8 expected."}
+                error_response = {"status":"error", "message":"Неверная кодировка символов. Ожидается UTF-8."}
                 writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                 await writer.drain()
             except Exception as ex_send:
-                logger.error(f"handle_auth_client: [{addr}] Failed to send UnicodeDecodeError response: {ex_send}", exc_info=True)
+                logger.error(f"handle_auth_client: [{addr}] Не удалось отправить ответ об ошибке UnicodeDecodeError: {ex_send}", exc_info=True)
     except Exception as e:
-        logger.critical(f"handle_auth_client: [{addr}] Critical error in handler: {e}", exc_info=True)
+        logger.critical(f"handle_auth_client: [{addr}] Критическая ошибка в обработчике: {e}", exc_info=True)
         if not writer.is_closing():
             try:
-                error_response = {"status": "error", "message": "Critical internal server error"}
+                error_response = {"status": "error", "message": "Критическая внутренняя ошибка сервера"}
                 writer.write(json.dumps(error_response).encode('utf-8') + b'\n')
                 await writer.drain()
             except Exception as ex_send:
-                logger.error(f"handle_auth_client: [{addr}] Failed to send critical error response: {ex_send}", exc_info=True)
+                logger.error(f"handle_auth_client: [{addr}] Не удалось отправить ответ о критической ошибке: {ex_send}", exc_info=True)
     finally:
-        logger.info(f"handle_auth_client: [{addr}] Closing connection.")
+        logger.info(f"handle_auth_client: [{addr}] Закрытие соединения.")
         ACTIVE_CONNECTIONS_AUTH.dec()
         if writer and not writer.is_closing(): 
-            logger.debug(f"handle_auth_client: [{addr}] Actually closing writer now.")
+            logger.debug(f"handle_auth_client: [{addr}] Фактическое закрытие writer сейчас.")
             writer.close()
             try:
                 await writer.wait_closed()
             except Exception as e_close: 
-                logger.error(f"handle_auth_client: [{addr}] Error during writer.wait_closed(): {e_close}", exc_info=True)
-        logger.debug(f"handle_auth_client: [{addr}] Connection with {addr} fully closed.")
+                logger.error(f"handle_auth_client: [{addr}] Ошибка во время writer.wait_closed(): {e_close}", exc_info=True)
+        logger.debug(f"handle_auth_client: [{addr}] Соединение с {addr} полностью закрыто.")

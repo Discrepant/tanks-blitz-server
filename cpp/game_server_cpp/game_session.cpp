@@ -1,6 +1,6 @@
 #include "game_session.h"
-#include <iostream> // For logging
-#include <ctime>    // For timestamps in game_info_
+#include <iostream> // Для логирования
+#include <ctime>    // Для временных меток в game_info_
 
 GameSession::GameSession(std::string id)
     : session_id_(std::move(id)) {
@@ -8,7 +8,7 @@ GameSession::GameSession(std::string id)
     game_info_ = {
         {"map_name", "default_arena"},
         {"status", "pending_players"},
-        {"max_players", 8}, // Example, could be configurable
+        {"max_players", 8}, // Пример, может быть настраиваемым
         {"creation_time", std::time(nullptr)}
     };
     std::cout << "GameSession " << session_id_ << " created. Info: " << game_info_.dump() << std::endl;
@@ -67,7 +67,7 @@ PlayerInSessionData GameSession::get_player_data(const std::string& player_id) c
     if (it != players_in_session_.end()) {
         return it->second;
     }
-    // std::cerr << "GameSession " << session_id_ << ": Player " << player_id << " data not found (returning default)." << std::endl;
+    // std::cerr << "GameSession " << session_id_ << ": Данные игрока " << player_id << " не найдены (возвращается значение по умолчанию)." << std::endl; // Player ... data not found (returning default).
     return PlayerInSessionData{};
 }
 
@@ -109,15 +109,15 @@ bool GameSession::has_player(const std::string& player_id) const {
 }
 
 const std::map<std::string, PlayerInSessionData>& GameSession::get_players() const {
-    // Note: Returning a reference to the internal map.
-    // If external modification is a concern, should return a copy or provide specific accessors.
-    // For SessionManager iteration, this is fine if SessionManager also handles locking.
-    // However, SessionManager should use GameSession's public methods primarily.
-    // Let's assume for now this is for controlled access or specific internal needs.
-    // A better approach might be to provide iterators or a method that takes a functor.
-    // For now, keep as is per previous structure if it was there.
-    // If direct map access is problematic, this should be removed or re-evaluated.
-    // std::lock_guard<std::mutex> lock(session_mutex_); // Lock would be needed if map can be modified during iteration by caller
+    // Примечание: Возвращается ссылка на внутреннюю карту.
+    // Если есть опасения по поводу внешнего изменения, следует возвращать копию или предоставлять специальные методы доступа.
+    // Для итерации SessionManager это нормально, если SessionManager также обрабатывает блокировку.
+    // Однако SessionManager должен в основном использовать публичные методы GameSession.
+    // Пока предположим, что это для контролируемого доступа или специфических внутренних нужд.
+    // Лучшим подходом могло бы быть предоставление итераторов или метода, принимающего функтор.
+    // Пока оставим как есть, согласно предыдущей структуре, если она там была.
+    // Если прямой доступ к карте проблематичен, это следует удалить или пересмотреть.
+    // std::lock_guard<std::mutex> lock(session_mutex_); // Блокировка потребовалась бы, если бы карта могла изменяться во время итерации вызывающей стороной
     return players_in_session_;
 }
 

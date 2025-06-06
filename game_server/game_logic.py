@@ -69,16 +69,16 @@ class GameRoom:
         if player.name in self.players:
             # Обработка случая, если игрок уже в комнате (например, попытка повторного подключения с тем же именем).
             # Текущая логика: просто не добавляем, если игрок с таким именем уже существует.
-            # Отправляем сообщение об этом существующему (или новому пытающемуся подключиться) игроку.
-            logger.warning(f"Attempt to add existing player: {player.name}. Sending message.")
-            await player.send_message(f"SERVER: Player with name {player.name} is already in the room or an error occurred.") # Already in English
+            # Отправляем сообщение об этом игроку.
+            logger.warning(f"Игрок {player.name} уже существует. Отправка сообщения.") # Player {player.name} already exists. Sending message.
+            await player.send_message(f"СЕРВЕР: Игрок с именем '{player.name}' уже находится в комнате. Новое подключение не создано.")
             # Возможно, стоит рассмотреть закрытие старого соединения или обновление writer для существующего игрока.
             return
 
         self.players[player.name] = player
-        logger.info(f"Player {player.name} (ID: {player.id}) added to game room. Total players: {len(self.players)}")
-        await player.send_message("SERVER: Welcome to the game room!") # Already in English
-        await self.broadcast_message(f"SERVER: Player {player.name} joined the room.", exclude_player=player) # Already in English
+        logger.info(f"Игрок {player.name} (ID: {player.id}) добавлен в игровую комнату. Всего игроков: {len(self.players)}") # Player {player.name} (ID: {player.id}) added to game room. Total players: {len(self.players)}
+        await player.send_message("СЕРВЕР: Добро пожаловать в игровую комнату!")
+        await self.broadcast_message(f"СЕРВЕР: Игрок {player.name} присоединился к комнате.", exclude_player=player)
 
     async def remove_player(self, player: Player):
         """
@@ -91,36 +91,36 @@ class GameRoom:
         Args:
             player (Player): Объект игрока для удаления.
         """
-        # Use a more robust way to get peername, checking if writer is None or closed
-        player_addr_info = 'N/A (writer closed or None)'
+        # Более надежный способ получить peername, проверяя, что writer не None и не закрыт
+        player_addr_info = 'Н/Д (writer закрыт или None)' # N/A (writer closed or None)
         if player.writer and not player.writer.is_closing():
             try:
                 player_addr_info = str(player.writer.get_extra_info('peername'))
             except Exception: # pragma: no cover
-                player_addr_info = 'N/A (error getting peername)'
+                player_addr_info = 'Н/Д (ошибка получения peername)' # N/A (error getting peername)
 
-        logger.info(f"REMOVE_PLAYER: Attempting to remove player {player.name} (ID: {player.id}, Addr: {player_addr_info}). Current players: {list(self.players.keys())}")
+        logger.info(f"REMOVE_PLAYER: Попытка удалить игрока {player.name} (ID: {player.id}, Addr: {player_addr_info}). Текущие игроки: {list(self.players.keys())}") # Attempting to remove player... Current players...
 
         if player.name in self.players:
             del self.players[player.name]
-            logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}) successfully removed from dict. Players remaining: {len(self.players)}")
-            await self.broadcast_message(f"SERVER: Player {player.name} left the room.") # Already in English
+            logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}) успешно удален из словаря. Осталось игроков: {len(self.players)}") # Player ... successfully removed from dict. Players remaining: ...
+            await self.broadcast_message(f"СЕРВЕР: Игрок {player.name} покинул комнату.")
         else:
-            logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}) was not found in active players dict.")
+            logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}) не найден в словаре активных игроков.") # Player ... was not found in active players dict.
 
         # Пытаемся корректно закрыть writer, если он существует и не закрывается
         if player.writer and not player.writer.is_closing():
-            logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}). Closing writer in remove_player.")
+            logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}). Закрытие writer в remove_player.") # Closing writer in remove_player.
             try:
                 player.writer.close()
                 await player.writer.wait_closed()
-                logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}). Writer successfully closed in remove_player.")
+                logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}). Writer успешно закрыт в remove_player.") # Writer successfully closed in remove_player.
             except Exception as e:
-                logger.error(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}). Error closing writer in remove_player: {e}", exc_info=True)
-        elif player.writer and player.writer.is_closing():
-            logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}). Writer was already closing.")
-        else:
-            logger.info(f"REMOVE_PLAYER: Player {player.name} (ID: {player.id}). Writer is None or already closed, no action to close in remove_player.")
+                logger.error(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}). Ошибка при закрытии writer в remove_player: {e}", exc_info=True) # Error closing writer in remove_player:
+        elif player.writer and player.writer.is_closing(): # writer уже закрывается
+            logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}). Writer уже находился в процессе закрытия.") # Writer was already closing.
+        else: # writer равен None или уже закрыт
+            logger.info(f"REMOVE_PLAYER: Игрок {player.name} (ID: {player.id}). Writer равен None или уже закрыт, действие по закрытию в remove_player не требуется.") # Writer is None or already closed, no action to close in remove_player.
 
 
     async def broadcast_message(self, message: str, exclude_player: Player = None):
@@ -135,7 +135,7 @@ class GameRoom:
             exclude_player (Player, optional): Игрок, которому не нужно отправлять сообщение.
                                                По умолчанию None.
         """
-        # disconnected_players = [] # Список для игроков, у которых соединение было сброшено -> Handled by send_message or subsequent checks
+        # disconnected_players = [] # Список для игроков, у которых соединение было сброшено -> Обрабатывается send_message или последующими проверками
         tasks = []
         # Создаем копию items для безопасной итерации, если self.players может изменяться
         for p_name, p_obj in list(self.players.items()): 
@@ -156,7 +156,7 @@ class GameRoom:
                 if isinstance(result, Exception):
                     # Эта ошибка уже должна быть залогирована в Player.send_message,
                     # но можно добавить дополнительный контекст здесь, если задача tasks[i] доступна для интроспекции.
-                    logger.error(f"Broadcast task for a player resulted in an exception: {result}. This should have been handled within Player.send_message.")
+                    logger.error(f"Задача трансляции для игрока завершилась исключением: {result}. Это должно было быть обработано в Player.send_message.") # Broadcast task for a player resulted in an exception: {result}. This should have been handled within Player.send_message.
                     # Логика по удалению игрока здесь может быть сложной, так как нужно сопоставить результат с игроком.
                     # Player.send_message уже должен закрывать writer при ошибке.
                     # Последующие операции или проверки активности должны будут убирать "мертвых" игроков.
@@ -185,42 +185,42 @@ class GameRoom:
         command = parts[0].upper() # Команда приводится к верхнему регистру
         args = parts[1] if len(parts) > 1 else "" # Аргументы, если есть
 
-        logger.info(f"Player {player.name} sent command: {command} with arguments: '{args}'")
+        logger.info(f"Игрок {player.name} отправил команду: {command} с аргументами: '{args}'") # Player ... sent command ... with arguments ...
 
         if command == "SAY":
             await self.broadcast_message(f"{player.name}: {args}") # Транслируем сообщение от имени игрока
         elif command == "HELP":
-            await player.send_message("SERVER: Available commands: SAY <message>, PLAYERS, QUIT") # Already in English
+            await player.send_message("СЕРВЕР: Доступные команды: SAY <сообщение>, PLAYERS, QUIT")
         elif command == "PLAYERS":
             player_list = ", ".join(self.players.keys()) # Формируем список имен игроков
-            await player.send_message(f"SERVER: Players in room: {player_list}") # Already in English
+            await player.send_message(f"СЕРВЕР: Игроки в комнате: {player_list}")
         elif command == "QUIT":
-            player_addr_info_quit = 'N/A'
+            player_addr_info_quit = 'Н/Д' # N/A
             if player.writer:
                 try:
                     player_addr_info_quit = str(player.writer.get_extra_info('peername'))
                 except Exception: # pragma: no cover
-                    player_addr_info_quit = 'N/A (error getting peername)'
+                    player_addr_info_quit = 'Н/Д (ошибка получения peername)' # N/A (error getting peername)
 
-            logger.info(f"QUIT Command: Player {player.name} (ID: {player.id}, Addr: {player_addr_info_quit}). Processing QUIT.")
+            logger.info(f"Команда QUIT: Игрок {player.name} (ID: {player.id}, Addr: {player_addr_info_quit}). Обработка QUIT.") # QUIT Command: Player ... Processing QUIT.
             try:
-                await player.send_message("SERVER: You are leaving the room...")
+                await player.send_message("СЕРВЕР: Вы покидаете комнату...")
                 if player.writer and not player.writer.is_closing():
-                    logger.info(f"QUIT Command: Player {player.name} (ID: {player.id}, Addr: {player_addr_info_quit}). Closing writer.")
+                    logger.info(f"Команда QUIT: Игрок {player.name} (ID: {player.id}, Addr: {player_addr_info_quit}). Закрытие writer.") # Closing writer.
                     player.writer.close()
                     await player.writer.wait_closed()
-                    logger.info(f"QUIT Command: Player {player.name} (ID: {player.id}). Writer successfully closed.")
-                elif player.writer and player.writer.is_closing():
-                    logger.info(f"QUIT Command: Player {player.name} (ID: {player.id}). Writer was already closing.")
-                else: # pragma: no cover
-                    logger.info(f"QUIT Command: Player {player.name} (ID: {player.id}). Writer is None or already closed.")
+                    logger.info(f"Команда QUIT: Игрок {player.name} (ID: {player.id}). Writer успешно закрыт.") # Writer successfully closed.
+                elif player.writer and player.writer.is_closing(): # writer уже закрывается
+                    logger.info(f"Команда QUIT: Игрок {player.name} (ID: {player.id}). Writer уже находился в процессе закрытия.") # Writer was already closing.
+                else: # pragma: no cover # writer равен None или уже закрыт
+                    logger.info(f"Команда QUIT: Игрок {player.name} (ID: {player.id}). Writer равен None или уже закрыт.") # Writer is None or already closed.
             except Exception as e:
-                logger.error(f"QUIT Command: Player {player.name} (ID: {player.id}). Error during writer close or send_message: {e}", exc_info=True)
-            # Player removal will be handled by tcp_handler's finally block when readuntil() fails due to closed writer.
+                logger.error(f"Команда QUIT: Игрок {player.name} (ID: {player.id}). Ошибка во время закрытия writer или send_message: {e}", exc_info=True) # Error during writer close or send_message:
+            # Удаление игрока будет обработано в блоке finally tcp_handler, когда readuntil() завершится ошибкой из-за закрытого writer.
         # Сюда можно добавить другие игровые команды
         # Например, начало игры, ходы, использование способностей и т.д.
         else:
-            await player.send_message(f"SERVER: Unknown command '{command}'. Type HELP for a list of commands.") # Already in English
+            await player.send_message(f"СЕРВЕР: Неизвестная команда '{command}'. Введите HELP для списка команд.")
 
     # Примеры методов для будущей более сложной игровой логики.
     # Они пока не реализованы и служат заглушками.
@@ -230,7 +230,7 @@ class GameRoom:
         В реальной системе здесь бы инициализировалось состояние матча,
         уведомлялись игроки и т.д.
         """
-        logger.info(f"Request to start match between {player1.name} and {player2.name} (not implemented).")
+        logger.info(f"Запрос на начало матча между {player1.name} и {player2.name} (не реализовано).") # Request to start match between ... (not implemented).
         # Логика начала матча
         pass
 
@@ -239,7 +239,7 @@ class GameRoom:
         Заглушка для записи результата завершенного матча.
         Результаты могли бы сохраняться в `self.match_history` или внешней БД.
         """
-        logger.info(f"Recording match result: winner {winner.name}, loser {loser.name}, details: {details} (not implemented).")
+        logger.info(f"Запись результата матча: победитель {winner.name}, проигравший {loser.name}, детали: {details} (не реализовано).") # Recording match result: winner ..., loser ..., details: ... (not implemented).
         # Запись результата матча
         self.match_history.append({
             "winner": winner.name,

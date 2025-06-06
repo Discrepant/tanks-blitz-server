@@ -58,54 +58,54 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
         decoded_payload_str = None # Will be used in exception log if other strings are not set
 
         try:
-            # 1. Attempt decoding (strict)
+            # 1. Попытка декодирования (строгая)
             try:
-                decoded_payload_str = data.decode('utf-8') # Strict UTF-8 decoding
-                logger.debug(f"UDP [{addr}]: Decoded message: '{decoded_payload_str.strip()}'") # Changed to DEBUG for successfully decoded string before parsing
+                decoded_payload_str = data.decode('utf-8') # Строгое декодирование UTF-8
+                logger.debug(f"UDP [{addr}]: Decoded message: '{decoded_payload_str.strip()}'") # Изменено на DEBUG для успешно декодированной строки перед разбором
             except UnicodeDecodeError as ude:
-                logger.error(f"UDP [{addr}]: Unicode decode error: {ude}. Raw data: {data!r}", exc_info=True)
-                # Send error to client
-                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid character encoding. UTF-8 expected."}).encode('utf-8'), addr)
+                logger.error(f"UDP [{addr}]: Unicode decode error: {ude}. Raw data: {data!r}", exc_info=True) # Ошибка декодирования Unicode...
+                # Отправка ошибки клиенту
+                self.transport.sendto(json.dumps({"status":"error", "message":"Неверная кодировка символов. Ожидается UTF-8."}).encode('utf-8'), addr)
                 return
 
-            # 2. Remove whitespace
+            # 2. Удаление пробельных символов
             processed_payload_str = decoded_payload_str.strip()
             
-            # 3. Remove null characters (if any)
+            # 3. Удаление нулевых символов (если есть)
             if '\x00' in processed_payload_str:
                 cleaned_payload_str = processed_payload_str.replace('\x00', '')
-                # Log only if changes were made, and use the cleaned string
+                # Логируем, только если были внесены изменения, и используем очищенную строку
                 if cleaned_payload_str != processed_payload_str:
-                    logger.warning(f"Null bytes removed from data from {addr}. Original: '{processed_payload_str}', Cleaned: '{cleaned_payload_str}'")
+                    logger.warning(f"Null bytes removed from data from {addr}. Original: '{processed_payload_str}', Cleaned: '{cleaned_payload_str}'") # Нулевые байты удалены из данных от...
                     processed_payload_str = cleaned_payload_str
             
-            # 4. Check for emptiness after cleaning
+            # 4. Проверка на пустоту после очистки
             if not processed_payload_str:
-                logger.warning(f"UDP [{addr}]: Empty message after decoding, whitespace and null character cleaning. Original string: '{decoded_payload_str}', Original bytes: {data!r}")
-                self.transport.sendto(json.dumps({"status": "error", "message": "Empty JSON message"}).encode('utf-8'), addr)
+                logger.warning(f"UDP [{addr}]: Empty message after decoding, whitespace and null character cleaning. Original string: '{decoded_payload_str}', Original bytes: {data!r}") # Пустое сообщение после декодирования, очистки пробелов и нулевых символов.
+                self.transport.sendto(json.dumps({"status": "error", "message": "Пустое JSON-сообщение"}).encode('utf-8'), addr)
                 return
 
-            logger.debug(f"UDP [{addr}]: Cleaned message for JSON parsing: '{processed_payload_str}'")
+            logger.debug(f"UDP [{addr}]: Cleaned message for JSON parsing: '{processed_payload_str}'") # Очищенное сообщение для разбора JSON
 
-            # 5. Attempt JSON parsing
+            # 5. Попытка разбора JSON
             try:
-                message = json.loads(processed_payload_str) # Parse JSON
+                message = json.loads(processed_payload_str) # Разбор JSON
             except json.JSONDecodeError as jde:
-                logger.error(f"UDP [{addr}]: Invalid JSON: '{processed_payload_str}'. Error: {jde}. Raw bytes: {data!r}", exc_info=True)
-                self.transport.sendto(json.dumps({"status":"error", "message":"Invalid JSON format"}).encode('utf-8'), addr)
+                logger.error(f"UDP [{addr}]: Invalid JSON: '{processed_payload_str}'. Error: {jde}. Raw bytes: {data!r}", exc_info=True) # Неверный JSON...
+                self.transport.sendto(json.dumps({"status":"error", "message":"Неверный формат JSON"}).encode('utf-8'), addr)
                 return
             
-            logger.debug(f"UDP [{addr}]: Successfully parsed JSON: {message}")
+            logger.debug(f"UDP [{addr}]: Successfully parsed JSON: {message}") # Успешно разобран JSON
 
             action = message.get("action")
             player_id = message.get("player_id")
 
             if not player_id:
-                logger.warning(f"UDP [{addr}]: Missing player_id in message: {message}. Ignoring.")
-                # No error response for missing player_id to avoid amplification for malformed/malicious UDP packets
+                logger.warning(f"UDP [{addr}]: Missing player_id in message: {message}. Ignoring.") # Отсутствует player_id в сообщении... Игнорируется.
+                # Нет ответа об ошибке для отсутствующего player_id, чтобы избежать усиления для некорректных/вредоносных UDP-пакетов
                 return
 
-            logger.info(f"UDP [{addr}]: Received action '{action}' from player '{player_id}'.")
+            logger.info(f"UDP [{addr}]: Received action '{action}' from player '{player_id}'.") # Получено действие ... от игрока ...
 
             if action == "join_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -128,15 +128,15 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         response = {"status": "joined", "session_id": target_session.session_id, "tank_id": tank.tank_id, "initial_state": tank.get_state()}
                         logger.info(f"Player {player_id} joined session {target_session.session_id} with tank {tank.tank_id}")
                     else:
-                        response = {"status": "join_failed", "reason": "No free tanks available"}
-                        logger.warning(f"UDP [{addr}]: Failed to join player {player_id}: no free tanks.")
-                else: # If player is already in session
+                        response = {"status": "join_failed", "reason": "Свободные танки отсутствуют"}
+                        logger.warning(f"UDP [{addr}]: Failed to join player {player_id}: no free tanks.") # Не удалось присоединить игрока ... : нет свободных танков.
+                else: # Если игрок уже в сессии
                     response = {"status": "already_in_session", "session_id": session.session_id}
-                    logger.info(f"UDP [{addr}]: Player {player_id} is already in session {session.session_id}.")
+                    logger.info(f"UDP [{addr}]: Player {player_id} is already in session {session.session_id}.") # Игрок ... уже в сессии ...
                 
-                if response: # Send response to client
+                if response: # Отправляем ответ клиенту
                     self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                    logger.debug(f"UDP [{addr}]: Sent response for join_game to player {player_id}: {response}")
+                    logger.debug(f"UDP [{addr}]: Sent response for join_game to player {player_id}: {response}") # Отправлен ответ для join_game игроку ...
 
             elif action == "move":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -157,45 +157,45 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                                     }
                                 }
                                 try:
-                                    publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Removed await
-                                    logger.info(f"UDP [{addr}]: Published 'move' command for player {player_id} (tank: {tank_id}, position: {position}) to RabbitMQ.")
+                                    publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Удален await
+                                    logger.info(f"UDP [{addr}]: Published 'move' command for player {player_id} (tank: {tank_id}, position: {position}) to RabbitMQ.") # Опубликована команда 'move' для игрока ... в RabbitMQ.
                                 except Exception as e:
-                                    logger.error(f"UDP [{addr}]: Failed to publish 'move' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
+                                    logger.error(f"UDP [{addr}]: Failed to publish 'move' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True) # Не удалось опубликовать команду 'move' ... в RabbitMQ
                             else:
-                                logger.warning(f"UDP [{addr}]: Missing 'position' in 'move' command from player {player_id}. Message: {message}")
+                                logger.warning(f"UDP [{addr}]: Missing 'position' in 'move' command from player {player_id}. Message: {message}") # Отсутствует 'position' в команде 'move' от игрока ...
                         else:
-                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'move'.")
+                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'move'.") # tank_id не найден для игрока ... в сессии, невозможно выполнить 'move'.
                 else:
-                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'move'.")
+                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'move'.") # Игрок ... не в сессии, невозможно выполнить 'move'.
 
             elif action == "shoot":
                 session = self.session_manager.get_session_by_player_id(player_id)
                 if session:
                     player_data = session.players.get(player_id)
                     if player_data:
-                        tank_id = player_data.get('tank_id') # Get tank ID from player data
-                        if tank_id: # Check if tank ID exists
-                            # Tank existence will be checked by the consumer. We only need player_id and command.
+                        tank_id = player_data.get('tank_id') # Получаем ID танка из данных игрока
+                        if tank_id: # Проверяем, существует ли ID танка
+                            # Существование танка будет проверено потребителем. Нам нужны только player_id и команда.
                             command_message = {
                                 "player_id": player_id,
                                 "command": "shoot",
                                 "details": {
-                                    "source": "udp_handler", # Command source
-                                    "tank_id": tank_id # Include tank ID for easy lookup by consumer
-                                    # "timestamp": time.time() # Optionally: include client timestamp if available and relevant
+                                    "source": "udp_handler", # Источник команды
+                                    "tank_id": tank_id # Включаем ID танка для удобного поиска потребителем
+                                    # "timestamp": time.time() # Опционально: включаем временную метку клиента, если доступна и релевантна
                                 }
                             }
                             try:
-                                # Use default exchange (empty string), routing key is queue name
-                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Removed await
-                                logger.info(f"UDP [{addr}]: Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ.")
+                                # Используем обменник по умолчанию (пустая строка), ключ маршрутизации - имя очереди
+                                publish_rabbitmq_message('', RABBITMQ_QUEUE_PLAYER_COMMANDS, command_message) # Удален await
+                                logger.info(f"UDP [{addr}]: Published 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ.") # Опубликована команда 'shoot' для игрока ... в RabbitMQ.
                             except Exception as e:
-                                logger.error(f"UDP [{addr}]: Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True)
-                                # Optionally: send error back to player or handle retry.
+                                logger.error(f"UDP [{addr}]: Failed to publish 'shoot' command for player {player_id} (tank: {tank_id}) to RabbitMQ: {e}", exc_info=True) # Не удалось опубликовать команду 'shoot' ... в RabbitMQ
+                                # Опционально: отправка ошибки обратно игроку или обработка повторной попытки.
                         else:
-                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'shoot'.")
+                            logger.warning(f"UDP [{addr}]: tank_id not found for player {player_id} in session, cannot perform 'shoot'.") # tank_id не найден для игрока ... в сессии, невозможно выполнить 'shoot'.
                 else:
-                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'shoot'.")
+                    logger.warning(f"UDP [{addr}]: Player {player_id} not in session, cannot perform 'shoot'.") # Игрок ... не в сессии, невозможно выполнить 'shoot'.
             
             elif action == "leave_game":
                 session = self.session_manager.get_session_by_player_id(player_id)
@@ -206,33 +206,33 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
                         tank_id = player_data['tank_id']
                         self.session_manager.remove_player_from_session(player_id)
                         self.tank_pool.release_tank(tank_id)
-                        response = {"status": "left_game", "message": "You have left the game."}
-                        logger.info(f"UDP [{addr}]: Player {player_id} (Tank: {tank_id}) left the game. Tank returned to pool.")
-                    # Check if session was deleted (if it became empty)
-                    if not self.session_manager.get_session(session.session_id): # Check if session still exists
-                         logger.info(f"UDP [{addr}]: Session {session.session_id} was automatically deleted after player {player_id} left (became empty).")
-                else: # If player not found in active session
-                    response = {"status": "not_in_game", "message": "You are not currently in a game."}
-                    logger.warning(f"UDP [{addr}]: Player {player_id} tried to leave game but was not found in an active session.")
+                        response = {"status": "left_game", "message": "Вы покинули игру."}
+                        logger.info(f"UDP [{addr}]: Player {player_id} (Tank: {tank_id}) left the game. Tank returned to pool.") # Игрок ... покинул игру. Танк возвращен в пул.
+                    # Проверяем, была ли удалена сессия (если она стала пустой)
+                    if not self.session_manager.get_session(session.session_id): # Проверяем, существует ли еще сессия
+                         logger.info(f"UDP [{addr}]: Session {session.session_id} was automatically deleted after player {player_id} left (became empty).") # Сессия ... была автоматически удалена после выхода игрока ... (стала пустой).
+                else: # Если игрок не найден в активной сессии
+                    response = {"status": "not_in_game", "message": "Вы в данный момент не в игре."}
+                    logger.warning(f"UDP [{addr}]: Player {player_id} tried to leave game but was not found in an active session.") # Игрок ... пытался покинуть игру, но не был найден в активной сессии.
                 
-                if response: # Send response to client
+                if response: # Отправляем ответ клиенту
                     self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                    logger.debug(f"UDP [{addr}]: Sent response for leave_game to player {player_id}: {response}")
+                    logger.debug(f"UDP [{addr}]: Sent response for leave_game to player {player_id}: {response}") # Отправлен ответ для leave_game игроку ...
 
-            else: # Unknown action
-                logger.warning(f"UDP [{addr}]: Unknown action '{action}' from player '{player_id}'. Message: {message}")
-                response = {"status": "error", "message": "Unknown action"}
+            else: # Неизвестное действие
+                logger.warning(f"UDP [{addr}]: Unknown action '{action}' from player '{player_id}'. Message: {message}") # Неизвестное действие ... от игрока ...
+                response = {"status": "error", "message": "Неизвестное действие"}
                 self.transport.sendto(json.dumps(response).encode('utf-8'), addr)
-                logger.debug(f"UDP [{addr}]: Sent error response (Unknown action) to player {player_id}: {response}")
+                logger.debug(f"UDP [{addr}]: Sent error response (Unknown action) to player {player_id}: {response}") # Отправлен ответ об ошибке (Неизвестное действие) игроку ...
 
-        except Exception as e: # Catch-all for any other unexpected error during datagram processing
+        except Exception as e: # Перехват всех других неожиданных ошибок во время обработки датаграммы
             msg_for_log = processed_payload_str if processed_payload_str is not None else \
-                          (decoded_payload_str if decoded_payload_str is not None else f"Raw data: {data!r}")
-            logger.error(f"UDP [{addr}]: Error processing datagram (Processed/decoded data before error: '{msg_for_log}'): {e}", exc_info=True)
+                          (decoded_payload_str if decoded_payload_str is not None else f"Raw data: {data!r}") # Сырые данные
+            logger.error(f"UDP [{addr}]: Error processing datagram (Processed/decoded data before error: '{msg_for_log}'): {e}", exc_info=True) # Ошибка обработки датаграммы (Обработанные/декодированные данные перед ошибкой: ...)
             try:
-                self.transport.sendto(json.dumps({"status":"error", "message":f"Internal server error: {type(e).__name__}"}).encode('utf-8'), addr)
+                self.transport.sendto(json.dumps({"status":"error", "message":f"Внутренняя ошибка сервера: {type(e).__name__}"}).encode('utf-8'), addr)
             except Exception as ex_send:
-                logger.error(f"UDP [{addr}]: Failed to send generic error message to client: {ex_send}", exc_info=True)
+                logger.error(f"UDP [{addr}]: Failed to send generic error message to client: {ex_send}", exc_info=True) # Не удалось отправить общее сообщение об ошибке клиенту
 
     def broadcast_to_session(self, session: GameSession, message_dict: dict, log_reason: str = ""):
         """
@@ -244,21 +244,21 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
             log_reason (str, optional): Reason for broadcast for logging.
         """
         message_bytes = json.dumps(message_dict).encode('utf-8')
-        logger.debug(f"UDP Broadcast to session {session.session_id} ({log_reason}): {message_dict}")
+        logger.debug(f"UDP Broadcast to session {session.session_id} ({log_reason}): {message_dict}") # UDP-рассылка в сессию ... (причина): ...
         for player_id, player_info in session.players.items():
             player_addr = player_info['address']
             try:
                 self.transport.sendto(message_bytes, player_addr)
-                logger.debug(f"UDP Broadcast: Message ({log_reason}) successfully sent to player {player_id} at {player_addr}")
+                logger.debug(f"UDP Broadcast: Message ({log_reason}) successfully sent to player {player_id} at {player_addr}") # UDP-рассылка: Сообщение (...) успешно отправлено игроку ... по адресу ...
             except Exception as e:
-                logger.error(f"UDP Broadcast: Error sending message to player {player_id} at {player_addr} in session {session.session_id}: {e}", exc_info=True)
+                logger.error(f"UDP Broadcast: Error sending message to player {player_id} at {player_addr} in session {session.session_id}: {e}", exc_info=True) # UDP-рассылка: Ошибка отправки сообщения игроку ... в сессии ...
     
     def error_received(self, exc: Exception):
         """
         Called when a previous send or receive operation raises an OSError.
         Important for "connected" UDP sockets, less so for simple sendto/recvfrom.
         """
-        logger.error(f"UDP socket error received: {exc}", exc_info=True)
+        logger.error(f"UDP socket error received: {exc}", exc_info=True) # Получена ошибка UDP-сокета
 
     def connection_lost(self, exc: Optional[Exception]):
         """
@@ -267,7 +267,9 @@ class GameUDPProtocol(asyncio.DatagramProtocol):
         """
         # This method is called for some "connected" UDP sockets, but not for regular ones.
         # In our case, create_datagram_endpoint creates a listening socket, it doesn't "lose" a connection by itself.
+        # Этот метод вызывается для некоторых "подключенных" UDP-сокетов, но не для обычных.
+        # В нашем случае create_datagram_endpoint создает слушающий сокет, он сам по себе не "теряет" соединение.
         if exc:
-            logger.error(f"UDP socket closed with error: {exc}")
+            logger.error(f"UDP socket closed with error: {exc}") # UDP-сокет закрыт с ошибкой
         else:
-            logger.info("UDP socket closed.")
+            logger.info("UDP socket closed.") # UDP-сокет закрыт.

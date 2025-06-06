@@ -27,35 +27,35 @@ def create_mock_player(name="test_player", player_id=1):
     return player
 
 @pytest.mark.asyncio
-async def test_gameroom_initialization(game_room, mock_auth_client):
+async def test_gameroom_initialization(game_room, mock_auth_client): # Тест инициализации игровой комнаты
     assert game_room.auth_client == mock_auth_client
     assert isinstance(game_room.players, dict)
     assert len(game_room.players) == 0
 
 @pytest.mark.asyncio
-async def test_authenticate_player_success(game_room, mock_auth_client):
-    mock_auth_client.login_user.return_value = (True, "Auth successful", "test_token")
+async def test_authenticate_player_success(game_room, mock_auth_client): # Тест успешной аутентификации игрока
+    mock_auth_client.login_user.return_value = (True, "Аутентификация успешна", "test_token") # Сообщение на русском
 
     authenticated, message, token = await game_room.authenticate_player("user1", "pass1")
 
     mock_auth_client.login_user.assert_called_once_with("user1", "pass1")
     assert authenticated is True
-    assert message == "Auth successful"
+    assert message == "Аутентификация успешна"
     assert token == "test_token"
 
 @pytest.mark.asyncio
-async def test_authenticate_player_failure(game_room, mock_auth_client):
-    mock_auth_client.login_user.return_value = (False, "Auth failed", None)
+async def test_authenticate_player_failure(game_room, mock_auth_client): # Тест неудачной аутентификации игрока
+    mock_auth_client.login_user.return_value = (False, "Аутентификация не удалась", None) # Сообщение на русском
 
     authenticated, message, token = await game_room.authenticate_player("user1", "wrongpass")
 
     mock_auth_client.login_user.assert_called_once_with("user1", "wrongpass")
     assert authenticated is False
-    assert message == "Auth failed"
+    assert message == "Аутентификация не удалась"
     assert token is None
 
 @pytest.mark.asyncio
-async def test_add_player_new(game_room):
+async def test_add_player_new(game_room): # Тест добавления нового игрока
     player1 = create_mock_player(name="player1", player_id=100)
 
     await game_room.add_player(player1)
@@ -63,7 +63,7 @@ async def test_add_player_new(game_room):
     assert "player1" in game_room.players
     assert game_room.players["player1"] == player1
     # Проверка приветственного сообщения
-    player1.send_message.assert_any_call("SERVER: Welcome to the game room!") # Используем any_call если broadcast может добавить вызовы
+    player1.send_message.assert_any_call("СЕРВЕР: Добро пожаловать в игровую комнату!") # Используем any_call, если broadcast может добавить вызовы
 
     # Добавляем второго игрока, чтобы проверить broadcast
     player2 = create_mock_player(name="player2", player_id=101)
@@ -73,14 +73,14 @@ async def test_add_player_new(game_room):
     # player1.send_message должен быть вызван с сообщением о присоединении player2
     # Вызовы для player1: 1. Welcome. 2. player2 joined.
     assert player1.send_message.call_count >= 2 # Как минимум 2 вызова (Welcome + broadcast)
-    player1.send_message.assert_called_with(f"SERVER: Player {player2.name} joined the room.") # Последний вызов (или один из)
+    player1.send_message.assert_called_with(f"СЕРВЕР: Игрок {player2.name} присоединился к комнате.") # Последний вызов (или один из)
 
     # player2 должен получить приветствие
-    player2.send_message.assert_called_once_with("SERVER: Welcome to the game room!")
+    player2.send_message.assert_called_once_with("СЕРВЕР: Добро пожаловать в игровую комнату!")
 
 
 @pytest.mark.asyncio
-async def test_add_player_existing(game_room):
+async def test_add_player_existing(game_room): # Тест добавления существующего игрока
     player1_orig = create_mock_player(name="player1", player_id=1)
     await game_room.add_player(player1_orig) # Добавляем первого игрока
 
@@ -94,20 +94,20 @@ async def test_add_player_existing(game_room):
     assert game_room.players["player1"] == player1_orig # Убедимся, что старый игрок остался
 
     # Новый игрок (или соединение) должен получить сообщение, что имя занято
-    player1_new_connection.send_message.assert_called_once_with(f"SERVER: Player with name player1 is already in the room or an error occurred.")
+    player1_new_connection.send_message.assert_called_once_with(f"СЕРВЕР: Игрок с именем player1 уже находится в комнате или произошла ошибка.")
     # Старый игрок не должен получать никаких сообщений по этому поводу
     player1_orig.send_message.assert_not_called()
 
 # --- Тесты для remove_player ---
 @pytest.mark.asyncio
-async def test_remove_player_exists(game_room):
+async def test_remove_player_exists(game_room): # Тест удаления существующего игрока
     player1 = create_mock_player(name="player1", player_id=1)
     await game_room.add_player(player1) # Добавляем игрока
     player1.send_message.reset_mock() # Сбрасываем мок после добавления
 
     player2 = create_mock_player(name="player2", player_id=2)
     await game_room.add_player(player2) # player1 получит сообщение о присоединении player2
-    player1.send_message.assert_called_with(f"SERVER: Player {player2.name} joined the room.")
+    player1.send_message.assert_called_with(f"СЕРВЕР: Игрок {player2.name} присоединился к комнате.")
 
 
     await game_room.remove_player(player1)
@@ -119,10 +119,10 @@ async def test_remove_player_exists(game_room):
     player1.writer.wait_closed.assert_called_once()
 
     # Проверяем, что оставшийся игрок (player2) получил сообщение о выходе player1
-    player2.send_message.assert_called_with(f"SERVER: Player {player1.name} left the room.")
+    player2.send_message.assert_called_with(f"СЕРВЕР: Игрок {player1.name} покинул комнату.")
 
 @pytest.mark.asyncio
-async def test_remove_player_not_exists(game_room):
+async def test_remove_player_not_exists(game_room): # Тест удаления несуществующего игрока
     player1 = create_mock_player(name="player1", player_id=1)
     # Не добавляем игрока в комнату
 
@@ -135,7 +135,7 @@ async def test_remove_player_not_exists(game_room):
 
 
 @pytest.mark.asyncio
-async def test_remove_player_writer_already_closing(game_room):
+async def test_remove_player_writer_already_closing(game_room): # Тест удаления игрока с уже закрывающимся writer
     player1 = create_mock_player(name="player1", player_id=1)
     player1.writer.is_closing.return_value = True # Имитируем, что writer уже закрывается
     await game_room.add_player(player1)
@@ -147,7 +147,7 @@ async def test_remove_player_writer_already_closing(game_room):
 
 # --- Тесты для broadcast_message ---
 @pytest.mark.asyncio
-async def test_broadcast_message_all_players(game_room):
+async def test_broadcast_message_all_players(game_room): # Тест широковещательной рассылки всем игрокам
     player1 = create_mock_player(name="p1")
     player2 = create_mock_player(name="p2")
     player3 = create_mock_player(name="p3")
@@ -161,7 +161,7 @@ async def test_broadcast_message_all_players(game_room):
     player2.send_message.reset_mock()
     player3.send_message.reset_mock()
 
-    test_message = "Hello everyone!"
+    test_message = "Hello everyone!" # Привет всем!
     await game_room.broadcast_message(test_message)
 
     player1.send_message.assert_called_once_with(test_message)
@@ -169,7 +169,7 @@ async def test_broadcast_message_all_players(game_room):
     player3.send_message.assert_called_once_with(test_message)
 
 @pytest.mark.asyncio
-async def test_broadcast_message_exclude_one_player(game_room):
+async def test_broadcast_message_exclude_one_player(game_room): # Тест широковещательной рассылки с исключением одного игрока
     player1 = create_mock_player(name="p1")
     player2 = create_mock_player(name="p2")
     excluded_player = create_mock_player(name="excluded_p")
@@ -182,7 +182,7 @@ async def test_broadcast_message_exclude_one_player(game_room):
     player2.send_message.reset_mock()
     excluded_player.send_message.reset_mock()
 
-    test_message = "A secret message!"
+    test_message = "A secret message!" # Секретное сообщение!
     await game_room.broadcast_message(test_message, exclude_player=excluded_player)
 
     player1.send_message.assert_called_once_with(test_message)
@@ -190,13 +190,13 @@ async def test_broadcast_message_exclude_one_player(game_room):
     excluded_player.send_message.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_broadcast_message_empty_room(game_room):
+async def test_broadcast_message_empty_room(game_room): # Тест широковещательной рассылки в пустой комнате
     # Убедимся, что нет ошибок, если комната пуста
-    await game_room.broadcast_message("Test message to empty room")
+    await game_room.broadcast_message("Test message to empty room") # Тестовое сообщение в пустую комнату
     # Никаких вызовов send_message не должно произойти, так как нет игроков
 
 @pytest.mark.asyncio
-async def test_broadcast_message_handles_send_failure(game_room):
+async def test_broadcast_message_handles_send_failure(game_room): # Тест обработки ошибки отправки в broadcast_message
     player_ok = create_mock_player(name="p_ok")
     player_fail = create_mock_player(name="p_fail")
 
@@ -209,9 +209,9 @@ async def test_broadcast_message_handles_send_failure(game_room):
     player_fail.send_message.reset_mock()
 
     # Теперь устанавливаем side_effect для вызова из broadcast_message
-    player_fail.send_message.side_effect = ConnectionResetError("Simulated error for broadcast")
+    player_fail.send_message.side_effect = ConnectionResetError("Simulated error for broadcast") # Имитированная ошибка для broadcast
 
-    test_message = "Important broadcast"
+    test_message = "Important broadcast" # Важное широковещательное сообщение
     # Ожидаем, что broadcast_message не упадет из-за ошибки у одного игрока
     await game_room.broadcast_message(test_message)
 
@@ -225,7 +225,7 @@ async def test_broadcast_message_handles_send_failure(game_room):
 
 # --- Тесты для handle_player_command ---
 @pytest.mark.asyncio
-async def test_handle_player_command_say(game_room):
+async def test_handle_player_command_say(game_room): # Тест обработки команды SAY
     player_sender = create_mock_player(name="sender")
     player_receiver = create_mock_player(name="receiver")
     await game_room.add_player(player_sender)
@@ -244,16 +244,16 @@ async def test_handle_player_command_say(game_room):
     player_receiver.send_message.assert_called_once_with(expected_say_message)
 
 @pytest.mark.asyncio
-async def test_handle_player_command_help(game_room):
+async def test_handle_player_command_help(game_room): # Тест обработки команды HELP
     player = create_mock_player()
     await game_room.add_player(player) # Не обязательно для HELP, но для консистентности
     player.send_message.reset_mock()
 
     await game_room.handle_player_command(player, "HELP")
-    player.send_message.assert_called_once_with("SERVER: Available commands: SAY <message>, PLAYERS, QUIT")
+    player.send_message.assert_called_once_with("СЕРВЕР: Доступные команды: SAY <сообщение>, PLAYERS, QUIT")
 
 @pytest.mark.asyncio
-async def test_handle_player_command_players(game_room):
+async def test_handle_player_command_players(game_room): # Тест обработки команды PLAYERS
     player1 = create_mock_player(name="Alice")
     player2 = create_mock_player(name="Bob")
     await game_room.add_player(player1)
@@ -263,16 +263,16 @@ async def test_handle_player_command_players(game_room):
     await game_room.handle_player_command(player1, "PLAYERS")
     # Порядок игроков в выводе может быть не гарантирован, если self.players.keys() не сохраняет порядок вставки
     # Для Python 3.7+ dict сохраняет порядок вставки.
-    player_list_str = "Alice, Bob" # или "Bob, Alice"
+    # player_list_str = "Alice, Bob" # или "Bob, Alice" # Закомментировано, так как точный порядок не важен для этого теста
     # Проверяем, что оба имени присутствуют
     call_args = player1.send_message.call_args[0][0]
-    assert "SERVER: Players in room:" in call_args
-    assert "Alice" in call_args
-    assert "Bob" in call_args
+    assert "СЕРВЕР: Игроки в комнате:" in call_args.decode('utf-8')
+    assert "Alice" in call_args.decode('utf-8')
+    assert "Bob" in call_args.decode('utf-8')
 
 
 @pytest.mark.asyncio
-async def test_handle_player_command_quit(game_room):
+async def test_handle_player_command_quit(game_room): # Тест обработки команды QUIT
     player = create_mock_player()
     # Не добавляем игрока в комнату, так как handle_player_command не зависит от этого,
     # а remove_player не вызывается из QUIT напрямую.
@@ -280,7 +280,7 @@ async def test_handle_player_command_quit(game_room):
 
     await game_room.handle_player_command(player, "QUIT")
 
-    player.send_message.assert_called_once_with("SERVER: You are leaving the room...")
+    player.send_message.assert_called_once_with("СЕРВЕР: Вы покидаете комнату...")
     player.writer.close.assert_called_once()
     player.writer.wait_closed.assert_called_once()
     # Убедимся, что игрок не удаляется из game_room.players здесь,
@@ -288,25 +288,25 @@ async def test_handle_player_command_quit(game_room):
     assert player.name not in game_room.players # Если он не был добавлен
 
 @pytest.mark.asyncio
-async def test_handle_player_command_unknown(game_room):
+async def test_handle_player_command_unknown(game_room): # Тест обработки неизвестной команды
     player = create_mock_player()
     await game_room.add_player(player)
     player.send_message.reset_mock()
 
     await game_room.handle_player_command(player, "FOOBAR")
-    player.send_message.assert_called_once_with("SERVER: Unknown command 'FOOBAR'. Type HELP for a list of commands.")
+    player.send_message.assert_called_once_with("СЕРВЕР: Неизвестная команда 'FOOBAR'. Введите HELP для списка команд.")
 
 @pytest.mark.asyncio
-async def test_handle_player_command_case_insensitivity(game_room):
+async def test_handle_player_command_case_insensitivity(game_room): # Тест нечувствительности к регистру команд
     player = create_mock_player()
     await game_room.add_player(player)
     player.send_message.reset_mock()
 
     await game_room.handle_player_command(player, "hElP")
-    player.send_message.assert_called_once_with("SERVER: Available commands: SAY <message>, PLAYERS, QUIT")
+    player.send_message.assert_called_once_with("СЕРВЕР: Доступные команды: SAY <сообщение>, PLAYERS, QUIT")
 
 @pytest.mark.asyncio
-async def test_handle_player_command_say_empty_message(game_room):
+async def test_handle_player_command_say_empty_message(game_room): # Тест команды SAY с пустым сообщением
     player_sender = create_mock_player(name="sender")
     await game_room.add_player(player_sender)
     player_sender.send_message.reset_mock()
@@ -316,7 +316,7 @@ async def test_handle_player_command_say_empty_message(game_room):
     player_sender.send_message.assert_called_once_with("sender: ")
 
 @pytest.mark.asyncio
-async def test_handle_player_command_say_no_args(game_room):
+async def test_handle_player_command_say_no_args(game_room): # Тест команды SAY без аргументов
     player_sender = create_mock_player(name="sender")
     await game_room.add_player(player_sender)
     player_sender.send_message.reset_mock()
@@ -327,28 +327,28 @@ async def test_handle_player_command_say_no_args(game_room):
 
 # Дополнительные тесты для более сложных сценариев add_player и remove_player
 @pytest.mark.asyncio
-async def test_add_player_broadcast_ordering(game_room):
+async def test_add_player_broadcast_ordering(game_room): # Тест порядка широковещательных сообщений при добавлении игроков
     p1 = create_mock_player(name="p1")
     p2 = create_mock_player(name="p2")
     p3 = create_mock_player(name="p3")
 
     await game_room.add_player(p1)
-    p1.send_message.assert_called_once_with("SERVER: Welcome to the game room!")
+    p1.send_message.assert_called_once_with("СЕРВЕР: Добро пожаловать в игровую комнату!")
 
     await game_room.add_player(p2)
-    p2.send_message.assert_called_once_with("SERVER: Welcome to the game room!")
-    p1.send_message.assert_called_with(f"SERVER: Player {p2.name} joined the room.")
+    p2.send_message.assert_called_once_with("СЕРВЕР: Добро пожаловать в игровую комнату!")
+    p1.send_message.assert_called_with(f"СЕРВЕР: Игрок {p2.name} присоединился к комнате.")
     assert p1.send_message.call_count == 2 # Welcome + p2 joined
 
     await game_room.add_player(p3)
-    p3.send_message.assert_called_once_with("SERVER: Welcome to the game room!")
-    p1.send_message.assert_called_with(f"SERVER: Player {p3.name} joined the room.")
+    p3.send_message.assert_called_once_with("СЕРВЕР: Добро пожаловать в игровую комнату!")
+    p1.send_message.assert_called_with(f"СЕРВЕР: Игрок {p3.name} присоединился к комнате.")
     assert p1.send_message.call_count == 3 # Welcome + p2 joined + p3 joined
-    p2.send_message.assert_called_with(f"SERVER: Player {p3.name} joined the room.")
+    p2.send_message.assert_called_with(f"СЕРВЕР: Игрок {p3.name} присоединился к комнате.")
     assert p2.send_message.call_count == 2 # Welcome + p3 joined
 
 @pytest.mark.asyncio
-async def test_remove_player_from_populated_room(game_room):
+async def test_remove_player_from_populated_room(game_room): # Тест удаления игрока из заполненной комнаты
     p1 = create_mock_player(name="p1")
     p2 = create_mock_player(name="p2") # Останется
     p3 = create_mock_player(name="p3") # Будет удален
@@ -373,7 +373,7 @@ async def test_remove_player_from_populated_room(game_room):
     p3.writer.wait_closed.assert_called_once()
 
     # Проверяем, что p1, p2, p4 получили сообщение о выходе p3
-    expected_msg = f"SERVER: Player {p3.name} left the room."
+    expected_msg = f"СЕРВЕР: Игрок {p3.name} покинул комнату."
     p1.send_message.assert_called_once_with(expected_msg)
     p2.send_message.assert_called_once_with(expected_msg)
     p4.send_message.assert_called_once_with(expected_msg)
@@ -382,7 +382,7 @@ async def test_remove_player_from_populated_room(game_room):
     p3.send_message.assert_not_called()
 
 @pytest.mark.asyncio
-async def test_remove_player_no_writer(game_room):
+async def test_remove_player_no_writer(game_room): # Тест удаления игрока без writer
     player_no_writer = create_mock_player(name="no_writer_p")
     player_no_writer.writer = None # Игрок без writer
 
@@ -394,7 +394,7 @@ async def test_remove_player_no_writer(game_room):
     # Никаких ошибок не должно быть, close/wait_closed не должны вызываться на None
 
 @pytest.mark.asyncio
-async def test_handle_player_command_say_to_self_only(game_room):
+async def test_handle_player_command_say_to_self_only(game_room): # Тест команды SAY только себе
     player_sender = create_mock_player(name="lonely_sender")
     await game_room.add_player(player_sender)
     player_sender.send_message.reset_mock() # Сброс после "Welcome"
@@ -407,7 +407,7 @@ async def test_handle_player_command_say_to_self_only(game_room):
     player_sender.send_message.assert_called_once_with("lonely_sender: Hello myself")
 
 @pytest.mark.asyncio
-async def test_add_player_with_id_from_model(game_room, mock_auth_client):
+async def test_add_player_with_id_from_model(game_room, mock_auth_client): # Тест добавления игрока с ID из модели
     # Этот тест проверяет, что ID из Player модели используется, если он есть
     # (хотя create_mock_player устанавливает player.id напрямую, этот тест для семантики)
     real_player_obj = Player(writer=AsyncMock(spec=asyncio.StreamWriter), name="RealPlayerWithID")
@@ -418,7 +418,7 @@ async def test_add_player_with_id_from_model(game_room, mock_auth_client):
 
     await game_room.add_player(real_player_obj)
     assert real_player_obj.name in game_room.players
-    real_player_obj.send_message.assert_called_once_with("SERVER: Welcome to the game room!")
+    real_player_obj.send_message.assert_called_once_with("СЕРВЕР: Добро пожаловать в игровую комнату!")
     # Логи GameRoom используют player.id, поэтому важно, чтобы он был доступен.
     # В данном тесте мы просто убеждаемся, что добавление реального объекта Player (с авто-ID) работает.
     # Проверка конкретного ID может быть сложной из-за глобального счетчика _next_player_id в models.py
@@ -426,7 +426,7 @@ async def test_add_player_with_id_from_model(game_room, mock_auth_client):
     assert game_room.players[real_player_obj.name].id == real_player_obj.id
 
 @pytest.mark.asyncio
-async def test_player_send_message_writer_closed_in_between(game_room):
+async def test_player_send_message_writer_closed_in_between(game_room): # Тест отправки сообщения, когда writer закрывается в процессе
     player = create_mock_player(name="p_writer_test")
     await game_room.add_player(player)
     player.send_message.reset_mock()
@@ -454,7 +454,7 @@ async def test_player_send_message_writer_closed_in_between(game_room):
 
     # Чтобы протестировать именно GameRoom.broadcast_message в этом сценарии:
     # Сделаем так, чтобы is_closing() стало True только для player.send_message в broadcast_message
-    game_room.players = {} # Clear room
+    game_room.players = {} # Очищаем комнату
     p1_broadcast = create_mock_player("p1_b")
     p2_broadcast_fail = create_mock_player("p2_b_fail")
 
@@ -471,6 +471,6 @@ async def test_player_send_message_writer_closed_in_between(game_room):
         # raise ConnectionResetError # Или можно сгенерировать ошибку, если это ожидается
     p2_broadcast_fail.send_message.side_effect = send_message_side_effect_for_p2
 
-    await game_room.broadcast_message("Broadcast to all")
+    await game_room.broadcast_message("Broadcast to all") # Широковещательное сообщение всем
     p1_broadcast.send_message.assert_called_once_with("Broadcast to all")
     p2_broadcast_fail.send_message.assert_called_once_with("Broadcast to all") # Вызов будет, но side_effect сработает

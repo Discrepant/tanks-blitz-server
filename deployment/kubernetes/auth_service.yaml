@@ -3,7 +3,7 @@ kind: Service
 metadata:
   name: auth-server-service
 spec:
-  type: LoadBalancer # Или NodePort/ClusterIP в зависимости от окружения
+  type: LoadBalancer # Или NodePort/ClusterIP в зависимости от вашего окружения
   selector:
     app: auth-server
   ports:

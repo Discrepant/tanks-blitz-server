@@ -1,15 +1,15 @@
 #include "catch2/catch_all.hpp"
 #include "../game_server_cpp/game_session.h"
-#include "../game_server_cpp/tank.h" // For creating Tank instances
-#include "../game_server_cpp/kafka_producer_handler.h" // For Tank constructor
+#include "../game_server_cpp/tank.h" // Для создания экземпляров Tank
+#include "../game_server_cpp/kafka_producer_handler.h" // Для конструктора Tank
 
-// Dummy KafkaProducerHandler for constructing Tanks in tests.
-// Operations on this handler won't actually send to Kafka if broker isn't up.
-static KafkaProducerHandler gs_test_kafka_producer_session("localhost:29092"); // Unique name for this test file's static
+// Фиктивный KafkaProducerHandler для создания Tank в тестах.
+// Операции с этим обработчиком фактически не будут отправлять в Kafka, если брокер не запущен.
+static KafkaProducerHandler gs_test_kafka_producer_session("localhost:29092"); // Уникальное имя для статической переменной этого тестового файла
 
 TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
 
-    SECTION("GameSession Initialization") {
+    SECTION("GameSession Initialization") { // Инициализация GameSession
         GameSession session("session_init_rc_01");
         REQUIRE(session.get_id() == "session_init_rc_01");
         REQUIRE(session.get_players_count() == 0);
@@ -17,17 +17,17 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         REQUIRE(session.get_tanks_state().is_array());
         REQUIRE(session.get_tanks_state().empty());
         REQUIRE(session.get_all_player_udp_addresses().empty());
-        // Check default game info (example)
+        // Проверка информации об игре по умолчанию (пример)
         REQUIRE(session.get_game_info()["map_name"] == "default_arena");
         REQUIRE(session.get_game_info()["status"] == "pending_players");
     }
 
-    SECTION("GameSession Player Management") {
+    SECTION("GameSession Player Management") { // Управление игроками в GameSession
         GameSession session("session_pm_rc_01");
         auto tank1 = std::make_shared<Tank>("tank_gs_rc_01", &gs_test_kafka_producer_session);
         auto tank2 = std::make_shared<Tank>("tank_gs_rc_02", &gs_test_kafka_producer_session);
 
-        // Add player 1 (UDP)
+        // Добавляем игрока 1 (UDP)
         REQUIRE(session.add_player("player1_rc", "192.168.0.1:1234", tank1, true));
         REQUIRE(session.get_players_count() == 1);
         REQUIRE_FALSE(session.is_empty());
@@ -40,7 +40,7 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         REQUIRE(p1_data.tank == tank1);
 
 
-        // Add player 2 (TCP)
+        // Добавляем игрока 2 (TCP)
         REQUIRE(session.add_player("player2_rc", "tcp_user_rc_2", tank2, false));
         REQUIRE(session.get_players_count() == 2);
         REQUIRE(session.has_player("player2_rc"));
@@ -49,34 +49,34 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         REQUIRE(p2_data.address_info == "tcp_user_rc_2");
         REQUIRE(p2_data.is_udp_player == false);
 
-        // Try adding existing player ID again
+        // Пытаемся добавить существующий ID игрока снова
         auto tank_dup = std::make_shared<Tank>("tank_gs_rc_dup", &gs_test_kafka_producer_session);
         REQUIRE_FALSE(session.add_player("player1_rc", "1.2.3.4:5000", tank_dup, true));
-        REQUIRE(session.get_players_count() == 2); // Count should not change
+        REQUIRE(session.get_players_count() == 2); // Количество не должно измениться
 
-        // Try adding player with null tank
+        // Пытаемся добавить игрока с нулевым танком
         REQUIRE_FALSE(session.add_player("player_null_tank_rc", "2.3.4.5:6000", nullptr, true));
         REQUIRE(session.get_players_count() == 2);
 
 
-        // Remove player 1
+        // Удаляем игрока 1
         REQUIRE(session.remove_player("player1_rc"));
         REQUIRE(session.get_players_count() == 1);
         REQUIRE_FALSE(session.has_player("player1_rc"));
         REQUIRE(session.get_tank_for_player("player1_rc") == nullptr);
 
-        // Remove non-existent player
+        // Удаляем несуществующего игрока
         REQUIRE_FALSE(session.remove_player("player_nonexistent_rc"));
         REQUIRE(session.get_players_count() == 1);
 
-        // Remove player 2
+        // Удаляем игрока 2
         REQUIRE(session.remove_player("player2_rc"));
         REQUIRE(session.get_players_count() == 0);
         REQUIRE(session.is_empty());
         REQUIRE_FALSE(session.has_player("player2_rc"));
     }
 
-    SECTION("GameSession Get Tanks State") {
+    SECTION("GameSession Get Tanks State") { // GameSession: Получение состояния танков
         GameSession session("session_tanks_rc_01");
         REQUIRE(session.get_tanks_state().is_array());
         REQUIRE(session.get_tanks_state().empty());
@@ -117,7 +117,7 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         REQUIRE(states[0]["id"] == "tank_gs_rc_s2");
     }
 
-    SECTION("GameSession Get All Player UDP Addresses") {
+    SECTION("GameSession Get All Player UDP Addresses") { // GameSession: Получение всех UDP-адресов игроков
         GameSession session("session_udp_addr_rc_01");
         REQUIRE(session.get_all_player_udp_addresses().empty());
 
@@ -138,14 +138,14 @@ TEST_CASE("GameSession Recreated Class Tests", "[game_session_recreated]") {
         session.remove_player("p_rc_udp1");
         addresses = session.get_all_player_udp_addresses();
         REQUIRE(addresses.size() == 1);
-        REQUIRE(addresses[0] == "10.0.0.2:2222"); // Assuming order is preserved or only one left
+        REQUIRE(addresses[0] == "10.0.0.2:2222"); // Предполагая, что порядок сохраняется или остался только один
     }
 
-    SECTION("Get Player Data for non-existent player") {
+    SECTION("Get Player Data for non-existent player") { // Получение данных для несуществующего игрока
         GameSession session("session_getdata_rc_01");
         PlayerInSessionData data = session.get_player_data("non_existent_player_rc");
         REQUIRE(data.tank == nullptr);
         REQUIRE(data.address_info.empty());
-        REQUIRE(data.is_udp_player == false); // Default for struct
+        REQUIRE(data.is_udp_player == false); // Значение по умолчанию для структуры
     }
 }

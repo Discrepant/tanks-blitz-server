@@ -3,21 +3,21 @@ import grpc
 from concurrent import futures
 import logging
 
-# Assuming protos are in ./protos and generated files are in ./grpc_generated relative to this script's execution path
-# Adjust sys.path if necessary, or structure as a proper package
-# import sys # No longer needed for this
-# import os # No longer needed for this
-# Add the parent directory of 'auth_server' to sys.path to allow sibling imports if 'protos' is outside 'auth_server'
-# For example, if 'protos' and 'auth_server' are siblings in a root directory.
-# This also helps find 'grpc_generated' if it's a sub-package of 'auth_server'.
-# sys.path.append(os.path.join(os.path.dirname(__file__), 'grpc_generated')) # Removed
-# sys.path.append(os.path.dirname(os.path.abspath(__file__))) # Add auth_server itself for user_service # Removed
+# Предполагается, что .proto файлы находятся в ./protos, а сгенерированные файлы - в ./grpc_generated относительно пути выполнения этого скрипта
+# При необходимости скорректируйте sys.path или структурируйте как правильный пакет
+# import sys # Больше не требуется для этого
+# import os # Больше не требуется для этого
+# Добавьте родительский каталог 'auth_server' в sys.path, чтобы разрешить импорт из соседних каталогов, если 'protos' находится вне 'auth_server'
+# Например, если 'protos' и 'auth_server' являются соседними каталогами в корневом каталоге.
+# Это также помогает найти 'grpc_generated', если это подпакет 'auth_server'.
+# sys.path.append(os.path.join(os.path.dirname(__file__), 'grpc_generated')) # Удалено
+# sys.path.append(os.path.dirname(os.path.abspath(__file__))) # Добавьте сам auth_server для user_service # Удалено
 
-# Use fully qualified imports assuming 'auth_server' is the top-level package visible in PYTHONPATH
+# Используйте полные импорты, предполагая, что 'auth_server' - это пакет верхнего уровня, видимый в PYTHONPATH
 from auth_server.grpc_generated import auth_service_pb2
 from auth_server.grpc_generated import auth_service_pb2_grpc
 from auth_server.user_service import UserService
-from passlib.hash import pbkdf2_sha256 # Moved import to top level
+from passlib.hash import pbkdf2_sha256 # Импорт перемещен на верхний уровень
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -31,7 +31,7 @@ class AuthServiceServicer(auth_service_pb2_grpc.AuthServiceServicer):
         authenticated, message = await self.user_service.authenticate_user(request.username, request.password)
         token = ""
         if authenticated:
-            token = request.username # Using username as token for now
+            token = request.username # Пока используем имя пользователя в качестве токена
             logging.info(f"User {request.username} authenticated successfully. Token: {token}")
         else:
             logging.warning(f"Authentication failed for user {request.username}: {message}")
@@ -44,24 +44,24 @@ class AuthServiceServicer(auth_service_pb2_grpc.AuthServiceServicer):
 
     async def RegisterUser(self, request, context):
         logging.info(f"RegisterUser called for username: {request.username}")
-        # For now, registration is not fully implemented with user_service,
-        # so we return a mock success or "not implemented".
-        # Let's try to use the user_service.create_user if it matches the required flow.
-        # user_service.create_user is async and takes (username, password_hash)
-        # We'd need to hash the password here. For simplicity, let's mock it as not implemented.
+        # Пока регистрация не полностью реализована с user_service,
+        # поэтому мы возвращаем имитацию успеха или "не реализовано".
+        # Попробуем использовать user_service.create_user, если это соответствует требуемому потоку.
+        # user_service.create_user является асинхронным и принимает (username, password_hash)
+        # Здесь нам нужно было бы хешировать пароль. Для простоты, представим, что это не реализовано.
 
-        # If you wanted to implement it:
-        # from passlib.hash import pbkdf2_sha256 # Removed from here, moved to top
-        password_hash = pbkdf2_sha256.hash(request.password) # pbkdf2_sha256 is now from module globals
+        # Если бы вы хотели это реализовать:
+        # from passlib.hash import pbkdf2_sha256 # Удалено отсюда, перемещено наверх
+        password_hash = pbkdf2_sha256.hash(request.password) # pbkdf2_sha256 теперь из глобальных переменных модуля
         success, message = await self.user_service.create_user(request.username, password_hash)
         if success:
             logging.info(f"User {request.username} registered successfully.")
-            return auth_service_pb2.AuthResponse(authenticated=False, message="Registration successful. Please login.", token="")
+            return auth_service_pb2.AuthResponse(authenticated=False, message="Регистрация прошла успешно. Пожалуйста, войдите в систему.", token="")
         else:
             logging.warning(f"Registration failed for user {request.username}: {message}")
-            return auth_service_pb2.AuthResponse(authenticated=False, message=f"Registration failed: {message}", token="")
+            return auth_service_pb2.AuthResponse(authenticated=False, message=f"Ошибка регистрации: {message}", token="")
 
-        # message = "Registration is not implemented yet on this server."
+        # message = "Регистрация на этом сервере пока не реализована."
         # logging.info(message)
         # return auth_service_pb2.AuthResponse(
         #     authenticated=False,
@@ -70,16 +70,16 @@ class AuthServiceServicer(auth_service_pb2_grpc.AuthServiceServicer):
         # )
 
 async def serve():
-    # Initialize Redis client (and potentially other services user_service depends on)
-    # Assuming user_service has an async initialize method or can be initialized beforehand.
-    # For this example, let's assume UserService can be instantiated directly
-    # and its Redis dependency is handled within its methods or upon its instantiation.
+    # Инициализация клиента Redis (и, возможно, других сервисов, от которых зависит user_service)
+    # Предполагается, что user_service имеет асинхронный метод initialize или может быть инициализирован заранее.
+    # В этом примере предположим, что UserService может быть создан напрямую,
+    # и его зависимость от Redis обрабатывается в его методах или при его создании.
 
-    # Check if initialize_redis_client is async or sync in user_service.py
-    # It is synchronous.
-    UserService.initialize_redis_client() # Call class method to setup Redis
+    # Проверьте, является ли initialize_redis_client асинхронным или синхронным в user_service.py
+    # Он синхронный.
+    UserService.initialize_redis_client() # Вызов метода класса для настройки Redis
 
-    user_svc_instance = UserService() # Instantiate UserService
+    user_svc_instance = UserService() # Создание экземпляра UserService
 
     server = grpc.aio.server(futures.ThreadPoolExecutor(max_workers=10))
     auth_service_pb2_grpc.add_AuthServiceServicer_to_server(

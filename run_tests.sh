@@ -1,33 +1,33 @@
 #!/bin/bash
-set -e # Выход при ошибке
+set -e # Выход из скрипта при любой ошибке
 
-echo "Setting PYTHONPATH"
+echo "Установка PYTHONPATH"
 export PYTHONPATH=$PYTHONPATH:.
 
-echo "Installing dependencies..."
+echo "Установка зависимостей..."
 pip install -r requirements.txt
 
-echo "Running Unit Tests..."
-# Для текущей структуры, где auth_server и game_server - пакеты в корне:
+echo "Запуск модульных тестов (Unit Tests)..."
+# Для текущей структуры, где auth_server и game_server являются пакетами в корневой директории:
 pytest -v tests/unit/
-echo "Unit Tests Completed."
+echo "Модульные тесты завершены."
 
 echo ""
-echo "Running Integration Tests..."
-# Примечание: Интеграционные тесты могут требовать, чтобы сервисы были запущены
-# или доступна специфическая конфигурация окружения.
+echo "Запуск интеграционных тестов (Integration Tests)..."
+# Примечание: Интеграционные тесты могут требовать, чтобы сервисы были запущены,
+# или чтобы была доступна специфическая конфигурация окружения.
 pytest -v tests/test_integration.py
-echo "Integration Tests Completed."
+echo "Интеграционные тесты завершены."
 
 echo ""
-echo "All automated tests (Unit and Integration) completed."
+echo "Все автоматизированные тесты (модульные и интеграционные) завершены."
 echo ""
-echo "To run Load Tests (example for Auth Server):"
-echo "1. Make sure the Auth Server is running (e.g., python -m auth_server.main)."
-echo "2. Run Locust: locust -f tests/load/locustfile_auth.py AuthUser --host localhost"
-echo "   (replace localhost if server is elsewhere, or remove --host if defined in Locust file)"
-echo "   Open http://localhost:8089 in your browser for the Locust UI."
+echo "Для запуска нагрузочных тестов (пример для Auth Server):"
+echo "1. Убедитесь, что Auth Server запущен (например, python -m auth_server.main)."
+echo "2. Запустите Locust: locust -f tests/load/locustfile_auth.py AuthUser --host localhost"
+echo "   (замените localhost, если сервер находится в другом месте, или удалите --host, если он определен в файле Locust)"
+echo "   Откройте http://localhost:8089 в вашем браузере для UI Locust."
 echo ""
-echo "To run Load Tests (example for Game Server):"
-echo "1. Make sure the Game Server is running (e.g., python -m game_server.main)."
-echo "2. Run Locust: locust -f tests/load/locustfile_game.py GameUser --host localhost"
+echo "Для запуска нагрузочных тестов (пример для Game Server):"
+echo "1. Убедитесь, что Game Server запущен (например, python -m game_server.main)."
+echo "2. Запустите Locust: locust -f tests/load/locustfile_game.py GameUser --host localhost"

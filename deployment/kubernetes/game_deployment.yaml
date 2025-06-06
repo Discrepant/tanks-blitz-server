@@ -23,7 +23,7 @@ spec:
         - containerPort: 9999
           protocol: UDP
           name: game-udp
-        - containerPort: 8001 # HTTP Metrics
+        - containerPort: 8001 # HTTP Метрики
           name: game-metrics
         # resources:
         #   requests:

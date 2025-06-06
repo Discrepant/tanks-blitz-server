@@ -3,7 +3,7 @@ kind: ConfigMap
 metadata:
   name: nginx-config
 data:
-  nginx.conf: | # Вставляем сюда содержимое файла deployment/nginx/nginx.conf
+  nginx.conf: | # Сюда будет вставлено содержимое файла deployment/nginx/nginx.conf
     user nginx;
     worker_processes auto;
 
@@ -16,27 +16,27 @@ data:
 
     stream {
         upstream auth_servers {
-            # K8s service discovery should resolve auth-server-service to the correct IP
-            # Using FQDN for robustness:
+            # Обнаружение сервисов K8s должно разрешить auth-server-service в правильный IP-адрес
+            # Использование FQDN (полного доменного имени) для надежности:
             server auth-server-service.default.svc.cluster.local:8888; 
-            # Or simply: server auth-server-service:8888; if in the same namespace
+            # Или просто: server auth-server-service:8888; если в том же пространстве имен
         }
 
         server {
-            listen 8888; # Nginx listens on this TCP port
+            listen 8888; # Nginx слушает этот TCP-порт
             proxy_pass auth_servers;
             proxy_timeout 5s;
             proxy_connect_timeout 1s;
         }
 
         upstream game_servers {
-             # Using FQDN for robustness:
+             # Использование FQDN для надежности:
             server game-server-service.default.svc.cluster.local:9999;
-            # Or simply: server game-server-service:9999; if in the same namespace
+            # Или просто: server game-server-service:9999; если в том же пространстве имен
         }
 
         server {
-            listen 9999 udp; # Nginx listens on this UDP port
+            listen 9999 udp; # Nginx слушает этот UDP-порт
             proxy_pass game_servers;
         }
     }

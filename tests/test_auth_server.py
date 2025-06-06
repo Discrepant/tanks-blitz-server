@@ -1,4 +1,5 @@
 # tests/test_auth_server.py
+# tests/test_auth_server.py
 # Этот файл содержит модульные тесты для сервера аутентификации.
 # Он проверяет как сервис аутентификации пользователей (user_service),
 # так и обработчик TCP-соединений (tcp_handler).
@@ -6,7 +7,7 @@
 # Рекомендуется проверить и, возможно, объединить их с более новыми тестами.
 
 import asyncio
-import json # Added import for json operations
+import json # Добавлен импорт для операций с JSON
 import unittest
 from unittest.mock import patch, MagicMock # Инструменты для мокирования
 
@@ -41,7 +42,9 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("testuser_auth", "testpass_auth")
         self.assertTrue(authenticated, "Аутентификация должна быть успешной с верными данными.")
-        self.assertIn("authenticated successfully", message, "Сообщение должно подтверждать успешную аутентификацию.") # English
+        # Сообщение от user_service теперь на русском, если оно было переведено там.
+        # Предположим, user_service.authenticate_user возвращает "Пользователь ... успешно аутентифицирован."
+        self.assertIn("успешно аутентифицирован", message, "Сообщение должно подтверждать успешную аутентификацию.")
 
     async def test_authenticate_user_wrong_password(self):
         """
@@ -50,7 +53,7 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("testuser_auth_wrong", "wrong_password")
         self.assertFalse(authenticated, "Аутентификация должна провалиться с неверным паролем.")
-        self.assertEqual("Incorrect password.", message, "Сообщение должно указывать на неверный пароль.") # English
+        self.assertEqual("Неверный пароль.", message, "Сообщение должно указывать на неверный пароль.")
 
     async def test_authenticate_user_not_found(self):
         """
@@ -59,7 +62,7 @@ class TestAuthUserService(unittest.IsolatedAsyncioTestCase):
         """
         authenticated, message = await authenticate_user("nonexistentuser", "somepassword")
         self.assertFalse(authenticated, "Аутентификация должна провалиться для несуществующего пользователя.")
-        self.assertEqual("User not found.", message, "Сообщение должно указывать, что пользователь не найден.") # English
+        self.assertEqual("Пользователь не найден.", message, "Сообщение должно указывать, что пользователь не найден.")
 
 class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
     """
@@ -89,7 +92,7 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.wait_closed = MagicMock(return_value=asyncio.Future())
         writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock() # Мок для метода write
-        writer.is_closing = MagicMock(return_value=False) # Ensure is_closing returns False for the finally block check
+        writer.is_closing = MagicMock(return_value=False) # Убедимся, что is_closing возвращает False для проверки в блоке finally
 
         # Мокируем `authenticate_user` внутри `tcp_handler`, чтобы изолировать тест.
         # Ожидаем, что `handle_auth_client` вызовет его с правильными аргументами.
@@ -101,13 +104,14 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # В данном случае, tcp_handler ожидает от user_service (True/False, сообщение_или_токен)
         # и затем формирует JSON.
         # Если authenticate_user возвращает (True, "токен_сессии_или_сообщение_успеха"), то handle_auth_client
-        # формирует JSON: {"status": "success", "message": "токен_сессии_или_сообщение_успеха", "session_id": "токен_сессии_или_сообщение_успеха"}
+        # формирует JSON: {"status": "success", "message": "токен_сессии_или_сообщение_успеха", "token": "имя_пользователя"}
         
         # Обновляем мок authenticate_user, чтобы он соответствовал ожиданиям JSON-обработчика
         # Теперь authenticate_user возвращает (bool, message_or_token)
-        # А tcp_handler.py формирует JSON {"status": "success/failure", "message": message, "session_id": token_if_success}
-        # Assuming fake_token_123 is an English message or an actual token
-        with patch('auth_server.tcp_handler.authenticate_user', return_value=(True, "fake_token_123")) as mock_auth:
+        # А tcp_handler.py формирует JSON {"status": "success/failure", "message": message, "token": username}
+        # Предполагаем, что fake_token_123 - это английское сообщение или действительный токен; для этого теста важно, что он передается.
+        # user_service.py был обновлен, чтобы возвращать русские сообщения, поэтому мок тоже должен это делать.
+        with patch('auth_server.tcp_handler.user_service.authenticate_user', return_value=(True, "Пользователь testuser_auth успешно аутентифицирован.")) as mock_auth:
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_called_once_with("testuser_auth", "testpass_auth")
@@ -115,9 +119,9 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         # Проверяем, что writer.write был вызван с правильным JSON-сообщением.
         # Ожидаем байты, так как `writer.write` принимает байты.
         # Также ожидаем символ новой строки в конце сообщения от сервера.
-        # Message from authenticate_user is used directly.
-        # The handler uses the username as the token value.
-        expected_response_dict = {"status": "success", "message": "fake_token_123", "token": "testuser_auth"}
+        # Сообщение от authenticate_user используется напрямую.
+        # Обработчик использует имя пользователя в качестве значения токена.
+        expected_response_dict = {"status": "success", "message": "Пользователь testuser_auth успешно аутентифицирован.", "token": "testuser_auth"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once() # Проверяем, что соединение было закрыто
@@ -138,14 +142,14 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock()
-        writer.is_closing = MagicMock(return_value=False) # Ensure is_closing returns False
+        writer.is_closing = MagicMock(return_value=False) # Убедимся, что is_closing возвращает False
 
-        # Assuming authenticate_user now returns English message "Incorrect password."
-        with patch('auth_server.tcp_handler.authenticate_user', return_value=(False, "Incorrect password.")) as mock_auth:
+        # Предполагаем, что authenticate_user теперь возвращает русское сообщение "Неверный пароль."
+        with patch('auth_server.tcp_handler.user_service.authenticate_user', return_value=(False, "Неверный пароль.")) as mock_auth:
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_called_once_with("testuser_auth", "wrongpass")
-        expected_response_dict = {"status": "failure", "message": "Incorrect password."} # English
+        expected_response_dict = {"status": "failure", "message": "Неверный пароль."}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -165,15 +169,15 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock()
-        writer.is_closing = MagicMock(return_value=False) # Ensure is_closing returns False
+        writer.is_closing = MagicMock(return_value=False) # Убедимся, что is_closing возвращает False
 
         # `authenticate_user` не должен быть вызван, так как парсинг JSON провалится раньше.
-        with patch('auth_server.tcp_handler.authenticate_user') as mock_auth:
+        with patch('auth_server.tcp_handler.user_service.authenticate_user') as mock_auth:
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться
         # Ожидаем ответ об ошибке JSON
-        expected_response_dict = {"status": "error", "message": "Invalid JSON format"} # English
+        expected_response_dict = {"status": "error", "message": "Неверный формат JSON"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()
@@ -193,13 +197,13 @@ class TestAuthTcpHandler(unittest.IsolatedAsyncioTestCase):
         writer.close = MagicMock()
         writer.wait_closed = MagicMock(return_value=asyncio.Future()); writer.wait_closed.return_value.set_result(None)
         writer.write = MagicMock()
-        writer.is_closing = MagicMock(return_value=False) # Ensure is_closing returns False
+        writer.is_closing = MagicMock(return_value=False) # Убедимся, что is_closing возвращает False
         
-        with patch('auth_server.tcp_handler.authenticate_user') as mock_auth:
+        with patch('auth_server.tcp_handler.user_service.authenticate_user') as mock_auth:
             await handle_auth_client(reader, writer)
 
         mock_auth.assert_not_called() # `authenticate_user` не должен вызываться для неизвестного действия
-        expected_response_dict = {"status": "error", "message": "Unknown or missing action"} # English
+        expected_response_dict = {"status": "error", "message": "Неизвестное или отсутствующее действие"}
         expected_response_bytes = (json.dumps(expected_response_dict) + "\n").encode('utf-8')
         writer.write.assert_called_with(expected_response_bytes)
         writer.close.assert_called_once()

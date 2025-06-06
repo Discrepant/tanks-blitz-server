@@ -1,4 +1,5 @@
 # tests/load/locustfile_auth.py
+# tests/load/locustfile_auth.py
 # Этот файл содержит сценарий нагрузочного тестирования для сервера аутентификации
 # с использованием Locust. Он имитирует пользователей, которые подключаются к серверу
 # и пытаются выполнить вход.
@@ -8,7 +9,7 @@ import socket # Для TCP-соединений
 import time # Для измерения времени отклика
 import random # Для выбора случайных учетных данных
 import logging # Добавляем логирование
-import json # Added to fix NameError
+import json # Добавлено для исправления NameError
 
 # Настройка логирования для locustfile
 # Уровень INFO будет достаточен, чтобы не перегружать вывод при большом количестве пользователей.
@@ -174,9 +175,8 @@ class AuthUser(User):
 
         # Выбираем случайную пару (имя пользователя, пароль) из списка
         username, password = random.choice(self.test_credentials)
-        # Формируем LOGIN-запрос (старый формат, для совместимости с текущим auth_server)
-        # ВАЖНО: Сервер аутентификации был обновлен для приема JSON. Этот запрос должен быть JSON.
-        # request_data = f"LOGIN {username} {password}\n" 
+        # Формируем LOGIN-запрос.
+        # ВАЖНО: Сервер аутентификации ожидает JSON.
         request_data_dict = {"action": "login", "username": username, "password": password}
         request_data_json = json.dumps(request_data_dict) + "\n" # Добавляем \n для readuntil()
         
@@ -188,13 +188,13 @@ class AuthUser(User):
             
             # Проверяем, содержит ли ответ ожидаемые маркеры успеха или неудачи
             # Новый формат ответа сервера аутентификации - JSON.
-            # Пример: {"status": "success", "message": "...", "session_id": "..."}
+            # Пример: {"status": "success", "message": "...", "token": "..."}
             #         {"status": "failure", "message": "..."}
             if response:
                 try:
                     response_json = json.loads(response)
                     status = response_json.get("status")
-                    if status == "success" or status == "failure":
+                    if status == "success" or status == "failure": # Успех или ожидаемая ошибка - это "успех" для Locust с точки зрения выполнения запроса
                         self.environment.events.request.fire(
                             request_type="TCP_AUTH",               # Тип запроса
                             name=f"login_{username}_{status}",       # Имя для статистики (например, "login_player1_success")
@@ -203,12 +203,12 @@ class AuthUser(User):
                             context=self.environment,              # Контекст
                             exception=None                         # Нет исключения = успех с точки зрения Locust
                         )
-                    else:
-                        raise Exception(f"Неожиданный статус в JSON-ответе: {status}. Ответ: {response}")
-                except json.JSONDecodeError:
-                     raise Exception(f"Не удалось декодировать JSON из ответа: {response}")
+                    else: # Неожиданный статус
+                        raise Exception(f"Неожиданный статус '{status}' в JSON-ответе от сервера. Ответ: {response}")
+                except json.JSONDecodeError: # Ошибка разбора JSON
+                     raise Exception(f"Не удалось декодировать JSON из ответа сервера: {response}")
             else: # Если ответ пустой или None
-                raise Exception(f"Пустой или отсутствующий ответ от сервера для {username}")
+                raise Exception(f"Пустой или отсутствующий ответ от сервера для пользователя {username}")
 
         except Exception as e: # Если произошла ошибка (например, соединение разорвано, таймаут)
             end_time = time.time()
@@ -241,8 +241,8 @@ class AuthUser(User):
 # 3. Команда для запуска с веб-интерфейсом:
 #    locust -f tests/load/locustfile_auth.py
 #    Затем откройте http://localhost:8089 в браузере.
-#    В поле "Host" укажите, например, http://localhost:8888 (хотя для TCP это не совсем так используется,
-#    но Locust ожидает хост; важно, что AuthUser.host и AuthUser.port корректны).
+#    В поле "Host" укажите, например, http://localhost:8889 (порт был изменен на 8889 для AuthUser).
+#    Locust ожидает хост; важно, что AuthUser.host и AuthUser.port корректны.
 #
 # 4. Команда для запуска без веб-интерфейса (headless):
 #    locust -f tests/load/locustfile_auth.py AuthUser --headless -u 10 -r 2 --run-time 30s

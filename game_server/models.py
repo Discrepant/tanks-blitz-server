@@ -82,7 +82,7 @@ class Player:
     def __str__(self):
         """Возвращает строковое представление объекта Player."""
         token_status = "присутствует" if self.session_token is not None else "отсутствует"
-        return f"Player(id={self.id}, name='{self.name}', токен_сессии={token_status}, текущий_матч_id={self.current_match_id})"
+        return f"Игрок(id={self.id}, имя='{self.name}', токен_сессии={token_status}, текущий_матч_id={self.current_match_id})"
 
     def __repr__(self):
         """Возвращает официальное строковое представление объекта Player."""

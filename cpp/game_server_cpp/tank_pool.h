@@ -3,56 +3,56 @@
 
 #include <vector>
 #include <string>
-#include <memory> // For std::shared_ptr
+#include <memory> // Для std::shared_ptr
 #include <map>
-#include <mutex>    // For std::mutex and std::lock_guard
-#include <stdexcept> // For std::runtime_error (optional, for errors if needed)
+#include <mutex>    // Для std::mutex и std::lock_guard
+#include <stdexcept> // Для std::runtime_error (опционально, для ошибок при необходимости)
 
-#include "tank.h"                   // Definition of the Tank class
-#include "kafka_producer_handler.h" // For KafkaProducerHandler pointer
+#include "tank.h"                   // Определение класса Tank
+#include "kafka_producer_handler.h" // Для указателя KafkaProducerHandler
 
 class TankPool {
 public:
-    // Singleton access method
-    // For the first call, kafka_handler must not be null if pool_size > 0.
+    // Метод доступа к Singleton
+    // При первом вызове kafka_handler не должен быть null, если pool_size > 0.
     static TankPool* get_instance(size_t pool_size = 10, KafkaProducerHandler* kafka_handler = nullptr);
 
-    // Deleted copy constructor and assignment operator for Singleton pattern
+    // Удаленные конструктор копирования и оператор присваивания для паттерна Singleton
     TankPool(const TankPool&) = delete;
     TankPool& operator=(const TankPool&) = delete;
 
     std::shared_ptr<Tank> acquire_tank();
     void release_tank(const std::string& tank_id);
-    std::shared_ptr<Tank> get_tank(const std::string& tank_id); // Get a tank currently in use
+    std::shared_ptr<Tank> get_tank(const std::string& tank_id); // Получить танк, используемый в данный момент
 
-    // Optional: Method to get current pool status (e.g., for monitoring or testing)
+    // Опционально: Метод для получения текущего статуса пула (например, для мониторинга или тестирования)
     size_t get_available_tanks_count() const;
     size_t get_in_use_tanks_count() const;
     size_t get_total_tanks_count() const;
 
 
 private:
-    // Private constructor for Singleton
+    // Приватный конструктор для Singleton
     TankPool(size_t pool_size, KafkaProducerHandler* kafka_handler);
-    // Private destructor to prevent accidental deletion via base class pointer if TankPool were to be inherited
-    // and to ensure it's only deleted by a potential destroy_instance() or at program exit if needed.
-    // For a simple singleton that lives for the duration of the app, default is often fine.
+    // Приватный деструктор для предотвращения случайного удаления через указатель базового класса, если TankPool наследовался бы,
+    // и для обеспечения того, что он удаляется только потенциальным destroy_instance() или при выходе из программы, если это необходимо.
+    // Для простого singleton, который живет в течение всего времени работы приложения, деструктор по умолчанию часто подходит.
     ~TankPool() = default;
 
     static TankPool* instance_;
-    static std::mutex mutex_; // Mutex for thread-safe singleton creation and pool operations
+    static std::mutex mutex_; // Мьютекс для потокобезопасного создания singleton и операций с пулом
 
-    // Holds all tank objects ever created. Tank ID is the key.
+    // Хранит все когда-либо созданные объекты танков. Ключ - ID танка.
     std::map<std::string, std::shared_ptr<Tank>> all_tanks_;
 
-    // IDs of tanks that are currently available for acquisition.
+    // ID танков, которые в данный момент доступны для получения.
     std::vector<std::string> available_tank_ids_;
 
-    // Tanks that are currently acquired and in use. Tank ID is the key.
-    // Storing shared_ptr here to keep them alive while in use and allow shared access.
+    // Танки, которые в данный момент получены и используются. Ключ - ID танка.
+    // Хранение shared_ptr здесь для поддержания их жизни во время использования и обеспечения общего доступа.
     std::map<std::string, std::shared_ptr<Tank>> in_use_tanks_;
 
-    KafkaProducerHandler* kafka_producer_handler_; // Raw pointer, lifetime managed externally (e.g., by main)
+    KafkaProducerHandler* kafka_producer_handler_; // Сырой указатель, время жизни управляется извне (например, main)
     size_t initial_pool_size_;
 };
 

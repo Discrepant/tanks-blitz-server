@@ -406,15 +406,15 @@ graph TD
 *   **Python:** Рекомендуется версия 3.9 или новее. Убедитесь, что Python добавлен в `PATH`.
 *   **PIP:** Менеджер пакетов Python (обычно устанавливается вместе с Python).
 *   **Виртуальное окружение (Рекомендуется):** Использование `venv` или `conda` для изоляции зависимостей проекта.
-*   **Зависимости Python:** Полный список указан в файле `requirements.txt`. Ключевые библиотеки:
+*   **Зависимости Python:** Полный список указан в файле `requirements.txt`. Ключевые библиотеки для работы проекта и **разработки/тестирования**:
     *   `grpcio`, `grpcio-tools`: для gRPC.
     *   `redis`: для взаимодействия с Redis.
     *   `confluent-kafka`: для взаимодействия с Kafka.
     *   `pika`: для взаимодействия с RabbitMQ.
     *   `prometheus_client`: для метрик Prometheus.
-    *   `pytest`, `pytest-asyncio`: для тестирования.
-    *   `locust`: для нагрузочного тестирования.
     *   `passlib[bcrypt]`: для хеширования паролей.
+    *   `pytest`, `pytest-asyncio`: для написания и запуска модульных тестов.
+    *   `locust`: для нагрузочного тестирования.
 
 ### C++ Development
 Для разработки C++ компонентов потребуется настроенное окружение.
@@ -517,6 +517,7 @@ pip install -r requirements.txt
 ## Running the Application
 
 ### Через Docker Compose (Рекомендуемый способ)
+*Примечание: Если были внесены изменения в `requirements.txt` (Python-зависимости) или исходный код Python/C++ сервисов, используйте опцию `--build` при запуске (`docker compose up --build`) для пересборки Docker-образов.*
 Это основной способ для запуска всего стека приложения, включая все C++ и Python сервисы, а также инфраструктурные компоненты (Kafka, RabbitMQ, Redis, Zookeeper, Prometheus, Grafana).
 `docker-compose.yml` настроен для запуска следующей конфигурации:
 *   **C++ TCP Auth Server (`cpp_auth_server`)**: Слушает на порту `9000` (маппинг `9000:9000`), взаимодействует с `python_auth_grpc_service`.
@@ -686,10 +687,13 @@ pip install -r requirements.txt
     *   **Инструменты:** Catch2.
     *   **Окружение:** Локально или в Docker. Не требуют внешних зависимостей (используют mock-объекты).
 
-2.  **Python Юнит-тесты:**
-    *   **Цель:** Проверка отдельных модулей и функций Python-сервисов (`auth_server`, `game_server`, `core`).
-    *   **Инструменты:** `pytest`, `pytest-asyncio`.
-    *   **Окружение:** Локально. Внешние сервисы мокаются.
+*   **Python Юнит-тесты:**
+    *   **Цель:** Проверка отдельных модулей, классов и функций Python-сервисов. Для `auth_server` и `game_server` реализовано значительное покрытие модульными тестами, включая все основные компоненты:
+        *   `auth_server`: `user_service.py`, `tcp_handler.py`, `auth_grpc_server.py`, `main.py` (метрики).
+        *   `game_server`: `auth_client.py`, `game_logic.py` (`GameRoom`), `tank.py`, `tank_pool.py`, `session_manager.py`, `tcp_handler.py`, `udp_handler.py`. Также протестирована интеграция метрик (`ACTIVE_SESSIONS`, `TANKS_IN_USE`) в соответствующие модули.
+    *   **Инструменты:** `pytest`, `pytest-asyncio`, `unittest.mock`.
+    *   **Окружение:** Локально. Внешние сервисы и зависимости (например, Kafka, gRPC-сервисы, другие компоненты проекта) мокаются для обеспечения изоляции тестов.
+    *   **Расположение**: `tests/unit/`.
 
 3.  **Python Интеграционные тесты:**
     *   **Цель:** Проверка взаимодействия между Python сервисами (`auth_server` (TCP/JSON) и `game_server`), включая их подключение к RabbitMQ (если используется `RabbitMQClient` в тестах) или другим мокам/реальным зависимостям, доступным локально.
@@ -747,27 +751,39 @@ pip install -r requirements.txt
 
 ### Python Юнит-тесты
 
-Используются `pytest` и `pytest-asyncio`.
+Модульные тесты для Python-компонентов написаны с использованием `pytest` и `pytest-asyncio` для асинхронного кода, а также `unittest.mock` для создания мок-объектов.
 
 **Расположение файлов:**
-*   Исходный код: `tests/unit/`.
-*   Примеры файлов: `tests/unit/test_auth_service.py`, `tests/unit/test_user_service.py`.
+*   Все Python юнит-тесты находятся в директории `tests/unit/`.
+*   Тесты для `auth_server` включают: `test_auth_service.py`, `test_tcp_handler_auth.py`, `test_auth_grpc_server.py`, `test_auth_main.py`.
+*   Тесты для `game_server` включают: `test_auth_client.py`, `test_game_logic.py`, `test_tank.py`, `test_tank_pool.py`, `test_session_manager.py`, `test_tcp_handler_game.py`, `test_udp_handler_game.py`.
+*   Тесты для `core` компонентов будут добавлены в эту же директорию (например, `test_message_broker_clients.py`).
 
 **Подготовка и Запуск:**
 Команды выполняются из корневой директории проекта.
-1.  Активируйте виртуальное окружение и установите зависимости: `pip install -r requirements.txt`.
-2.  Запуск всех юнит-тестов:
+1.  Активируйте виртуальное окружение и установите зависимости (см. раздел [Requirements](#requirements) и [Installation](#installation)): `pip install -r requirements.txt`.
+2.  Запуск всех Python юнит-тестов:
     ```bash
     pytest tests/unit/
-    # или
+    ```
+    Или для более сокращенного вывода:
+    ```bash
     python -m pytest tests/unit/
     ```
-    Также можно запускать тесты в конкретном файле или по имени (`-k "test_name"`). Скрипт `scripts/run_tests.sh` также запускает эти тесты.
+3.  Для запуска тестов в конкретном файле:
+    ```bash
+    pytest tests/unit/test_my_module.py
+    ```
+4.  Для запуска конкретного теста по имени (или части имени) с использованием маркера `-k`:
+    ```bash
+    pytest tests/unit/test_my_module.py -k "test_function_name_substring"
+    ```
+Скрипт `scripts/run_tests.sh` также должен запускать эти тесты (необходимо проверить и при необходимости обновить его содержимое).
 
 **Добавление новых тестов:**
-1.  Создайте файл `test_my_module.py` в `tests/unit/`.
-2.  Пишите тестовые функции (префикс `test_`) или классы (префикс `Test`).
-3.  `pytest` автоматически обнаружит их.
+1.  Создайте файл с префиксом `test_` (например, `test_my_new_module.py`) в директории `tests/unit/`.
+2.  Пишите тестовые функции с префиксом `test_` или тестовые классы с префиксом `Test`.
+3.  `pytest` автоматически обнаружит и выполнит эти тесты.
 
 ### Нагрузочное тестирование (Locust)
 

@@ -5,6 +5,7 @@ import uuid # Для генерации уникальных ID сессий
 import time # Для временных меток событий
 from core.message_broker_clients import send_kafka_message, KAFKA_DEFAULT_TOPIC_PLAYER_SESSIONS
 import logging # Добавляем логирование
+from .metrics import ACTIVE_SESSIONS # Импортируем метрику
 
 logger = logging.getLogger(__name__) # Инициализация логгера для этого модуля
 
@@ -145,6 +146,7 @@ class SessionManager:
         session = GameSession(session_id)
         self.sessions[session_id] = session
         logger.info(f"Session {session_id} created by session manager.")
+        ACTIVE_SESSIONS.inc() # Обновляем метрику
         
         # Отправляем сообщение в Kafka о создании сессии
         kafka_message = {
@@ -200,6 +202,7 @@ class SessionManager:
                 for player_id in player_ids_in_session:
                     self.player_to_session.pop(player_id, None)
                 logger.info(f"Session {session_id} removed by session manager. Reason: {reason}")
+                ACTIVE_SESSIONS.dec() # Обновляем метрику
             return session # Возвращаем удаленную сессию
         logger.warning(f"Attempt to remove non-existent session: {session_id}")
         return None # Сессия не найдена

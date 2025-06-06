@@ -40,6 +40,26 @@ TOTAL_PLAYERS_JOINED = Counter(
     'Общее количество присоединившихся игроков'
 )
 
+# Новые метрики для соединений, команд и ошибок
+GAME_CONNECTIONS = Gauge(
+    'game_server_connections_active',
+    'Активные игровые соединения',
+    ['handler_type'] # например, 'tcp', 'udp'
+)
+
+COMMANDS_PROCESSED = Counter(
+    'game_server_commands_processed_total',
+    'Общее количество обработанных команд',
+    ['handler_type', 'command_name', 'status'] # status: 'success', 'error_auth', 'error_unknown', 'error_format' etc.
+)
+
+ERRORS_OCCURRED = Counter(
+    'game_server_errors_total',
+    'Общее количество возникших ошибок',
+    ['handler_type', 'error_type'] # error_type: 'auth_failed', 'read_timeout', 'unknown_command', 'internal_exception' etc.
+)
+
+
 # Примечание по обновлению метрик:
 # Функция для обновления Gauge-метрик (ACTIVE_SESSIONS, TANKS_IN_USE)
 # обычно находится в `game_server/main.py` или вызывается непосредственно
